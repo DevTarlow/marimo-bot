@@ -16,6 +16,7 @@ import {COMMAND_IDS, COMMANDS, PROVIDERS, THEME_MODES} from '@marimo/protocol';
 import type {
   AgentModel,
   AppInfo,
+  ProfileCatalog,
   PublicSettings,
   Theme,
   ThemeMode,
@@ -23,6 +24,7 @@ import type {
 
 import {Composer} from './components/Composer.js';
 import {Documents} from './components/Documents.js';
+import {NewBotDialog} from './components/NewBotDialog.js';
 import {Onboarding} from './components/Onboarding.js';
 import {Participants} from './components/Participants.js';
 import {RecallIntro} from './components/RecallIntro.js';
@@ -55,6 +57,22 @@ export function App(): React.JSX.Element {
    */
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
+  /**
+   * The New bot dialog, opened from the rail or from Settings' own button.
+   *
+   * A dialog rather than a screen: making a bot is one form, and taking the
+   * conversation out of the window for it would be a bigger interruption than
+   * the thing being made.
+   */
+  const [newBotOpen, setNewBotOpen] = useState(false);
+  /**
+   * The starter roles and tool names the dialog needs.
+   *
+   * Read once, beside settings, because the rail's `+` has to be ready before
+   * it is pressed. Settings reads the same catalogue on its own; sharing it
+   * through the window would mean a payload shaped for two consumers.
+   */
+  const [catalog, setCatalog] = useState<ProfileCatalog | null>(null);
   /**
    * Whether the documents drawer is open.
    *
@@ -109,6 +127,48 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  /*
+   * The rail's New bot button is disabled until this lands rather than opening
+   * a dialog with no starter roles in it. A failed read is not reported here:
+   * Settings' own New bot dialog depends on the same call, so if it is broken the
+   * app has a bigger problem than one button, and an error banner about it would
+   * sit over the conversation with nothing the user could do.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    void window.marimo
+      .call('profiles.catalog', {})
+      .then((loaded) => {
+        if (!cancelled) {
+          setCatalog(loaded);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /*
+   * Escape closes the New bot dialog from anywhere in it. A listener on the
+   * window rather than a handler on the panel because the panel does not take
+   * focus by itself, and a dialog whose only exit is the mouse is not a dialog.
+   */
+  useEffect(() => {
+    if (!newBotOpen) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setNewBotOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [newBotOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -428,13 +488,16 @@ export function App(): React.JSX.Element {
   };
 
   /**
-   * The same handoff from Settings: make the lead active, start the builder,
-   * close the settings screen. A refusal stays in the dialog under the button.
+   * The handoff every "talk it through" button makes: make the lead active,
+   * start the builder, then let the caller close whatever screen it came from.
+   *
+   * The screens differ only in how they get out of the way — Settings closes
+   * itself and the rail closes its dialog — so the part that can fail is here,
+   * once, and a refusal stays in the dialog under the button.
    */
-  const startBuilderFromSettings = async (): Promise<{
-    ok: boolean;
-    problem?: string;
-  }> => {
+  const handOffToBuilder = async (
+    after: () => void,
+  ): Promise<{ok: boolean; problem?: string}> => {
     if (settings === null) {
       return {ok: false, problem: 'The settings have not loaded yet.'};
     }
@@ -450,9 +513,7 @@ export function App(): React.JSX.Element {
       if (!started.ok) {
         return started;
       }
-      setShowSettings(false);
-      setSettingsSection(null);
-      void loadSettings();
+      after();
       return {ok: true};
     } catch (failure) {
       return {
@@ -461,6 +522,27 @@ export function App(): React.JSX.Element {
       };
     }
   };
+
+  /** The same handoff from Settings, which closes itself. */
+  const startBuilderFromSettings = async (): Promise<{
+    ok: boolean;
+    problem?: string;
+  }> =>
+    await handOffToBuilder(() => {
+      setShowSettings(false);
+      setSettingsSection(null);
+      void loadSettings();
+    });
+
+  /** And from the rail's New bot dialog, which is an overlay in the window. */
+  const startBuilderFromRail = async (): Promise<{
+    ok: boolean;
+    problem?: string;
+  }> =>
+    await handOffToBuilder(() => {
+      setNewBotOpen(false);
+      void loadSettings();
+    });
 
   /**
    * Offers the flow again, from the short card.
@@ -565,6 +647,48 @@ export function App(): React.JSX.Element {
           setSearching(false);
         }}
       />
+
+      {newBotOpen && catalog !== null && settings !== null && (
+        <div
+          className="new-bot-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="New bot"
+          onClick={(event) => {
+            // A click on the dim area closes it; a click inside must not.
+            if (event.target === event.currentTarget) {
+              setNewBotOpen(false);
+            }
+          }}
+        >
+          <NewBotDialog
+            templates={catalog.botTemplates}
+            {...(catalog.delegationTool === undefined
+              ? {}
+              : {delegationTool: catalog.delegationTool})}
+            {...(catalog.builderTool === undefined
+              ? {}
+              : {builderTool: catalog.builderTool})}
+            lead={settings.profiles[0]}
+            onCreated={async () => {
+              setNewBotOpen(false);
+              /*
+               * `profiles.create` switched the active bot to the one just made,
+               * which is the rule the store has had since the beginning. A
+               * reload lands on that bot's newest conversation, so the person is
+               * looking at what they made rather than at the chat they left.
+               */
+              await agent.reload();
+              loadSettings();
+            }}
+            onStartBuilder={startBuilderFromRail}
+            onClose={() => {
+              setNewBotOpen(false);
+            }}
+          />
+        </div>
+      )}
+
       <WorkspaceRail
         bots={agent.agents}
         activeProfileId={agent.profile?.id ?? null}
@@ -575,6 +699,9 @@ export function App(): React.JSX.Element {
         disabled={disabled}
         onSelectProfile={(profileId) => {
           void agent.selectProfile(profileId);
+        }}
+        onNewBot={() => {
+          setNewBotOpen(true);
         }}
         onOpenSession={(id) => {
           void agent.open(id);

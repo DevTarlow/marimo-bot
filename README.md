@@ -208,12 +208,14 @@ If you have the app, the first run is short.
 1. Choose a model. Which service should answer? Pick a service, or point the app at a llama.cpp server. An online service needs an account and a key. **Fetch Models** asks it what it serves. Set this up later closes the flow.
 2. Choose a Space. Pick a folder. The app can read and write there, and nowhere else. You can skip this.
 3. Make a bot. Start from a role, build it step by step or talk to Marimo.
-4. Write its Persona. The starter text is there. Change it or keep it. It is the bot's character, its job in your words and how you want it to talk to you.
+4. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
 5. Add more bots, or finish. Marimo Bot alone works too. Settings is where you make another.
+
+Every step has a Back button, so you can change an earlier answer without starting over.
 
 The model is first because the guided bot maker needs something that can answer, and the Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until it can answer.
 
-After setup, Settings is one screen, and the bots and Spaces are in the sidebar. `Ctrl+K` opens Recall. The app stays in the tray until you quit it from there.
+After setup, Settings is one screen, and the bots and Spaces are in the sidebar. The `+` beside Bots makes another bot. `Ctrl+K` opens Recall. The app stays in the tray until you quit it from there.
 
 One bot is enough for most days.
 

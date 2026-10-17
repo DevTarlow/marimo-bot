@@ -63,6 +63,7 @@ import {
 import {describe} from '../describe.js';
 import {modelChoicesFor, SEARCHABLE_MODEL_THRESHOLD} from '../model-search.js';
 import {BotAvatar} from './BotAvatar.js';
+import {BotIconGrid} from './BotIconGrid.js';
 import {BotMenu} from './BotMenu.js';
 import {Connectors} from './Connectors.js';
 import {Dream} from './Dream.js';
@@ -1996,26 +1997,12 @@ function BotIconChoices({
             : `Using the ${presetLabel} icon.`}
         </span>
       </div>
-      <div className="settings-avatars">
-        {BOT_AVATAR_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            className="settings-avatar-choice"
-            aria-pressed={presetId === preset.id}
-            disabled={disabled}
-            onClick={() => {
-              onPreset(preset.id);
-            }}
-          >
-            <BotAvatar
-              profile={{...profile, avatar: {kind: 'preset', id: preset.id}}}
-              size="md"
-            />
-            <span>{preset.label}</span>
-          </button>
-        ))}
-      </div>
+      <BotIconGrid
+        profile={profile}
+        selectedId={presetId}
+        disabled={disabled}
+        onSelect={onPreset}
+      />
       <div className="settings-row">
         <button
           type="button"

@@ -7,12 +7,15 @@
  * the right card in Settings first. The model is first because the guided path
  * needs something to think with, and the rest of the flow is offered after it.
  *
- * Six rules shape it:
+ * Eight rules shape it:
  *
  * - **The model is the only required step.** Until a provider is chosen and
  *   readable the window offers no message box at all, and a wizard that asked for
  *   a Space and a bot first would be asking about work nothing can do. "Set this
  *   up later" closes the flow; the short card is where somebody comes back.
+ * - **No step is a dead end.** Every step has a Back, including the one after a
+ *   bot exists. Back never goes to a form that would make a second bot: it goes
+ *   to the list, where the bot that was made is waiting.
  * - **Three ways to make a bot.** A starter role, a step-by-step form, or a
  *   conversation with Marimo that ends in a review card. All three write the
  *   same draft to `profiles.create`, so the store and the prompt cannot tell
@@ -22,8 +25,10 @@
  *   the app is in a described state rather than a half-applied form.
  * - **A bot exists before its Persona is asked about.** The bot step creates the
  *   profile and the step after it edits what now exists, which is why backing out
- *   of that second step returns to the list of bots rather than to the form: a
- *   form there would make a second bot.
+ *   of that second step returns to the list of bots rather than to the form.
+ * - **The Role is shown, not edited.** It is the app's brief for the bot and the
+ *   thing that shapes how it works with the others, so the Persona step displays
+ *   it greyed with a caution and points at Settings for a change.
  * - **It reads what already exists.** A Space already loaded, bots already made,
  *   a delegate grant already given: the step says so and moves on rather than
  *   creating a second copy of anything. That is what makes an interrupted flow
@@ -38,6 +43,7 @@
  */
 import {useEffect, useState} from 'react';
 
+import {defaultBotAvatarFor} from '@marimo/protocol';
 import type {
   AgentProfile,
   BotDraft,
@@ -50,27 +56,13 @@ import type {
 import {chosenPreset} from '../capabilities.js';
 import {describe} from '../describe.js';
 import type {AgentController} from '../hooks/useAgent.js';
+import {backTargetFor, STEPS} from '../setup-nav.js';
+import type {SetupScreen} from '../setup-nav.js';
+import {BotIconGrid} from './BotIconGrid.js';
 import {BotTemplatePicker} from './BotTemplatePicker.js';
 import {PersonaForm} from './PersonaForm.js';
 import {SetupProvider} from './SetupProvider.js';
 
-/**
- * The steps, in the order they are shown.
- *
- * Labels rather than a number: "Model" says what is being decided, and "step 1
- * of 5" says only how much is left. The Persona step comes straight after a bot
- * is made, because it is about the bot the person is thinking about right now.
- */
-const STEPS = [
-  {id: 'provider', label: 'Model'},
-  {id: 'space', label: 'Space'},
-  {id: 'bot', label: 'Your first bot'},
-  {id: 'persona', label: 'Persona'},
-  {id: 'more', label: 'More bots'},
-] as const;
-
-type StepId = (typeof STEPS)[number]['id'];
-type SetupScreen = 'welcome' | StepId;
 type BotPath = 'template' | 'step' | null;
 
 export function Setup({
@@ -155,12 +147,47 @@ export function Setup({
   const builderTool = catalog?.builderTool;
   const presets = catalog?.presets ?? [];
   const templates = catalog?.botTemplates ?? [];
+  /*
+   * The icon the bot was given when it was made. `create` always writes one, so
+   * this is only a fallback for a profile from before icons existed.
+   */
+  const madeAt = Math.max(
+    0,
+    settings.profiles.findIndex((entry) => entry.id === madeId),
+  );
+  const selectedPresetId = justMade?.avatar?.kind === 'preset'
+    ? justMade.avatar.id
+    : justMade?.avatar === undefined
+      ? defaultBotAvatarFor(madeAt).id
+      : undefined;
 
   const go = (next: SetupScreen): void => {
     setProblem(null);
     setPath(null);
     setScreen(next);
   };
+
+  /** The one Back button, so every step points at the same rule. */
+  const back = (): void => {
+    const target = backTargetFor({
+      screen,
+      hasMadeBot: justMade !== undefined,
+    });
+    if (target !== null) {
+      go(target);
+    }
+  };
+
+  const backButton = (): React.JSX.Element => (
+    <button
+      type="button"
+      className="button button-quiet"
+      disabled={busy}
+      onClick={back}
+    >
+      Back
+    </button>
+  );
 
   /** Applies a profile-list answer to the one settings copy the window holds. */
   const applyProfiles = (next: {
@@ -257,10 +284,10 @@ export function Setup({
       setProblem(describe(failure));
     } finally {
       try {
-        const back = await window.marimo.call('profiles.select', {
+        const restored = await window.marimo.call('profiles.select', {
           profileId: lead.id,
         });
-        applyProfiles(back);
+        applyProfiles(restored);
       } catch (failure) {
         setProblem((current) => current ?? describe(failure));
       }
@@ -293,10 +320,16 @@ export function Setup({
    * An empty box writes an empty Persona rather than being skipped: the starter
    * text was shown, so somebody who deleted it meant to. "Keep the starter text"
    * is the button that writes nothing.
+   *
+   * `next` is the difference between continuing and going back: both save, so
+   * backing out of this step cannot discard a paragraph somebody just wrote.
    */
-  const savePersona = async (text: string): Promise<void> => {
+  const savePersona = async (
+    text: string,
+    next: 'more' | 'bot',
+  ): Promise<void> => {
     if (madeId === null) {
-      go('more');
+      go(next);
       return;
     }
     setBusy(true);
@@ -307,7 +340,32 @@ export function Setup({
         patch: {persona: text},
       });
       applyProfiles(updated);
-      go('more');
+      go(next);
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Writes one preset onto the bot just made.
+   *
+   * The same call Settings uses, and the same immediate write: an icon is a
+   * choice somebody made, not a draft waiting for a Save button.
+   */
+  const saveIcon = async (presetId: string): Promise<void> => {
+    if (madeId === null) {
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    try {
+      const updated = await window.marimo.call('profiles.update', {
+        profileId: madeId,
+        patch: {avatar: {kind: 'preset', id: presetId}},
+      });
+      applyProfiles(updated);
     } catch (failure) {
       setProblem(describe(failure));
     } finally {
@@ -382,18 +440,15 @@ export function Setup({
             <img className="onboarding-mark" src="./marimo-logo.png" alt="" />
             <h2>Welcome to Marimo Bot</h2>
             <p className="onboarding-lead">
-              Marimo Bot is the bot you talk to, and it runs the ones you make.
-              Each bot has a name, a Role it starts from, a Persona you write,
-              and its own memory.
+              Marimo Bot is the bot you talk to. It can also run the bots you
+              make.
             </p>
             <p className="onboarding-note">
-              Neither can answer yet. This app carries no model of its own, so
-              the first step is choosing the service that provides one.
+              The app has no model of its own. First, pick a service that
+              answers. Then choose a folder to work in, and make a bot.
             </p>
             <p className="onboarding-note">
-              Then a Space for it to work in, and a bot — from a starter role,
-              built step by step, or talked through with Marimo. You can change
-              all of it later in Settings.
+              You can change any of this later in Settings.
             </p>
             <div className="onboarding-actions">
               <button
@@ -437,12 +492,11 @@ export function Setup({
             <h2>Where should it work?</h2>
             <p className="onboarding-lead">
               A Space is a folder on your computer. Bots can read and write
-              there and nowhere else, and every chat remembers the Space it
-              started in.
+              files there, and nowhere else.
             </p>
             <p className="onboarding-note">
-              The markdown files in it are the Space&rsquo;s documents, which
-              the Documents button above the chat lists and opens.
+              Every chat remembers the Space it started in. Markdown files in it
+              show up under Documents.
             </p>
             {space !== undefined && (
               <p className="settings-muted">
@@ -489,16 +543,7 @@ export function Setup({
                   Later
                 </button>
               )}
-              <button
-                type="button"
-                className="button button-quiet"
-                disabled={busy}
-                onClick={() => {
-                  go('provider');
-                }}
-              >
-                Back
-              </button>
+              {backButton()}
             </div>
           </div>
         )}
@@ -516,8 +561,7 @@ export function Setup({
               <>
                 <p className="onboarding-lead">
                   A bot is for one kind of work. Give it a name and a starting
-                  point; Marimo Bot hands it jobs that suit it, and you can add
-                  it to any chat.
+                  point. Marimo Bot can hand it jobs and add it to a chat.
                 </p>
                 <div className="setup-path-cards">
                   <button
@@ -531,8 +575,8 @@ export function Setup({
                   >
                     <span className="setup-path-label">Start from a role</span>
                     <em className="setup-path-blurb">
-                      Writer, Marketer, Researcher and more. It begins with a
-                      Role and a Persona you can make yours.
+                      Writer, Marketer, Researcher and more. Each comes with a
+                      Role and a Persona you can change.
                     </em>
                   </button>
                   <button
@@ -548,7 +592,7 @@ export function Setup({
                       Build it step by step
                     </span>
                     <em className="setup-path-blurb">
-                      Choose a role or start blank, say what it may do, then
+                      Pick a role or start blank, choose what it can do, then
                       write its Persona.
                     </em>
                   </button>
@@ -606,48 +650,36 @@ export function Setup({
             {path === null && (
               <div className="onboarding-actions">
                 {/*
-                  Two different exits, because this step is reached two ways.
-                  With no bots yet it is the first one, and stepping over it is
-                  a real answer — the app is perfectly usable with Marimo Bot
-                  alone, and Settings is where a bot is made later. With bots
-                  already on the roster the person came here from the list, so
-                  there is one way out and it is back to that list.
+                  Three different exits, because this step is reached three ways.
+                  With no bots yet it is the first one, and stepping over it is a
+                  real answer. With a bot just made, the way forward is the
+                  Persona step that belongs to it rather than a second bot. And
+                  Back always goes to the Space it came from, whatever the list
+                  holds.
                 */}
-                {bots.length === 0 ? (
-                  <>
-                    <button
-                      type="button"
-                      className="button button-quiet"
-                      disabled={busy}
-                      onClick={() => {
-                        go('more');
-                      }}
-                    >
-                      Skip the bot for now
-                    </button>
-                    <button
-                      type="button"
-                      className="button button-quiet"
-                      disabled={busy}
-                      onClick={() => {
-                        go('space');
-                      }}
-                    >
-                      Back
-                    </button>
-                  </>
-                ) : (
+                {justMade !== undefined && (
                   <button
                     type="button"
                     className="button button-quiet"
                     disabled={busy}
                     onClick={() => {
-                      go('more');
+                      go('persona');
                     }}
                   >
-                    Never mind
+                    Finish {justMade.name}&rsquo;s Persona
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="button button-quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    go('more');
+                  }}
+                >
+                  {bots.length === 0 ? 'Skip the bot for now' : 'Never mind'}
+                </button>
+                {backButton()}
               </div>
             )}
           </div>
@@ -655,21 +687,57 @@ export function Setup({
 
         {screen === 'persona' && (
           <div className="setup-body">
-            <h2>Who should {justMade?.name ?? 'this bot'} be?</h2>
+            <h2>Make {justMade?.name ?? 'this bot'} yours</h2>
             <p className="onboarding-lead">
-              Its Persona is the text that makes it yours: what it is for, how
-              it should sound, and how you want to be spoken to. It is sent after
-              the Role, so it wins wherever the two disagree.
+              The Persona is how {justMade?.name ?? 'this bot'} behaves: what it
+              works on, how it sounds, and how it talks to you.
             </p>
+
+            {justMade !== undefined && (
+              <>
+                <div className="settings-field">
+                  <span>Role</span>
+                  <pre className="setup-role-text" aria-label="Role">
+                    {justMade.identity}
+                  </pre>
+                  <em className="settings-why">
+                    The brief this bot follows at work. It shapes how the bot
+                    answers and how it works with your other bots. You can edit
+                    it in Settings, but change it with care.
+                  </em>
+                </div>
+
+                <div className="settings-field">
+                  <span>Icon</span>
+                  <em className="settings-why">
+                    Pick a look for the sidebar. You can upload your own image
+                    later in Settings.
+                  </em>
+                  <BotIconGrid
+                    profile={justMade}
+                    selectedId={selectedPresetId}
+                    disabled={busy}
+                    onSelect={(presetId) => {
+                      void saveIcon(presetId);
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
             <p className="onboarding-note">
-              Every bot keeps its own, Marimo Bot included, and Settings is
-              where you change any of them later.
+              Every bot keeps its own Persona, Marimo Bot included.
             </p>
             <PersonaForm
               name={justMade?.name ?? 'this bot'}
               initial={justMade?.persona ?? ''}
               busy={busy}
-              onSubmit={savePersona}
+              onSubmit={async (text) => {
+                await savePersona(text, 'more');
+              }}
+              onBack={async (text) => {
+                await savePersona(text, 'bot');
+              }}
               onSkip={() => {
                 go('more');
               }}
@@ -681,8 +749,8 @@ export function Setup({
           <div className="setup-body">
             <h2>Any more bots?</h2>
             <p className="onboarding-lead">
-              Each bot keeps its own memory and its own conversations, which is
-              why drafting and research can be two bots.
+              Each bot has its own memory and its own chats. Make another one, or
+              finish here.
             </p>
             {bots.length > 0 && (
               <p className="settings-muted">
@@ -708,22 +776,7 @@ export function Setup({
               >
                 That&rsquo;s enough for now
               </button>
-              {/*
-                Back to the bot that was just made rather than to the form: the
-                profile exists, and a form would make a second one.
-              */}
-              {justMade !== undefined && (
-                <button
-                  type="button"
-                  className="button button-quiet"
-                  disabled={busy}
-                  onClick={() => {
-                    go('persona');
-                  }}
-                >
-                  Back
-                </button>
-              )}
+              {backButton()}
             </div>
           </div>
         )}
@@ -771,8 +824,8 @@ function TemplateBotForm({
   return (
     <>
       <p className="onboarding-lead">
-        Pick the role closest to the job. It comes with a brief and a starting
-        Persona, and both are yours to change.
+        Pick the role closest to the job. Its Role and Persona are a starting
+        point you can change.
       </p>
       <BotTemplatePicker
         templates={templates}
@@ -799,7 +852,7 @@ function TemplateBotForm({
         }}
       >
         <label className="settings-field">
-          <span>Its name</span>
+          <span>Name</span>
           <em className="settings-why">
             Name it after the work. You can rename it later.
           </em>
@@ -830,7 +883,7 @@ function TemplateBotForm({
               <em className="settings-why">
                 {alreadyDelegates
                   ? 'Marimo Bot can already do this.'
-                  : 'Without it, Marimo Bot can talk about your bots but cannot ask them to do anything.'}
+                  : 'Without this, Marimo Bot can talk about your bots but cannot ask them to do anything.'}
               </em>
             </span>
           </label>
@@ -926,8 +979,8 @@ function BotForm({
   return (
     <>
       <p className="onboarding-lead">
-        Choose a role if one fits, or start from scratch. A custom bot&rsquo;s
-        job is written in its Persona on the next step.
+        Pick a role if one fits, or start from scratch. A custom bot&rsquo;s job
+        is written in its Persona on the next step.
       </p>
       <BotTemplatePicker
         templates={templates}
@@ -954,7 +1007,7 @@ function BotForm({
         }}
       >
         <label className="settings-field">
-          <span>Its name</span>
+          <span>Name</span>
           <em className="settings-why">
             Name it after the work. You can rename it later.
           </em>
@@ -1014,7 +1067,7 @@ function BotForm({
               <em className="settings-why">
                 {alreadyDelegates
                   ? 'Marimo Bot can already do this.'
-                  : 'Without it, Marimo Bot can talk about your bots but cannot ask them to do anything.'}
+                  : 'Without this, Marimo Bot can talk about your bots but cannot ask them to do anything.'}
               </em>
             </span>
           </label>

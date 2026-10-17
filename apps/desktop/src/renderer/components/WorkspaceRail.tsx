@@ -8,6 +8,10 @@
  * changing copy. The split is deliberate rather than an oversight, so the next
  * reader does not "fix" one half of it.
  *
+ * The Bots heading is both a switcher and a door: the avatars below it change
+ * whose conversations the tree shows, and the `+` beside the heading makes
+ * another bot without a trip through Settings.
+ *
  * Every agent shares the list, so this is navigation over places, not over
  * agents. The conversation on screen is always under the space it belongs to,
  * because a rail that hid it would look like the app had lost it.
@@ -46,6 +50,7 @@ export function WorkspaceRail({
   activeWorkspaceId,
   disabled,
   onSelectProfile,
+  onNewBot,
   onOpenSession,
   onNewSession,
   onSelectWorkspace,
@@ -67,6 +72,8 @@ export function WorkspaceRail({
   activeWorkspaceId: string | null;
   disabled: boolean;
   onSelectProfile: (profileId: string) => void;
+  /** Opens the New bot dialog, the same one Settings uses. */
+  onNewBot: () => void;
   onOpenSession: (sessionId: string) => void;
   onNewSession: (workspaceId: string) => void;
   onSelectWorkspace: (workspaceId: string) => void;
@@ -264,7 +271,19 @@ export function WorkspaceRail({
         }}
       >
         <section className="rail-bots" aria-label="Bots">
-          <h2 className="rail-group-head">Bots</h2>
+          <div className="rail-bots-head">
+            <h2 className="rail-group-head">Bots</h2>
+            <button
+              type="button"
+              className="rail-bots-new"
+              title="New bot"
+              aria-label="New bot"
+              disabled={disabled}
+              onClick={onNewBot}
+            >
+              +
+            </button>
+          </div>
           {bots.map((bot) => {
             const active = bot.id === activeProfileId;
             return (

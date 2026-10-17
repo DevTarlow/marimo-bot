@@ -46,9 +46,10 @@
 /*
  * The bots, at the top of the rail.
  *
- * A switcher, not a roster editor: selecting one changes whose conversations the
- * Spaces tree below shows. The icon is the same component Settings previews, so
- * the picture somebody chooses is the picture they get here.
+ * A switcher with a door: selecting one changes whose conversations the Spaces
+ * tree below shows, and the `+` beside the heading makes another without a trip
+ * through Settings. The icon is the same component Settings previews, so the
+ * picture somebody chooses is the picture they get here.
  */
 .rail-bots {
   display: flex;
@@ -88,6 +89,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-sm);
+}
+
+/* The Bots heading, with the one action that makes another bot under it. */
+.rail-bots-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.rail-bots-head .rail-group-head {
+  flex: 1;
+  margin: 0;
+}
+
+/*
+ * Visible rather than revealed on hover: making a bot is a thing somebody looks
+ * for, and a control that only exists once the pointer crosses the heading is
+ * not discoverable.
+ */
+.rail-bots-new {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+.rail-bots-new:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 /* The Spaces heading, with the one action that adds a place under it. */
@@ -1624,6 +1657,31 @@
   white-space: pre-wrap;
 }
 
+/*
+ * The same dialog, opened from the rail rather than from a Settings card.
+ *
+ * Centred and fixed for the reason search is: it is a thing somebody opened,
+ * answers and closes, and a panel that took a column out of the conversation
+ * would be one more thing to dismiss before reading the answer.
+ */
+.new-bot-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding: 8vh var(--space-4) var(--space-4);
+  overflow-y: auto;
+  background: rgb(0 0 0 / 45%);
+}
+
+.new-bot-backdrop .new-bot {
+  width: min(34rem, 100%);
+  height: fit-content;
+  margin: 0;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+}
+
 .new-bot {
   margin-top: var(--space-3);
   padding: var(--space-3);
@@ -2323,6 +2381,30 @@
   margin-top: var(--space-3);
   color: var(--text);
   font-size: var(--text-sm);
+}
+
+/*
+ * The Role, shown on the Persona step.
+ *
+ * Muted and capped rather than an editable box: it is the app's brief, the field
+ * that makes a bot work with the others, and first run is the wrong place to
+ * invite a rewrite. The cap keeps a five-line Role from pushing the Persona, the
+ * thing the step is for, below the fold.
+ */
+.setup-role-text {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  max-height: 9rem;
+  overflow-y: auto;
+  background: var(--surface-sunken, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 /*

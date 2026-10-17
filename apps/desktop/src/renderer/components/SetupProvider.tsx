@@ -174,11 +174,14 @@ export function SetupProvider({
 
   return (
     <div className="setup-body">
-      <h2>Where should the answers come from?</h2>
+      <h2>Where should answers come from?</h2>
       <p className="onboarding-lead">
-        Marimo Bot carries no model of its own. Point it at one of these and it can
-        answer. Every service keeps its own address, model and key, so trying
-        one and switching back costs you nothing.
+        Pick a service. Marimo Bot sends it your messages and shows you the
+        reply.
+      </p>
+      <p className="onboarding-note">
+        Each service keeps its own address, model, and key. Trying one and
+        switching back costs nothing.
       </p>
 
       <div className="capability-cards">
@@ -230,10 +233,10 @@ export function SetupProvider({
           <span>API key</span>
           <p className="settings-muted">
             {keyStored
-              ? `A key for ${descriptor.label} is saved. It stays on this machine and is never sent back to this window.`
+              ? `A ${descriptor.label} key is saved. It stays on this machine and is never sent back to this window.`
               : descriptor.requiresApiKey
-                ? `No ${descriptor.label} key yet, so it cannot answer and its models cannot be fetched.`
-                : `${descriptor.label} needs no key. Anything here is sent as one, which matters only if the server asks for it.`}
+                ? `No ${descriptor.label} key yet. Add one to fetch its models.`
+                : `${descriptor.label} needs no key. Anything you put here is sent as one, which matters only if your server asks for it.`}
           </p>
           {/*
             Said before the field rather than after a refused save: the storage
@@ -242,7 +245,7 @@ export function SetupProvider({
           */}
           {!settings.encryptionAvailable && (
             <p className="settings-muted">
-              This machine has no keychain, so a key can only be stored
+              This machine has no keychain, so the key can only be stored
               readable. Tick the box below, then save it.
             </p>
           )}
@@ -301,7 +304,7 @@ export function SetupProvider({
               Let scheduled jobs use this key while the app is closed
               <em className="settings-why">
                 {settings.encryptionAvailable
-                  ? 'A job runs without a window, so it has no keychain to unlock. With this on the key is stored readable instead of encrypted, which means anything that can open the file can read it. Save the key again after changing this.'
+                  ? 'A job runs without a window, so it cannot unlock the keychain. With this on, the key is stored readable instead of encrypted, so anything that can open the file can read it. Save the key again after changing this.'
                   : 'The key can only be stored readable here, because there is no keychain to encrypt it with.'}
               </em>
             </span>
@@ -326,7 +329,7 @@ export function SetupProvider({
         <label className="settings-field">
           <span>Address</span>
           <em className="settings-why">
-            Where requests for {descriptor.label} go. The usual one is{' '}
+            Where requests for {descriptor.label} go. The usual address is{' '}
             <code>{descriptor.defaultBaseUrl}</code>.
           </em>
           <input
@@ -356,8 +359,8 @@ export function SetupProvider({
       <div className="settings-field">
         <span>Model</span>
         <em className="settings-why">
-          What {descriptor.label} answers with. Cheaper models are fine for
-          reading and summarising; harder questions want a bigger one.
+          What {descriptor.label} answers with. A cheaper model is fine for
+          reading and summarising. Harder questions want a bigger one.
         </em>
         <div className="settings-row">
           {models.length > SEARCHABLE_MODEL_THRESHOLD ? (
@@ -412,9 +415,9 @@ export function SetupProvider({
         */}
         {!choices.fetched && (
           <p className="settings-muted">
-            {descriptor.label} has not been asked what it serves yet, so these
-            are the names this build ships with. Fetching them is also how you
-            find out whether the key works.
+            {descriptor.label} has not been asked what it serves yet. These are
+            the names this build ships with. Fetching them also checks that the
+            key works.
           </p>
         )}
       </div>
@@ -429,9 +432,9 @@ export function SetupProvider({
       */}
       <p className={ready ? 'settings-muted' : 'settings-problem'}>
         {ready
-          ? `Marimo Bot will answer with ${descriptor.label} and ${config.model}.`
+          ? `Answers will come from ${descriptor.label} using ${config.model}.`
           : (settings.modelProblem ??
-            'The app has no way to answer yet. Pick a service above.')}
+            'The app cannot answer yet. Pick a service above.')}
       </p>
 
       <div className="onboarding-actions">

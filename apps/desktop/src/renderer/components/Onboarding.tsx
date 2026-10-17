@@ -35,11 +35,9 @@ export function Onboarding({
   return (
     <div className="onboarding">
       <img className="onboarding-mark" src="./marimo-logo.png" alt="" />
-      <h2>Welcome to Marimo Bot</h2>
+      <h2>Marimo Bot is not ready</h2>
 
-      <p className="onboarding-lead">
-        The bot has nothing to think with until it is pointed at a model.
-      </p>
+      <p className="onboarding-lead">It needs a model before it can reply.</p>
       <p className="onboarding-note">{problem}</p>
 
       <div className="onboarding-actions">
@@ -60,9 +58,9 @@ export function Onboarding({
       </div>
 
       <p className="onboarding-note onboarding-quiet">
-        It can read files in the space you choose and use whatever else you
-        switch on. It asks before running a command or replacing a file that is
-        already there.
+        It can read files in the Space you choose and use the tools you switch
+        on. It asks before running a command or replacing a file that is already
+        there.
       </p>
     </div>
   );

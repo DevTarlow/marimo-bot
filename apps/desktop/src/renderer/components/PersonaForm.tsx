@@ -9,6 +9,10 @@
  * The starter text is shown, not hidden behind a button, because the person is
  * the one who knows what to change about it. Saving an empty box clears it: the
  * starter text is a seed, and somebody who deleted it meant to.
+ *
+ * Back saves before it leaves. A person who typed a paragraph and then went to
+ * look at the Role again should not find the paragraph gone when they return,
+ * and the write is the same one the Save button makes.
  */
 import {useState} from 'react';
 
@@ -23,6 +27,7 @@ export function PersonaForm({
   initial,
   busy,
   onSubmit,
+  onBack,
   onSkip,
 }: {
   name: string;
@@ -31,6 +36,8 @@ export function PersonaForm({
   busy: boolean;
   /** Saves the text, including an empty one. */
   onSubmit: (text: string) => Promise<void>;
+  /** Saves the text and returns to the bot's step. */
+  onBack: (text: string) => Promise<void>;
   /** Leaves the seed exactly as it is. */
   onSkip: () => void;
 }): React.JSX.Element {
@@ -54,15 +61,13 @@ export function PersonaForm({
       <label className="settings-field">
         <span>Persona</span>
         <em className="settings-why">
-          Who {name} is, what it is for, and how you want to be spoken to. This
-          is your text; the app will not reset it on its own.
+          Your text. The app will not reset it.
         </em>
         <textarea
           className="settings-input settings-preferences"
           rows={7}
-          aria-label="Persona"
+          aria-label={`Persona for ${name}`}
           placeholder="Dry and precise, never flatters me. Call me Tarlow, and say when you are unsure rather than guessing."
-          autoFocus
           value={text}
           disabled={busy}
           onChange={(event) => {
@@ -98,6 +103,16 @@ export function PersonaForm({
           onClick={onSkip}
         >
           Keep the starter text
+        </button>
+        <button
+          type="button"
+          className="button button-quiet"
+          disabled={busy}
+          onClick={() => {
+            void onBack(text);
+          }}
+        >
+          Back
         </button>
       </div>
     </form>

@@ -383,6 +383,42 @@ async function main() {
         ? true
         : undefined,
     );
+
+    /*
+     * The two things the Persona step shows beside the box: the Role it is
+     * built on, greyed and read-only, and the shipped icons. Both are easy to
+     * lose in a copy change, and neither failing raises anything by itself.
+     */
+    const personaExtras = JSON.parse(
+      await evaluate(`JSON.stringify({
+        role: document.querySelector('.setup-role-text')?.textContent?.trim().length ?? 0,
+        icons: document.querySelectorAll('.settings-avatar-choice').length,
+        back: [...document.querySelectorAll('.setup-body button')].some((entry) =>
+          entry.textContent.trim() === 'Back'),
+      })`),
+    );
+    if (personaExtras.role < 20) {
+      fail('the Persona step does not show the Role it starts from');
+    } else if (personaExtras.icons !== 5) {
+      fail(`the Persona step shows ${String(personaExtras.icons)} icon choices, not five`);
+    } else if (personaExtras.back !== true) {
+      fail('the Persona step has no Back button');
+    } else {
+      ok('the Persona step shows the Role, the icons, and a way back');
+    }
+
+    /* Pick the wave icon, so the write is checked at the far end of the step. */
+    const pickedIcon = await evaluate(`(() => {
+      const button = document.querySelector('[data-avatar-id="wave"]');
+      if (button === null) {
+        return false;
+      }
+      button.click();
+      return true;
+    })()`);
+    if (pickedIcon !== true) {
+      fail('the Persona step offers no wave icon to choose');
+    }
     const wrote = await evaluate(`(() => {
       const box = document.querySelector('.setup-form textarea.settings-preferences');
       const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
@@ -416,6 +452,7 @@ async function main() {
           composer: !!document.querySelector('.composer-box'),
           bots: profiles.map((entry) => entry.name),
           botWords: profiles.find((entry) => entry.name === 'Smoke')?.persona ?? null,
+          botIcon: profiles.find((entry) => entry.name === 'Smoke')?.avatar ?? null,
           leadTools: profiles[0]?.enabledTools ?? [],
           delegation: delegationTool ?? null,
           ready: (await window.marimo.call('settings.get', {})).settings.modelReady,
@@ -451,6 +488,15 @@ async function main() {
        */
       fail(
         `the flow did not let Marimo Bot hand work to a bot: ${JSON.stringify(afterSetup)}`,
+      );
+    } else if (afterSetup.botIcon?.id !== 'wave') {
+      /*
+       * The icon chosen on the Persona step, read back from the store. The write
+       * is immediate rather than part of the save, which is what makes it a
+       * separate assertion from the Persona above.
+       */
+      fail(
+        `the flow did not keep the chosen icon: ${JSON.stringify(afterSetup.botIcon)}`,
       );
     } else if (afterSetup.ready !== true) {
       fail('the flow closed without the app being able to answer');
@@ -514,6 +560,41 @@ async function main() {
     } else {
       ok(`the rail lists ${String(bots.rows)} bot(s): ${bots.names.join(', ')}`);
     }
+
+    /*
+     * The other door into making a bot: the `+` beside the Bots heading. It
+     * opens the same dialog Settings does, over the conversation rather than in
+     * place of it, and Escape has to put it away without creating anything.
+     */
+    const openedNewBot = await evaluate(`(() => {
+      const button = document.querySelector('.rail-bots-new');
+      if (button === null) {
+        return false;
+      }
+      button.click();
+      return true;
+    })()`);
+    if (openedNewBot !== true) {
+      fail('the rail has no New bot button');
+    }
+    await until('the New bot dialog', async () =>
+      (await evaluate(
+        `document.querySelector('.new-bot-backdrop .new-bot') !== null`,
+      )) === true
+        ? true
+        : undefined,
+    );
+    await evaluate(
+      `window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}))`,
+    );
+    await until('the New bot dialog to close', async () =>
+      (await evaluate(
+        `document.querySelector('.new-bot-backdrop') === null`,
+      )) === true
+        ? true
+        : undefined,
+    );
+    ok('the rail opens the New bot dialog and closes it with Escape');
 
     /*
      * A custom icon, served through the app's own scheme.
@@ -2174,7 +2255,13 @@ const PROBE = `(async () => {
     hasBridge: typeof window.marimo === 'object' && window.marimo !== null,
     mounted: false,
     title: document.title,
-    theme: document.documentElement.dataset.theme ?? null,
+    /*
+     * Read at the end, not here. The theme is written by an effect after the
+     * first paint, so a value captured before the bridge calls below can be null
+     * on a machine that was slow enough for the probe to win the race. The
+     * assertion is about the window once it is up, and that is when this is read.
+     */
+    theme: null,
     rootChildren: document.getElementById('root')?.childElementCount ?? 0,
   };
   if (!result.hasBridge) {
@@ -2232,6 +2319,7 @@ const PROBE = `(async () => {
     return result;
   }
   result.mounted = result.rootChildren > 0;
+  result.theme = document.documentElement.dataset.theme ?? null;
   return result;
 })()`;
 

@@ -52,7 +52,7 @@ import {describeToolResult, hasError} from '../host/tool-result.js';
 
 /** The bounds a helper runs under. */
 export interface AgentLimits {
-  /** How many events the helper may produce before it is stopped. */
+  /** How many model turns the helper may take before it is stopped. */
   maxSteps: number;
   /** How long it may take, including any time the user spends on a card. */
   timeoutMs: number;
@@ -64,10 +64,13 @@ export interface AgentLimits {
 
 export const DEFAULT_AGENT_LIMITS: AgentLimits = {
   /*
-   * Events, not turns: one helper step is several events (a call, a result,
-   * some text), so the number the model would recognise as "steps" is smaller
-   * than this looks. Set generously enough that real work finishes and low
-   * enough that a loop is caught.
+   * Turns, not events. This counted every event once, which was already an
+   * approximation and became a defect when answers started streaming: a
+   * reasoning model emits one partial event per token, so the budget was spent
+   * on the *thinking* of the first request. A helper could be stopped before it
+   * had called a single tool — with its work already on disk and the lead told
+   * it had failed. Sixty real turns is generous enough for the work and still
+   * catches the loop this exists for.
    */
   maxSteps: 60,
   timeoutMs: 5 * 60_000,
@@ -95,6 +98,16 @@ export interface AgentEvent {
    * exactly this field for exactly this reason.
    */
   partial?: boolean;
+  /**
+   * Whether this event is the settled end of one model turn.
+   *
+   * This, rather than the event's own arrival, is what the step budget counts.
+   * The two are not the same number: a streamed turn is dozens or hundreds of
+   * partial events and exactly one of these, so counting events makes the
+   * budget a limit on how much the model may *say* rather than on how many times
+   * it asks.
+   */
+  turnComplete?: boolean;
   content?: {
     parts?: Array<{
       text?: string;
@@ -357,7 +370,16 @@ async function runAgent(
       newMessage: messageFor(task, decision),
       signal: controller.signal,
     })) {
-      steps += 1;
+      /*
+       * One step is one finished model turn, not one event. With SSE a thought
+       * arrives a token at a time, so an event count is a limit on how much the
+       * helper may *say* before it has done anything — sixty partial chunks can
+       * be two sentences of reasoning and no tool call at all. The settled event
+       * is the turn; the chunks that produced it are not.
+       */
+      if (event.partial !== true && event.turnComplete === true) {
+        steps += 1;
+      }
       const text = textOf(event);
       /*
        * The helper's words, as it writes them, and only its own: ADK emits events
@@ -428,7 +450,12 @@ async function runAgent(
         }
       }
 
-      if (steps >= limits.maxSteps) {
+      /*
+       * `>` rather than `>=`: a turn that reaches the budget is allowed to
+       * finish, because its answer may be the one the lead asked for. The turn
+       * after it is the loop this bound exists to stop.
+       */
+      if (steps > limits.maxSteps) {
         stopped = `The helper used its whole budget of ${String(limits.maxSteps)} steps and was stopped.`;
         controller.abort();
         break;

@@ -84,8 +84,14 @@ function textOf(message: Content): string {
     .join('');
 }
 
+/** One settled answer, which is also one finished model turn. */
 function saying(author: string, text: string): AgentEvent {
-  return {author, content: {parts: [{text}]}};
+  return {
+    author,
+    partial: false,
+    turnComplete: true,
+    content: {parts: [{text}]},
+  };
 }
 
 /** One chunk of a streaming answer, as ADK emits it while the model writes. */
@@ -444,6 +450,22 @@ describe('how it is bounded', () => {
     const answer = await ask(deps, {agent: 'researcher', task: 'x'});
 
     expect(answer).toMatch(/whole budget of 3 steps/u);
+  });
+
+  /*
+   * A streamed answer is one turn written a token at a time, not one step per
+   * token. Counting events here stopped a helper after sixty chunks — its work
+   * already on disk and the lead told the handoff had failed — which is worse
+   * than any loop the budget exists to catch.
+   */
+  it('does not spend its step budget on a streamed answer', async () => {
+    const many = Array.from({length: 200}, () => chunk('researcher', 'tick'));
+    const {deps} = seam(
+      helper({events: [...many, saying('researcher', 'done')]}),
+      {limits: {maxSteps: 3}},
+    );
+
+    expect(await ask(deps, {agent: 'researcher', task: 'x'})).toBe('done');
   });
 
   it('stops at its wall clock and says so', async () => {

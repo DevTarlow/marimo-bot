@@ -1,11 +1,12 @@
 /**
  * The folders every agent works in.
  *
- * Two things are worth testing here and they are not the CRUD: the *adoption* of
- * the folders a pre-workspaces file carried — where getting it wrong loses a
- * user's conversations to the "Other chats" bucket — and the rule that a folder
- * is only ever forgotten. Nothing in this store may touch the directory, because
- * "remove from list" is what the menu says and what the user agreed to.
+ * Three things are worth testing here and they are not the CRUD: the *adoption*
+ * of the folders a pre-workspaces file carried — where getting it wrong loses a
+ * user's conversations to the "Other chats" bucket — the v1 upgrade that moves
+ * the folder an older install was seeded with, and the rule that a folder is only
+ * ever forgotten. The store may touch exactly one directory: the starting folder
+ * it creates for an install that has none.
  */
 import {
   mkdir,
@@ -13,15 +14,17 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
-import type {Workspace} from '@marimo/protocol';
+import type {Workspace, WorkspacesFile} from '@marimo/protocol';
 
 import {
+  WORKSPACES_VERSION,
   WorkspaceStore,
   workspaceLabel,
   workspaceRootFor,
@@ -43,6 +46,7 @@ describe('WorkspaceStore', () => {
 
   function store(
     options: {
+      formerDefaultWorkspaceRoot?: string;
       adoptLegacy?: () => Promise<LegacyWorkspaces | undefined>;
       onAdopted?: () => Promise<void>;
     } = {},
@@ -60,6 +64,19 @@ describe('WorkspaceStore', () => {
     expect(snapshot.workspaces[0]?.path).toBe(join(dir, 'home'));
     expect(snapshot.workspaces[0]?.name).toBe('home');
     expect(snapshot.activeWorkspaceId).toBe(snapshot.workspaces[0]?.id);
+    expect(snapshot.version).toBe(WORKSPACES_VERSION);
+    // The document names a folder the agent may work in, so the folder is real.
+    expect((await stat(join(dir, 'home'))).isDirectory()).toBe(true);
+  });
+
+  it('uses the starting folder when it already exists', async () => {
+    await mkdir(join(dir, 'home'), {recursive: true});
+    await writeFile(join(dir, 'home', 'notes.md'), 'mine', 'utf8');
+
+    const snapshot = await store().load();
+    expect(snapshot.workspaces[0]?.path).toBe(join(dir, 'home'));
+    // Nothing in it was touched: the folder is the person's, not the app's.
+    expect(await readFile(join(dir, 'home', 'notes.md'), 'utf8')).toBe('mine');
   });
 
   it('adds a folder once and makes it current', async () => {
@@ -249,6 +266,119 @@ describe('WorkspaceStore', () => {
     });
   });
 
+  /*
+   * The one-time move of the folder older builds seeded. It is a document
+   * version because the move must not run twice: once the file is v2, a user who
+   * later re-adds their home directory as their only Space stays there.
+   */
+  describe('upgrading the folder an older build seeded', () => {
+    /** The old seed: the home directory itself, under its own label. */
+    const former = () => join(dir, 'someone');
+    const next = () => join(dir, 'home');
+
+    async function writeV1(workspaces: Workspace[], active: string | null) {
+      await writeFile(
+        file,
+        `${JSON.stringify({
+          version: 1,
+          workspaces,
+          activeWorkspaceId: active,
+        })}\n`,
+        'utf8',
+      );
+    }
+
+    it('moves a single seeded home folder, keeping its id and current pointer', async () => {
+      await writeV1(
+        [{id: 'ws-seed', name: 'someone', path: former()}],
+        'ws-seed',
+      );
+
+      const snapshot = await store({
+        formerDefaultWorkspaceRoot: former(),
+      }).load();
+
+      expect(snapshot.workspaces).toEqual([
+        {id: 'ws-seed', name: 'home', path: next()},
+      ]);
+      // The id is what keeps every filed conversation in the Space.
+      expect(snapshot.activeWorkspaceId).toBe('ws-seed');
+      // The folder the document now names exists.
+      expect((await stat(next())).isDirectory()).toBe(true);
+      const written = JSON.parse(await readFile(file, 'utf8')) as {
+        version: number;
+      };
+      expect(written.version).toBe(WORKSPACES_VERSION);
+    });
+
+    it('keeps a name the user chose, and moves only the path', async () => {
+      await writeV1(
+        [{id: 'ws-seed', name: 'Home projects', path: former()}],
+        'ws-seed',
+      );
+
+      const snapshot = await store({
+        formerDefaultWorkspaceRoot: former(),
+      }).load();
+
+      expect(snapshot.workspaces[0]).toMatchObject({
+        id: 'ws-seed',
+        name: 'Home projects',
+        path: next(),
+      });
+    });
+
+    it('leaves a folder the user picked alone', async () => {
+      const chosen = join(dir, 'client-work');
+      await writeV1([{id: 'ws-a', name: 'client', path: chosen}], 'ws-a');
+
+      const snapshot = await store({
+        formerDefaultWorkspaceRoot: former(),
+      }).load();
+
+      expect(snapshot.workspaces[0]?.path).toBe(chosen);
+      expect(snapshot.version).toBe(WORKSPACES_VERSION);
+      // And nothing was created at the starting folder: this install never had
+      // that seed.
+      await expect(stat(next())).rejects.toThrow();
+    });
+
+    it('leaves a list of several folders alone', async () => {
+      await writeV1(
+        [
+          {id: 'ws-seed', name: 'someone', path: former()},
+          {id: 'ws-b', name: 'client', path: join(dir, 'client')},
+        ],
+        'ws-b',
+      );
+
+      const snapshot = await store({
+        formerDefaultWorkspaceRoot: former(),
+      }).load();
+
+      expect(snapshot.workspaces.map((entry) => entry.path)).toEqual([
+        former(),
+        join(dir, 'client'),
+      ]);
+      expect(snapshot.activeWorkspaceId).toBe('ws-b');
+    });
+
+    it('moves an adopted folder from before workspaces.json existed', async () => {
+      const snapshot = await store({
+        formerDefaultWorkspaceRoot: former(),
+        adoptLegacy: async () => ({
+          workspaces: [{id: 'ws-seed', name: 'someone', path: former()}],
+          activeWorkspaceId: 'ws-seed',
+        }),
+      }).load();
+
+      expect(snapshot.workspaces[0]).toMatchObject({
+        id: 'ws-seed',
+        path: next(),
+      });
+    });
+  });
+
   it('preserves an unreadable file instead of overwriting it', async () => {
     await writeFile(file, '{ not json', 'utf8');
     const snapshot = await store().load();
@@ -289,8 +419,8 @@ describe('workspaceLabel', () => {
  * been forgotten, both have to land somewhere real.
  */
 describe('workspaceRootFor', () => {
-  const file = {
-    version: 1 as const,
+  const file: WorkspacesFile = {
+    version: WORKSPACES_VERSION,
     workspaces: [
       {id: 'ws-a', name: 'a', path: '/home/a'},
       {id: 'ws-b', name: 'b', path: '/home/b'},
@@ -313,7 +443,11 @@ describe('workspaceRootFor', () => {
 
   it('answers nothing when there are no folders at all', () => {
     expect(
-      workspaceRootFor({version: 1, workspaces: [], activeWorkspaceId: null}),
+      workspaceRootFor({
+        version: WORKSPACES_VERSION,
+        workspaces: [],
+        activeWorkspaceId: null,
+      }),
     ).toBeUndefined();
   });
 });

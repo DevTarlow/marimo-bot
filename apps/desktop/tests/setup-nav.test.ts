@@ -8,7 +8,10 @@
  */
 import {describe, expect, it} from 'vitest';
 
-import {backTargetFor} from '../src/renderer/setup-nav.js';
+import {
+  backTargetFor,
+  landingSpaceAfterSetup,
+} from '../src/renderer/setup-nav.js';
 
 describe('setup back targets', () => {
   it('walks back through the steps in order', () => {
@@ -30,5 +33,20 @@ describe('setup back targets', () => {
   it('returns to the Persona only when a bot was made', () => {
     expect(backTargetFor({screen: 'more', hasMadeBot: true})).toBe('persona');
     expect(backTargetFor({screen: 'more', hasMadeBot: false})).toBe('bot');
+  });
+});
+
+/*
+ * Where a finished flow opens a conversation. Only a Space the person picked is
+ * a landing: an install that kept the folder the app started in already has the
+ * conversation the window opened on, filed there.
+ */
+describe('the Space a finished flow lands in', () => {
+  it('opens a new chat in the Space the person picked', () => {
+    expect(landingSpaceAfterSetup('ws-b')).toBe('ws-b');
+  });
+
+  it('opens none when they kept the starting folder', () => {
+    expect(landingSpaceAfterSetup(null)).toBeUndefined();
   });
 });

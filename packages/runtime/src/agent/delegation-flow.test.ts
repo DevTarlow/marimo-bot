@@ -376,8 +376,9 @@ describe('a blog post, from the chat to the website repo', () => {
 
     /*
      * The folder document, written before the runtime reads it. Otherwise the
-     * first read seeds the tester's home directory as the one Space, and the
-     * scene below would be working in a folder nobody chose.
+     * first read seeds — and creates — the app's starting folder under the
+     * tester's home, and the scene below would be working in a folder nobody
+     * chose.
      */
     const workspaces = new WorkspaceStore({
       file: paths.workspaces,

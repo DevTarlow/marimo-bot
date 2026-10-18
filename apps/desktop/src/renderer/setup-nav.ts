@@ -54,3 +54,18 @@ export function backTargetFor({
       return hasMadeBot ? 'persona' : 'bot';
   }
 }
+
+/**
+ * The Space a finished flow should open a new chat in.
+ *
+ * Only a Space the person chose in the flow. An install that kept the folder the
+ * app started them in is already there: the conversation the window opened on is
+ * filed in it, and opening a second empty one would be a chat nobody asked for.
+ * The window's own starter chat is empty and unlisted in the rail, so when this
+ * answers a Space the old conversation simply stops being the one on screen.
+ */
+export function landingSpaceAfterSetup(
+  pickedSpaceId: string | null,
+): string | undefined {
+  return pickedSpaceId ?? undefined;
+}

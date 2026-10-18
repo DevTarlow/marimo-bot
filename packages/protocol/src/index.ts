@@ -1086,9 +1086,17 @@ export const workspaceSchema = z.object({
  * fallback for a conversation whose folder has been forgotten. It is not what
  * decides where a turn runs: a conversation remembers its own folder, which is
  * what lets the rail be browsed while an answer is streaming.
+ *
+ * **Version 2 is a marker rather than a new shape.** The list and the current
+ * pointer are unchanged; what the bump records is that the folder a fresh
+ * install used to be seeded with — the home directory itself — has already been
+ * moved to the app's own starting folder. Without that record the move would run
+ * again on the next read, so a user who later re-added their home folder as
+ * their only Space would be moved away from it a second time. The upgrade is
+ * declared in `WorkspaceStore`, because it needs the old and new roots.
  */
 export const workspacesFileSchema = z.object({
-  version: z.literal(1),
+  version: z.literal(2),
   workspaces: z.array(workspaceSchema),
   activeWorkspaceId: z.string().nullable(),
 });

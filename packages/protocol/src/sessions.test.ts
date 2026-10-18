@@ -166,7 +166,7 @@ describe('the profile schema', () => {
 describe('the workspaces document', () => {
   it('round-trips folders and the current one', () => {
     const parsed = workspacesFileSchema.parse({
-      version: 1,
+      version: 2,
       workspaces: [{id: 'ws', name: 'project', path: '/home/someone/project'}],
       activeWorkspaceId: 'ws',
     });
@@ -176,17 +176,33 @@ describe('the workspaces document', () => {
 
   it('allows no current folder, which is an install with none', () => {
     const parsed = workspacesFileSchema.parse({
-      version: 1,
+      version: 2,
       workspaces: [],
       activeWorkspaceId: null,
     });
     expect(parsed.activeWorkspaceId).toBeNull();
   });
 
+  /*
+   * The schema knows only the shape this build writes. Version 1 is the same
+   * shape under the previous marker, so accepting it here would let a v1 file be
+   * read without the seed move ever being considered; the store is where the
+   * upgrade belongs.
+   */
+  it('refuses the version the store upgrades before parsing', () => {
+    expect(
+      workspacesFileSchema.safeParse({
+        version: 1,
+        workspaces: [],
+        activeWorkspaceId: null,
+      }).success,
+    ).toBe(false);
+  });
+
   it('refuses a version this build does not know', () => {
     expect(
       workspacesFileSchema.safeParse({
-        version: 2,
+        version: 3,
         workspaces: [],
         activeWorkspaceId: null,
       }).success,
@@ -196,7 +212,7 @@ describe('the workspaces document', () => {
   it('refuses a blank folder name rather than persisting one', () => {
     expect(
       workspacesFileSchema.safeParse({
-        version: 1,
+        version: 2,
         workspaces: [{id: 'ws', name: '   ', path: '/tmp/x'}],
         activeWorkspaceId: 'ws',
       }).success,

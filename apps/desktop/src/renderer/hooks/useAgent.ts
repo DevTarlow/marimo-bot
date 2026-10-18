@@ -245,8 +245,19 @@ export interface AgentController {
    * another one.
    */
   activeFolder: string | null;
-  /** Loads a space, or answers `false` when the picker was closed. */
-  loadWorkspace: () => Promise<boolean>;
+  /**
+   * Loads a space.
+   *
+   * Answers the state the call itself produced rather than `void`: the setup
+   * flow needs to know which space a chosen folder became, so it can land there,
+   * and asking `workspaces.list` afterwards would be a second read of a fact the
+   * write already returned. `added` is false when the picker was closed, which
+   * is an answer rather than a failure.
+   */
+  loadWorkspace: () => Promise<{
+    added: boolean;
+    activeWorkspaceId: string | null;
+  }>;
   selectWorkspace: (workspaceId: string) => Promise<void>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<void>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
@@ -416,15 +427,18 @@ export function useAgent(): AgentController {
     [],
   );
 
-  const loadWorkspace = useCallback(async (): Promise<boolean> => {
+  const loadWorkspace = useCallback(async (): Promise<{
+    added: boolean;
+    activeWorkspaceId: string | null;
+  }> => {
     try {
       const state = await window.marimo.call('workspaces.add', {});
       applyWorkspaceState(state);
       // Cancelling a dialog is an answer, not a failure: nothing is red.
-      return state.added;
+      return {added: state.added, activeWorkspaceId: state.activeWorkspaceId};
     } catch (failure) {
       setError(describe(failure));
-      return false;
+      return {added: false, activeWorkspaceId: null};
     }
   }, [applyWorkspaceState]);
 

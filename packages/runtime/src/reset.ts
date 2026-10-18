@@ -11,7 +11,10 @@
  * rather than by care: the folders the user loaded, documents and
  * `.marimo/<profile>/memory.md` notes alike, and the search weights when
  * `MARIMO_MODEL_DIR` has pointed the model somewhere else — neither is under
- * here. `defaultWorkspace` is the home directory, so it is not either.
+ * here. `defaultWorkspace` is the app's starting folder inside the home
+ * directory (`<home>/Marimo`), so it is not either: the starting folder's files
+ * are the person's, and a reset that erased them would be a factory reset that
+ * took their work with it.
  *
  * The folder itself is left standing. Electron keeps its single-instance lock
  * inside it, the next launch's `applyUserDataPath` recreates it anyway, and a

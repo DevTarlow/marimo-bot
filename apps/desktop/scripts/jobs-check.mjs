@@ -15,7 +15,7 @@
  * prints: the job recorded as an error saying the model is not installed, rather
  * than silence.
  */
-import {mkdtemp, readFile, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {setTimeout as wait} from 'node:timers/promises';
@@ -30,6 +30,13 @@ const {ProfileStore, resolveAppPaths} = await import(
 );
 
 const dir = await mkdtemp(join(tmpdir(), 'marimo-jobs-'));
+/*
+ * A home of the check's own. The runner seeds — and creates — the starting Space
+ * under the home directory when it makes the job's conversation, so leaving HOME
+ * alone would put a `Marimo` folder in the real home of whoever ran the check.
+ */
+const home = join(dir, 'home');
+await mkdir(home, {recursive: true});
 const paths = resolveAppPaths(dir);
 
 const profiles = new ProfileStore({
@@ -80,6 +87,8 @@ const child = startApp({
   env: {
     ...process.env,
     MARIMO_USER_DATA_DIR: dir,
+    HOME: home,
+    USERPROFILE: home,
     XDG_CACHE_HOME: join(repo, '.xdg-cache'),
   },
 });

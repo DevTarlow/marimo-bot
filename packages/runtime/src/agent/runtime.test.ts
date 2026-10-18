@@ -78,8 +78,9 @@ const DEAD_ADDRESS = 'http://127.0.0.1:1/v1';
  * Gives the install a folder to work in.
  *
  * Seeded at the test's own directory rather than the real one: `resolveAppPaths`
- * derives `defaultWorkspace` from `homedir()`, and a test that let a turn loose
- * in the tester's home would be doing something nobody asked for.
+ * derives `defaultWorkspace` from home, and a store that seeds it also creates
+ * it — so a test that let the default stand would be making a folder in the
+ * tester's home rather than doing something they asked for.
  */
 async function seedWorkspaces(paths: AppPaths, root: string): Promise<void> {
   await new WorkspaceStore({
@@ -719,7 +720,9 @@ describe('the identity a new agent gets', () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(process.cwd(), '.marimo-identity-'));
-    paths = resolveAppPaths(dir);
+    // A home of this test's own, because `catalog()` reads — and seeds — the
+    // workspaces document, and seeding creates the starting folder.
+    paths = resolveAppPaths(dir, {home: join(dir, 'home')});
   });
 
   afterEach(async () => {
@@ -1010,7 +1013,9 @@ describe('folders and filing', () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(process.cwd(), '.marimo-filing-'));
-    paths = resolveAppPaths(dir);
+    // The starting folder under the test's own home: the seed below is at
+    // `paths.defaultWorkspace`, and it creates the folder it names.
+    paths = resolveAppPaths(dir, {home: join(dir, 'home')});
     const profiles = new ProfileStore({
       file: paths.profiles,
       defaultRole: '',
@@ -1054,6 +1059,8 @@ describe('folders and filing', () => {
     expect(state.workspaces).toHaveLength(1);
     expect(state.workspaces[0]?.path).toBe(paths.defaultWorkspace);
     expect(state.activeWorkspaceId).toBe(state.workspaces[0]?.id);
+    // And the folder the document names is there to work in.
+    expect(existsSync(paths.defaultWorkspace)).toBe(true);
   });
 
   it('adds, selects, renames and removes, answering with the whole list', async () => {

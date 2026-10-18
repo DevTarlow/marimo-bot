@@ -56,6 +56,8 @@ A Space is just a folder.
 
 The app can read and write the files in it, and nowhere else. Load a folder and the app files every chat you start there under that Space.
 
+On a fresh install the app makes you one: `Marimo`, inside your home folder, and starts you there. That is a project of its own rather than your whole home directory, which is what the app used to start on. Load another folder whenever your work already lives somewhere else.
+
 Because the work happens in the folder you chose, it lands in the same place as the rest of your project, and you can open the files with the editor or tools you already use.
 
 The Documents drawer lists the markdown files already in that folder. You can edit them there, and the bot sees your changes. If a bot writes a markdown file, it appears in the drawer.
@@ -206,7 +208,7 @@ There is no public download yet. The Linux version builds to a single AppImage f
 If you have the app, the first run is short.
 
 1. Choose a model. Which service should answer? Pick a service, or point the app at a llama.cpp server. An online service needs an account and a key. **Fetch Models** asks it what it serves. Set this up later closes the flow.
-2. Choose a Space. Pick a folder. The app can read and write there, and nowhere else. You can skip this.
+2. Choose a Space. Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
 3. Make a bot. Start from a role, build it step by step or talk to Marimo.
 4. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
 5. Add more bots, or finish. Marimo Bot alone works too. Settings is where you make another.
@@ -214,6 +216,8 @@ If you have the app, the first run is short.
 Every step has a Back button, so you can change an earlier answer without starting over.
 
 The model is first because the guided bot maker needs something that can answer, and the Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until it can answer.
+
+When you finish, the app opens a new chat in the Space you chose, so the first thing you type lands in the folder you meant.
 
 After setup, Settings is one screen, and the bots and Spaces are in the sidebar. The `+` beside Bots makes another bot. `Ctrl+K` opens Recall. The app stays in the tray until you quit it from there.
 

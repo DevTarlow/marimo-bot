@@ -471,15 +471,25 @@ failing, because the question the person just asked is not the summary's hostage
 A pending approval is never compacted in either path.
 
 **The first run itself is a five-step flow, and one flag decides whether it is
-offered.** A fresh install has three things missing at once — a Space to work in,
-a bot to give work to, and the service that answers — and the flow is now model
-first: until a provider is chosen and readable the window offers no message box at
-all, and a wizard that asked for a Space and a bot before it had a model would be
-asking somebody to describe work nothing can do. A provider that cannot answer is
-the one step that cannot be continued past; "set this up later" closes the flow
-rather than walking into screens that cannot work. It writes as it goes, exactly
-as Settings does, so quitting in the middle loses nothing, and each step reads
-what already exists rather than creating a second copy of it.
+offered.** A fresh install has two things missing at once — a bot to give work to
+and the service that answers — and a starting Space the app chose rather than the
+person, which the flow offers to change. The flow is model first: until a provider
+is chosen and readable the window offers no message box at all, and a wizard that
+asked for a Space and a bot before it had a model would be asking somebody to
+describe work nothing can do. A provider that cannot answer is the one step that
+cannot be continued past; "set this up later" closes the flow rather than walking
+into screens that cannot work. It writes as it goes, exactly as Settings does, so
+quitting in the middle loses nothing, and each step reads what already exists
+rather than creating a second copy of it.
+
+**Finishing the flow lands in the Space the person chose, with a new chat.** The
+conversation the window opened on was created by the app before the flow ran, in
+the folder the app started them in; leaving them in it after they picked another
+Space is the unfinished half of asking. `landingSpaceAfterSetup` is the rule (only
+a Space picked in the flow counts), the window creates that chat first and reloads
+after it because `boot` opens the newest conversation, and the starter chat is
+empty and unlisted in the rail. An install that kept the starting folder opens no
+second chat, because the one it is already in is the right one.
 
 **A bot can be made three ways, and they share one draft.** A starter role gives a
 name, a Role, a first Persona, a grant and an icon in one click; the step-by-step
@@ -597,6 +607,26 @@ saying so, because a split like that reads as an oversight otherwise.
 it belongs to the install: two agents asked about the same project work in the
 same folder, under the same confinement, with the same
 `<folder>/.marimo/<agent>/` memory.
+
+**A fresh install starts in a folder the app made, not in the home directory.**
+`defaultWorkspace` is `<home>/Marimo`, and `WorkspaceStore` creates it when it
+seeds the document. The old default was the home directory itself, and the failure
+was not cosmetic: the file tools are confined to the folder a Space points at, so
+an install that never chose one was confined to everything the person owned, and
+the header showed that as if it were a project. The starting folder is still
+outside the user-data directory, so a reset leaves it standing — it holds the
+person's files, not the app's — and the picker opens there rather than at home.
+
+**The document is version 2 because the move must not happen twice.** A v1
+document with exactly one folder whose path is the former home root is the app's
+own seed, so the upgrade moves it to the starting folder **keeping the id**: the
+session index files conversations by id, and replacing the entry would move every
+chat to "Other chats". A label the person typed is kept; a list with more than one
+folder, or a folder somebody chose, is untouched and only stamped. If the move had
+no version marker it would run on every read, so a user who later re-added home as
+their only Space would be moved away from it again. The upgrade also applies to a
+`profiles.json` that predates `workspaces.json`, because adoption is the same
+moment for that install.
 
 **Which Space a new conversation lands in has three answers and one function.**
 `AgentRuntime.spaceFor` takes the space the *caller* named — the rail's "new chat
@@ -857,6 +887,8 @@ memory/<profile>/       the half of memory that is about the *person*, plus the
                         data because it has to outlive the folder
 profiles.json           the agents: identity and capabilities
 workspaces.json         the folders every agent can work in, and the current one
+                        — version 2, the marker that the seeded home folder was
+                        moved to the app's starting folder
 jobs.json               scheduled jobs and how their last run went
 settings.json           preferences and connectors
 skills.json             skills you wrote
@@ -918,9 +950,11 @@ documents, and that is the design: a list would have to be kept true as stores a
 added, and the way a stale one fails is one file surviving a factory reset, in
 silence. Two things are therefore safe by construction instead of by care — the
 folders the user loaded, and the weights `MARIMO_MODEL_DIR` points elsewhere —
-because neither is under that directory; `defaultWorkspace` is the home
-directory, which is why the function only ever enumerates the one path it was
-given. It sweeps twice, because a writer can put a file back mid-sweep: a
+because neither is under that directory; the starting folder is `<home>/Marimo`,
+outside it too, because its files are the person's and a factory reset that took
+them would be worse than one that left the app's own cache behind. The function
+only ever enumerates the one path it was given. It sweeps twice, because a writer
+can put a file back mid-sweep: a
 `settings.json` that comes back is read by the next launch as a current file, so
 the first-run screen never appears and the reset has undone itself invisibly. The
 app sweeps once more after the pause that lets the window paint, immediately

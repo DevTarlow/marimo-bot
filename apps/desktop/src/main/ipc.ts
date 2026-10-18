@@ -231,10 +231,13 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
   }
 
   /**
-   * Where the picker opens: the folder already in use, else the OS default.
+   * Where the picker opens: the folder already in use, else the app's starting
+   * folder.
    *
    * The folder in use rather than the home directory, because the common case is
-   * adding a second project beside the first.
+   * adding a second project beside the first. The fallback is `<home>/Marimo`
+   * rather than home for the same reason the starting Space is: it is a place to
+   * work, not everything the person owns.
    */
   async function startFolder(): Promise<string> {
     const service = dependencies.agent();

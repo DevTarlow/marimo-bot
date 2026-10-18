@@ -15,7 +15,8 @@
  * why removing one is a *forget* rather than a cascade: the id is left dangling
  * and the rail renders that as "Other chats", so nothing a user wrote is lost to
  * a tidy-up. The directory itself is never touched — never read, written or
- * deleted.
+ * deleted — with one deliberate exception: the starting folder this store
+ * creates for an install that had none.
  */
 import {randomUUID} from 'node:crypto';
 import {mkdir, rename, writeFile} from 'node:fs/promises';
@@ -27,9 +28,18 @@ import {
   quarantineDocument,
   readVersionedDocument,
 } from '@marimo/agent';
+import type {DocumentMigration} from '@marimo/agent';
 
-import {workspacesFileSchema} from '@marimo/protocol';
+import {workspaceSchema, workspacesFileSchema} from '@marimo/protocol';
 import type {Workspace, WorkspacesFile} from '@marimo/protocol';
+
+/**
+ * The version of the workspaces document this build writes.
+ *
+ * Not `DOCUMENT_VERSION`: this is the one document whose version had to move for
+ * a reason of its own. See `moveSeededHomeFolder`.
+ */
+export const WORKSPACES_VERSION = 2;
 
 /**
  * What a pre-workspaces `profiles.json` held, flattened.
@@ -45,8 +55,16 @@ export interface LegacyWorkspaces {
 
 export interface WorkspaceStoreOptions {
   file: string;
-  /** Where a fresh install's single folder points. */
+  /** Where a fresh install's single folder points, and a folder this store creates. */
   defaultWorkspaceRoot: string;
+  /**
+   * Where that folder pointed before this build gave the app its own.
+   *
+   * The home directory, read by the v1 upgrade and nothing else. Absent means
+   * "there is no seed to recognise", which is what a test that names its own
+   * default wants.
+   */
+  formerDefaultWorkspaceRoot?: string;
   /**
    * The folders a `profiles.json` written before this store existed holds.
    *
@@ -68,6 +86,15 @@ export interface WorkspaceStoreOptions {
 export class WorkspaceStore {
   private cache: WorkspacesFile | undefined;
   /**
+   * The upgrades this document has had, built from the two roots the caller
+   * handed in.
+   *
+   * Constructed once rather than per read so the same step cannot be described
+   * twice, and passed to `assertWritable` as well: a write after a lenient read
+   * must accept the version it is about to replace.
+   */
+  private readonly migrations: DocumentMigration[];
+  /**
    * The read in flight, memoised as a promise rather than a value.
    *
    * Two callers arriving before the first read finishes would both find no file,
@@ -79,7 +106,16 @@ export class WorkspaceStore {
   private loading: Promise<WorkspacesFile> | undefined;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly options: WorkspaceStoreOptions) {}
+  constructor(private readonly options: WorkspaceStoreOptions) {
+    this.migrations = [
+      {
+        from: 1,
+        to: WORKSPACES_VERSION,
+        summary: 'gave the install a starting folder of its own',
+        migrate: (document) => this.migrateFromOne(document),
+      },
+    ];
+  }
 
   async load(): Promise<WorkspacesFile> {
     if (this.cache) {
@@ -189,7 +225,7 @@ export class WorkspaceStore {
         (entry) => entry.id !== workspaceId,
       );
       const next: WorkspacesFile = {
-        version: 1,
+        version: WORKSPACES_VERSION,
         workspaces: remaining,
         activeWorkspaceId:
           file.activeWorkspaceId === workspaceId
@@ -208,6 +244,8 @@ export class WorkspaceStore {
 
     const read = await readVersionedDocument(this.options.file, {
       label: 'The workspaces file',
+      current: WORKSPACES_VERSION,
+      migrations: this.migrations,
     });
     if (read.state === 'too-new') {
       throw new DocumentTooNewError(
@@ -228,11 +266,19 @@ export class WorkspaceStore {
     if (read.state === 'current' || read.state === 'migrated') {
       const parsed = workspacesFileSchema.safeParse(read.document);
       if (parsed.success) {
-        this.cache = parsed.data;
         if (read.state === 'migrated') {
-          // Written back now rather than at the next edit, so an upgrade does
-          // not run again on every launch.
+          /*
+           * The upgrade may have moved the starting folder, so it is made real
+           * before the document naming it is written. Written back now rather
+           * than at the next edit, so an upgrade does not run again on every
+           * launch. The cache is set by the write, not here: a folder that could
+           * not be created must leave the next read to try again rather than
+           * answering from a document that was never written.
+           */
+          await this.ensureStartingFolder(parsed.data);
           await this.writeFile(parsed.data);
+        } else {
+          this.cache = parsed.data;
         }
         return parsed.data;
       }
@@ -246,19 +292,90 @@ export class WorkspaceStore {
    *
    * Two ways in, and the order matters: a profiles file that still carries
    * folders is the only copy of them, so it is adopted; only an install with no
-   * such file gets the default folder.
+   * such file gets the default folder. An adopted list can still be the old
+   * single-home seed — a profiles file that predates this store entirely — so
+   * the same move is applied to it.
    */
   private async seed(): Promise<WorkspacesFile> {
     const legacy = await this.options.adoptLegacy?.();
-    const document =
+    const seeded =
       legacy === undefined
         ? freshWorkspaces(this.options.defaultWorkspaceRoot)
         : adoptLegacy(legacy, this.options.defaultWorkspaceRoot);
+    const moved = moveSeededHomeFolder(
+      seeded.workspaces,
+      this.options.formerDefaultWorkspaceRoot,
+      this.options.defaultWorkspaceRoot,
+    );
+    const document =
+      moved === undefined ? seeded : {...seeded, workspaces: moved};
+    await this.ensureStartingFolder(document);
     await this.writeFile(document);
     if (legacy !== undefined) {
       await this.options.onAdopted?.();
     }
     return document;
+  }
+
+  /**
+   * The v1 document, brought up to this build.
+   *
+   * Parsed entry by entry rather than by the v2 schema, which would refuse the
+   * version this is here to upgrade. An entry that will not parse is left alone
+   * and the v2 parse on the way out quarantines the file as it would have
+   * before; the move is only ever attempted on a list that is entirely folders.
+   */
+  private migrateFromOne(
+    document: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const raw = document['workspaces'];
+    if (!Array.isArray(raw)) {
+      return document;
+    }
+    const parsed = raw.map((entry) => workspaceSchema.safeParse(entry));
+    const workspaces: Workspace[] = [];
+    for (const entry of parsed) {
+      if (!entry.success) {
+        return document;
+      }
+      workspaces.push(entry.data);
+    }
+    const moved = moveSeededHomeFolder(
+      workspaces,
+      this.options.formerDefaultWorkspaceRoot,
+      this.options.defaultWorkspaceRoot,
+    );
+    return moved === undefined ? document : {...document, workspaces: moved};
+  }
+
+  /**
+   * Makes the starting folder exist.
+   *
+   * A Space is a folder the person's files live in, so the one the app seeds has
+   * to be real before the document names it: an agent confined to a path that is
+   * not there can read nothing and write nothing, and Documents would show an
+   * empty list that reads like an empty project rather than a missing folder.
+   *
+   * Only the default is created — a folder the person picked is required to
+   * exist by the picker — and only when this document actually names it, so
+   * adopting an old list does not leave an unused folder behind. A failure is
+   * thrown rather than papered over: falling back to the home directory would
+   * silently undo the containment this exists for.
+   */
+  private async ensureStartingFolder(document: WorkspacesFile): Promise<void> {
+    const root = resolve(this.options.defaultWorkspaceRoot);
+    if (!document.workspaces.some((entry) => entry.path === root)) {
+      return;
+    }
+    try {
+      await mkdir(root, {recursive: true});
+    } catch (failure) {
+      const reason =
+        failure instanceof Error ? failure.message : String(failure);
+      throw new Error(
+        `The starting folder ${root} could not be created: ${reason}`,
+      );
+    }
   }
 
   private async writeFile(file: WorkspacesFile): Promise<void> {
@@ -267,7 +384,11 @@ export class WorkspaceStore {
      * same rule, and for the same reason: the read above is lenient, and a
      * lenient read plus a write is how a user's data disappears.
      */
-    await assertWritable(this.options.file, {label: 'The workspaces file'});
+    await assertWritable(this.options.file, {
+      label: 'The workspaces file',
+      current: WORKSPACES_VERSION,
+      migrations: this.migrations,
+    });
     await mkdir(dirname(this.options.file), {recursive: true});
     const temporary = `${this.options.file}.${randomUUID()}.tmp`;
     await writeFile(temporary, `${JSON.stringify(file, null, 2)}\n`, 'utf8');
@@ -314,11 +435,12 @@ export function workspaceRootFor(
 }
 
 /**
- * An install with no folders yet gets the folder the user already recognises.
+ * An install with no folders yet gets the folder the app created for it.
  *
- * The home directory rather than a subfolder of it: the agent's file tools are
- * confined to whatever is listed, and choosing a folder nobody has seen — then
- * silently confining the agent to it — is worse than starting where they are.
+ * `root` is the app's own starting folder (`<home>/Marimo`), not the home
+ * directory: confining an agent to everything a person owns, and presenting home
+ * as if it were a project, was the default this replaced. The caller is what
+ * makes the folder exist; this only writes the document that names it.
  */
 function freshWorkspaces(root: string): WorkspacesFile {
   const path = resolve(root);
@@ -327,7 +449,54 @@ function freshWorkspaces(root: string): WorkspacesFile {
     name: workspaceLabel(path),
     path,
   };
-  return {version: 1, workspaces: [workspace], activeWorkspaceId: workspace.id};
+  return {
+    version: WORKSPACES_VERSION,
+    workspaces: [workspace],
+    activeWorkspaceId: workspace.id,
+  };
+}
+
+/**
+ * The one folder an older install was seeded with, moved to this build's.
+ *
+ * The first Space used to be the home directory itself, so a document with
+ * exactly one folder whose path is that old default is the app's own seed rather
+ * than a choice somebody made. **The id is kept**, which is the whole point: the
+ * session index files conversations by id, so replacing the entry would move
+ * every chat to "Other chats" while this leaves them filed under the Space they
+ * were started in. The name is changed only when it is still the seed's own
+ * (`workspaceLabel(formerRoot)`); a label somebody typed is theirs and survives.
+ *
+ * A folder that is not the old seed, or a list with more than one, is left
+ * alone — "only the seeded one" is all the evidence the document holds, and
+ * moving a folder somebody picked would be the app deciding what their project
+ * is. Returns `undefined` when there is nothing to move.
+ */
+function moveSeededHomeFolder(
+  workspaces: readonly Workspace[],
+  formerRoot: string | undefined,
+  newRoot: string,
+): Workspace[] | undefined {
+  if (formerRoot === undefined) {
+    return undefined;
+  }
+  if (workspaces.length !== 1) {
+    return undefined;
+  }
+  const only = workspaces[0]!;
+  const former = resolve(formerRoot);
+  const next = resolve(newRoot);
+  if (former === next || resolve(only.path) !== former) {
+    return undefined;
+  }
+  const seedName = workspaceLabel(former);
+  return [
+    {
+      ...only,
+      path: next,
+      name: only.name === seedName ? workspaceLabel(next) : only.name,
+    },
+  ];
 }
 
 /**
@@ -364,7 +533,7 @@ function adoptLegacy(
   )
     ? legacy.activeWorkspaceId
     : workspaces[0]!.id;
-  return {version: 1, workspaces, activeWorkspaceId: active};
+  return {version: WORKSPACES_VERSION, workspaces, activeWorkspaceId: active};
 }
 
 function requireWorkspace(

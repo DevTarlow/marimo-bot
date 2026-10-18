@@ -5,13 +5,14 @@ import {describe, expect, it} from 'vitest';
 import {
   avatarFile,
   avatarFileName,
+  DEFAULT_SPACE_FOLDER,
   resolveAppPaths,
   secretFile,
   secretFileName,
 } from './paths.js';
 
 describe('resolveAppPaths', () => {
-  const paths = resolveAppPaths('/data/marimo-agent');
+  const paths = resolveAppPaths('/data/marimo-agent', {home: '/home/someone'});
 
   it('keeps every location under the directory it was given', () => {
     for (const value of [
@@ -28,6 +29,28 @@ describe('resolveAppPaths', () => {
       expect(isAbsolute(value)).toBe(true);
       expect(relative(paths.userData, value).startsWith('..')).toBe(false);
     }
+  });
+
+  /*
+   * The one folder that is deliberately not under user data. A reset erases the
+   * app's directory and must leave a Space alone, because a Space's files are the
+   * person's — so the starting folder being derived from home rather than from
+   * `userData` is a safety property, not a layout preference.
+   */
+  it('puts the starting folder in the home directory, not in its data folder', () => {
+    expect(paths.defaultWorkspace).toBe(
+      join('/home/someone', DEFAULT_SPACE_FOLDER),
+    );
+    expect(paths.defaultWorkspace).not.toBe('/home/someone');
+    expect(
+      relative(paths.userData, paths.defaultWorkspace).startsWith('..'),
+    ).toBe(true);
+  });
+
+  it('remembers the folder a fresh install used to be seeded with', () => {
+    // The old default was the home directory itself; the upgrade reads this to
+    // recognise the folder an older build wrote.
+    expect(paths.formerDefaultWorkspace).toBe('/home/someone');
   });
 
   /*

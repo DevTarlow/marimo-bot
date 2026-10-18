@@ -303,6 +303,19 @@ function of one document and cannot write another, so the only thing standing
 between a user's folders and a profile edit during the upgrade is the write path
 carrying them forward until the new store has taken them.
 
+**The workspaces document is the first at a version above 1, and it is not a
+reason to move `DOCUMENT_VERSION`.** `WORKSPACES_VERSION` is passed as `current`
+by its store: version 2 marks that the folder an older build seeded — the home
+directory itself — has already been moved to `<home>/Marimo`, and a marker is
+what keeps that move from running again on a later read. Bumping the shared
+constant instead would tell every other store its current files are from the
+future.
+
+**A fresh install starts in `~/Marimo`, and that folder is created when the
+document is seeded.** The store's own rule that it never touches a Space's
+directory has exactly this exception, and the folder is deliberately outside
+user data so a reset leaves it standing.
+
 **A bot's uploaded icon is an app-owned file that is not a document.** It is one
 PNG under `userData/avatars/`, named through `avatarFileName` in
 `packages/runtime/src/paths.ts`, and the profile carries only a marker with a

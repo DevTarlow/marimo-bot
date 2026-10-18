@@ -2,17 +2,22 @@
  * The first run, as a model, a Space, a bot, its Persona, and more bots.
  *
  * What a fresh install is missing is not one thing. It has no provider, so
- * nothing can answer; no Space, so a bot would have nothing to work in; and no
+ * nothing can answer; the Space it starts in is one the app made, so somebody
+ * whose work already lives in a folder has to point it there; and there is no
  * bot but the one it talks to, so a person who came here to make one has to find
  * the right card in Settings first. The model is first because the guided path
  * needs something to think with, and the rest of the flow is offered after it.
  *
- * Eight rules shape it:
+ * Nine rules shape it:
  *
  * - **The model is the only required step.** Until a provider is chosen and
  *   readable the window offers no message box at all, and a wizard that asked for
  *   a Space and a bot first would be asking about work nothing can do. "Set this
  *   up later" closes the flow; the short card is where somebody comes back.
+ * - **Finishing lands where the person chose.** A folder picked here is where the
+ *   window opens a new chat when the flow closes. The starter chat was created by
+ *   the app before the flow ran, so leaving somebody in it after they chose
+ *   another Space is the unfinished half of asking.
  * - **No step is a dead end.** Every step has a Back, including the one after a
  *   bot exists. Back never goes to a form that would make a second bot: it goes
  *   to the list, where the bot that was made is waiting.
@@ -56,7 +61,7 @@ import type {
 import {chosenPreset} from '../capabilities.js';
 import {describe} from '../describe.js';
 import type {AgentController} from '../hooks/useAgent.js';
-import {backTargetFor, STEPS} from '../setup-nav.js';
+import {backTargetFor, landingSpaceAfterSetup, STEPS} from '../setup-nav.js';
 import type {SetupScreen} from '../setup-nav.js';
 import {BotIconGrid} from './BotIconGrid.js';
 import {BotTemplatePicker} from './BotTemplatePicker.js';
@@ -73,7 +78,7 @@ export function Setup({
   onClose,
 }: {
   settings: PublicSettings;
-  /** For the two things this screen does to the window: load a Space, file a chat. */
+  /** For the two things this screen does to the window: load a Space, read which one is current. */
   agent: AgentController;
   /** Every write's own answer, so one copy of the settings is live. */
   onSettings: (next: PublicSettings) => void;
@@ -82,11 +87,26 @@ export function Setup({
    * a refusal has to leave this screen up with a sentence on it.
    */
   onStartBuilder: () => Promise<{ok: boolean; problem?: string}>;
-  /** Closes the flow, either because it finished or because the user deferred. */
-  onClose: () => void;
+  /**
+   * Closes the flow, either because it finished or because the user deferred.
+   *
+   * The argument is the Space the person chose in the flow, when they chose one:
+   * the window opens a new chat there rather than leaving them in the starter
+   * conversation the app made before the flow ran. Absent when they kept the
+   * folder the app started them in.
+   */
+  onClose: (pickedSpaceId?: string) => void;
 }): React.JSX.Element {
   const [screen, setScreen] = useState<SetupScreen>('welcome');
   const [catalog, setCatalog] = useState<ProfileCatalog | null>(null);
+  /**
+   * The Space the person chose in this flow, if they chose one.
+   *
+   * `undefined` is not the same answer as the current Space: every install has a
+   * starting Space, and the difference between "kept the one the app made" and
+   * "picked another" is what decides whether finishing opens a new chat.
+   */
+  const [pickedSpaceId, setPickedSpaceId] = useState<string | null>(null);
   /**
    * The bot the flow is in the middle of, between making it and giving it a
    * Persona. Held as an id rather than as a draft because the profile exists
@@ -201,45 +221,37 @@ export function Setup({
     });
   };
 
-  /** Loads a Space, and files the untouched starter chat into it. */
+  /**
+   * Loads a Space, and remembers that it is where the person chose to be.
+   *
+   * The starter chat is not moved here: the window opens a new conversation in
+   * the picked Space when the flow closes, and the chat it started on is empty
+   * and unlisted in the rail. Moving it instead would make the flow's own
+   * "finish" do nothing visible, and a chat somebody has since typed in belongs
+   * where it was started.
+   */
   const loadSpace = async (): Promise<void> => {
     setBusy(true);
     setProblem(null);
     try {
-      const added = await agent.loadWorkspace();
+      const {added, activeWorkspaceId} = await agent.loadWorkspace();
       if (!added) {
         // A closed picker is an answer, not a failure.
         return;
       }
-      /*
-       * The chat this window opened on was created before any Space existed, so
-       * it is unfiled — and a first run that loaded a folder and left the chat
-       * under "Other chats" beside an empty Space is the confusing half of the
-       * two. Only an empty, unfiled chat is moved: a conversation with something
-       * in it stays where it was started.
-       */
-      const session = agent.sessions.find(
-        (entry) => entry.id === agent.sessionId,
-      );
-      if (
-        session === undefined ||
-        session.workspaceId !== undefined ||
-        agent.messages.length > 0
-      ) {
-        return;
-      }
-      const {activeWorkspaceId} = await window.marimo.call(
-        'workspaces.list',
-        {},
-      );
       if (activeWorkspaceId !== null) {
-        await agent.moveSession(session.id, activeWorkspaceId);
+        setPickedSpaceId(activeWorkspaceId);
       }
     } catch (failure) {
       setProblem(describe(failure));
     } finally {
       setBusy(false);
     }
+  };
+
+  /** The one way out, so every close passes the Space the flow chose. */
+  const finish = (): void => {
+    onClose(landingSpaceAfterSetup(pickedSpaceId));
   };
 
   /**
@@ -445,7 +457,8 @@ export function Setup({
             </p>
             <p className="onboarding-note">
               The app has no model of its own. First, pick a service that
-              answers. Then choose a folder to work in, and make a bot.
+              answers. Then check the folder it will work in — Marimo starts you
+              in one it made — and make a bot.
             </p>
             <p className="onboarding-note">
               You can change any of this later in Settings.
@@ -463,9 +476,7 @@ export function Setup({
               <button
                 type="button"
                 className="button button-quiet"
-                onClick={() => {
-                  onClose();
-                }}
+                onClick={finish}
               >
                 Skip setup
               </button>
@@ -483,7 +494,7 @@ export function Setup({
             onNext={() => {
               go('space');
             }}
-            onLater={onClose}
+            onLater={finish}
           />
         )}
 
@@ -497,6 +508,11 @@ export function Setup({
             <p className="onboarding-note">
               Every chat remembers the Space it started in. Markdown files in it
               show up under Documents.
+            </p>
+            <p className="onboarding-note">
+              Marimo starts you in a folder it creates, so the first Space is a
+              project rather than your whole home folder. Choose another if the
+              work is already somewhere else.
             </p>
             {space !== undefined && (
               <p className="settings-muted">
@@ -772,7 +788,7 @@ export function Setup({
                 type="button"
                 className="button button-quiet"
                 disabled={busy}
-                onClick={onClose}
+                onClick={finish}
               >
                 That&rsquo;s enough for now
               </button>

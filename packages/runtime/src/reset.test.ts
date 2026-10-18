@@ -91,7 +91,8 @@ describe('resetInstall', () => {
     /*
      * Three things that must survive, each for its own reason: a Space with the
      * bot's own notes in it, the weights a checkout keeps elsewhere, and the
-     * home directory that `defaultWorkspace` points at.
+     * folder `defaultWorkspace` points at — now the app's starting Space, whose
+     * files are the person's rather than the app's.
      */
     const space = await mkdtemp(join(process.cwd(), '.marimo-reset-space-'));
     const model = await mkdtemp(join(process.cwd(), '.marimo-reset-model-'));

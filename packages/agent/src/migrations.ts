@@ -24,11 +24,15 @@
 import {readFile, rename} from 'node:fs/promises';
 
 /**
- * The document version this build writes.
+ * The document version this build writes, for every document that has no reason
+ * to move on its own.
  *
- * One number for every document rather than one per file: they are read and
- * written by the same release, so a per-file counter would only create chances
- * for them to disagree about which release they came from.
+ * One number rather than one per file: these are read and written by the same
+ * release, so a per-file counter would only create chances for them to disagree
+ * about which release they came from. A document that does need its own version
+ * passes `current` to `readVersionedDocument` instead of changing this — the
+ * workspaces document is the one that has, because its upgrade had to mark that a
+ * one-time move had already run.
  */
 export const DOCUMENT_VERSION = 1;
 

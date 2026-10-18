@@ -20,7 +20,9 @@
  *   less package to keep current for a check that must not itself rot.
  * - **It never touches real state.** `MARIMO_USER_DATA_DIR` points at a fresh
  *   temporary directory, which is also what keeps it from fighting a running
- *   copy of the app for the single-instance lock.
+ *   copy of the app for the single-instance lock; `HOME` (and `USERPROFILE`)
+ *   point inside it too, so the starting Space the app creates for itself lands
+ *   there rather than in the real home directory.
  *
  * And it puts the app away again before it exits, on every path out, including a
  * Ctrl-C: this opens a real window on whatever display the check is running on,
@@ -98,6 +100,14 @@ async function until(
 
 async function main() {
   const userData = await mkdtemp(join(tmpdir(), 'marimo-smoke-'));
+  /*
+   * A home of the check's own, because the app creates its starting Space as
+   * `<home>/Marimo`. Pinning only the user-data directory would leave that folder
+   * in the home of whoever ran the check — which is the opposite of "never
+   * touches real state".
+   */
+  const home = join(userData, 'home');
+  await mkdir(home, {recursive: true});
   const args = [appRoot, `--remote-debugging-port=${DEBUG_PORT}`];
   if (process.env['MARIMO_NO_SANDBOX'] === '1') {
     args.push('--no-sandbox');
@@ -106,7 +116,12 @@ async function main() {
   const child = startApp({
     command: electron,
     args,
-    env: {...process.env, MARIMO_USER_DATA_DIR: userData},
+    env: {
+      ...process.env,
+      MARIMO_USER_DATA_DIR: userData,
+      HOME: home,
+      USERPROFILE: home,
+    },
   });
 
   const log = [];
@@ -234,6 +249,40 @@ async function main() {
     }
 
     /*
+     * The starting Space, before anything has chosen one.
+     *
+     * A fresh install used to be seeded with the home directory itself, which
+     * confined the agent to everything the person owned and showed that as if it
+     * were a project. What this asserts is the whole first change in one place:
+     * one Space, named and pointed at `<home>/Marimo`, and the folder actually on
+     * disk — the store creates it, and a document naming a folder that is not
+     * there would leave every file tool reading nothing.
+     */
+    const seeded = JSON.parse(
+      await evaluate(`(async () => {
+        const listed = await window.marimo.call('workspaces.list', {});
+        return JSON.stringify(listed);
+      })()`),
+    );
+    const starting = seeded.workspaces?.[0];
+    const startingFolder = join(home, 'Marimo');
+    if (
+      seeded.workspaces?.length !== 1 ||
+      starting?.path !== startingFolder ||
+      starting?.name !== 'Marimo'
+    ) {
+      fail(
+        `a fresh install did not start in a folder of its own: ${JSON.stringify(seeded)}`,
+      );
+    } else if (
+      (await stat(startingFolder).catch(() => undefined))?.isDirectory() !== true
+    ) {
+      fail(`the starting folder was not created: ${startingFolder}`);
+    } else {
+      ok(`a fresh install starts in its own folder (${startingFolder})`);
+    }
+
+    /*
      * The first run, driven the way a person drives it.
      *
      * Checked here rather than further down because it is the first thing a new
@@ -243,9 +292,10 @@ async function main() {
      *
      * Two things make the path completable without an account. The provider it
      * ends on is `Local llama.cpp`, which needs no key, and nothing is dialled
-     * until a turn is sent. And the Space step is stepped past: a fresh data
-     * directory has no folder to load, and a native picker cannot be driven from
-     * here anyway.
+     * until a turn is sent. And the Space step is answered with its own primary
+     * button — a fresh install now has a starting folder, so it offers
+     * "Continue" rather than "Later"; a native picker cannot be driven from here
+     * anyway, which is why choosing another folder is not part of this check.
      */
     const press = async (label) => {
       const find = `[...document.querySelectorAll('button')].find(
@@ -334,16 +384,24 @@ async function main() {
     await press('Continue');
 
     /*
-     * The Space step. "Later" is what a fresh directory offers; a run that
-     * already had a folder loaded is offered "Continue" instead, and either one
-     * is the step being answered rather than the check skipping over it.
+     * The Space step. A fresh install has the starting folder the app created,
+     * so the step answers with "Continue" and says which folder that is. That is
+     * the check rather than pressing whatever happens to be primary: a step that
+     * offered "Later" here would mean the seed did not happen.
      */
     const spaceLabels = JSON.parse(
       await evaluate(
         `JSON.stringify([...document.querySelectorAll('.setup-body button')].map((entry) => entry.textContent.trim()))`,
       ),
     );
-    await press(spaceLabels.includes('Later') ? 'Later' : 'Continue');
+    if (!spaceLabels.includes('Continue')) {
+      fail(
+        `the Space step did not offer the starting folder to continue with: ${JSON.stringify(spaceLabels)}`,
+      );
+    } else {
+      ok('the Space step offers the folder the app started in');
+    }
+    await press('Continue');
 
     /*
      * The bot step offers three doors. This check drives the form, because the

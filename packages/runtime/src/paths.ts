@@ -117,13 +117,37 @@ export interface AppPaths {
   /**
    * Where a brand-new profile may work.
    *
-   * The home directory rather than a subfolder of it: the agent's file tools are
-   * confined to whatever the user picks, and a fresh install has not picked
-   * anything yet. Choosing for them — and silently confining them to a folder
-   * they have never seen — would be worse than starting somewhere they recognise.
+   * A folder of the app's own inside the person's home directory, created on the
+   * first run. It used to be the home directory itself, and that was the wrong
+   * default rather than a neutral one: an agent's file tools are confined to the
+   * folder a Space points at, so starting on home confined it to everything —
+   * photographs, tax returns, other people's projects — and showed the home path
+   * as if it were a project. A short folder the person did not have to choose is
+   * contained and easy to find; picking another Space, or loading home itself, is
+   * still one click away.
+   *
+   * Outside `userData` on purpose: reset erases that directory, and a Space holds
+   * documents that are the person's, not the app's.
    */
   defaultWorkspace: string;
+  /**
+   * Where that starting folder pointed before this build had one of its own.
+   *
+   * The home directory, and read by exactly one thing: the `workspaces.json`
+   * upgrade that moves the folder an older install was seeded with. It exists as
+   * a value here rather than as a second `homedir()` call at the upgrade site so
+   * the two defaults cannot be resolved from different homes.
+   */
+  formerDefaultWorkspace: string;
 }
+
+/**
+ * The app's own folder for a fresh install, inside the person's home directory.
+ *
+ * A constant rather than a path spelled twice, because a test, the README and the
+ * code that creates it all have to name the same folder.
+ */
+export const DEFAULT_SPACE_FOLDER = 'Marimo';
 
 /**
  * Resolves every location from the one directory the caller owns.
@@ -131,8 +155,17 @@ export interface AppPaths {
  * `userData` is Electron's own name for it and is kept here so a bug report and
  * a Settings screen call the same place the same thing. In the runner the same
  * value arrives from `MARIMO_USER_DATA_DIR` or the platform default.
+ *
+ * `home` is an override for the starting folder and the former seed, and exists
+ * for tests: a test that let this function derive the tester's home would create
+ * the real `~/Marimo` on the machine running it. Production callers leave it
+ * out.
  */
-export function resolveAppPaths(userData: string): AppPaths {
+export function resolveAppPaths(
+  userData: string,
+  options: {home?: string} = {},
+): AppPaths {
+  const home = options.home ?? homedir();
   const secretsDir = join(userData, 'secrets');
 
   return {
@@ -159,7 +192,8 @@ export function resolveAppPaths(userData: string): AppPaths {
     appLock: join(userData, 'app.lock'),
     skills: join(userData, 'skills.json'),
     dreamDir: join(userData, 'trees'),
-    defaultWorkspace: homedir(),
+    defaultWorkspace: join(home, DEFAULT_SPACE_FOLDER),
+    formerDefaultWorkspace: home,
   };
 }
 

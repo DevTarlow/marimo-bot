@@ -291,6 +291,12 @@ export class AgentRuntime {
       file: options.paths.workspaces,
       defaultWorkspaceRoot: options.paths.defaultWorkspace,
       /*
+       * Where a build before this one seeded the only folder. The store's v1
+       * upgrade moves it to `defaultWorkspace` when it is still the single
+       * entry, keeping its id so every conversation stays filed.
+       */
+      formerDefaultWorkspaceRoot: options.paths.formerDefaultWorkspace,
+      /*
        * The folders a pre-workspaces profiles file holds, read through the
        * profile store rather than by parsing that file a second time: it is the
        * same document, and two parsers for it is two chances to disagree.

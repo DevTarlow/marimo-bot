@@ -428,11 +428,16 @@ export function App(): React.JSX.Element {
    * is not: the worst outcome is the flow being offered once more after a later
    * launch, and an error about a flag the user never asked to see would be worse.
    *
-   * The pane is reloaded behind it because bots were made here and a Space may
-   * have been loaded, and neither is something the conversation hook notices by
-   * itself.
+   * **Landing comes first, then the reload.** A Space the person chose in the
+   * flow is where they should type, and with a new chat rather than the empty one
+   * the window opened on before the flow ran: that chat was made by the app in
+   * the folder the app chose, and leaving them in it after they picked another is
+   * the thing this prevents. `boot` opens the newest conversation, so creating
+   * the chat first is also what makes the reload land on it; the reload itself is
+   * still needed because bots were made here and a Space may have been loaded,
+   * and neither is something the conversation hook notices by itself.
    */
-  const closeSetup = (): void => {
+  const closeSetup = (pickedSpaceId?: string): void => {
     setSetupPhase('left');
     void window.marimo
       .call('settings.set', {patch: {setupSeen: true}})
@@ -440,7 +445,13 @@ export function App(): React.JSX.Element {
         setSettings(saved);
       })
       .catch(() => undefined);
-    void agent.reload();
+    if (pickedSpaceId === undefined) {
+      void agent.reload();
+      return;
+    }
+    void agent.newSession(pickedSpaceId).then(async () => {
+      await agent.reload();
+    });
   };
 
   /**

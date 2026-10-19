@@ -1694,15 +1694,13 @@ export class AgentRuntime {
       return false;
     }
     const events = await this.sessionIndex.listEvents(sessionId);
-    if (adkPendingGatesIn(events).length > 0) {
-      return false;
-    }
+    const gates = adkPendingGatesIn(events);
     const profile = await this.profileFor(profileId);
     if (profile === undefined) {
       return false;
     }
     const messages = projectTranscript(events);
-    if (messages.length === 0) {
+    if (messages.length === 0 && gates.length === 0) {
       return false;
     }
     const imported = await harness.importLegacy(
@@ -1715,6 +1713,7 @@ export class AgentRuntime {
           : {spaceId: entry.workspaceId}),
         ...(entry.purpose === undefined ? {} : {purpose: entry.purpose}),
         ...(entry.agentIds === undefined ? {} : {agentIds: entry.agentIds}),
+        ...(gates.length === 0 ? {} : {gates}),
         author: profile.name,
       },
       messages,

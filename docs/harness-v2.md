@@ -321,10 +321,11 @@ A v1 conversation is brought forward when it is opened or on its next
 unaddressed send, provided it has no waiting card: its visible words are written
 into the canonical log and the conversation continues on v2. The old ADK log is left where it is, and the migration is
 one-way. A v1 group's membership comes with its words, so an addressed turn can
-continue on v2 too. A conversation with a waiting gate, or the
-`MARIMO_HARNESS_V1=1` escape, stays on v1 for that path.
+continue on v2 too. A waiting v1 card is imported as a canonical approval with
+the original call, confirmation id, tool and arguments, so it can be answered on
+v2; only the `MARIMO_HARNESS_V1=1` escape stays on v1.
 
-What is still old: v1 turns for those cases, and same-conversation helper
+What is still old: v1 turns behind the escape hatch, and same-conversation helper
 delegation where the helper can raise a gate the parent resumes. The session
 index is a shared runtime service, so creating, listing, renaming, moving,
 deleting and reading a chat no longer builds the old host. V2 also caps the

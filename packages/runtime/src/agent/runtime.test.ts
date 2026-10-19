@@ -213,6 +213,68 @@ describe('AgentRuntime', () => {
     });
   });
 
+  it('brings a waiting v1 card forward as a v2 card', async () => {
+    const agent = runtime();
+    const summary = await agent.createSession(profileId);
+    const sessionId = summary?.id ?? '';
+    const store = new FileSessionService({rootDir: paths.sessions});
+    const session = await store.getSession({
+      appName: 'marimo',
+      userId: 'local',
+      sessionId,
+    });
+    if (session === undefined) {
+      throw new Error('the session was not created');
+    }
+    await store.appendEvent({
+      session,
+      event: {
+        id: 'legacy-user',
+        author: 'user',
+        invocationId: 'inv-1',
+        content: {role: 'user', parts: [{text: 'Run it?'}]},
+        timestamp: Date.now(),
+      } as unknown as AdkEvent,
+    });
+    await store.appendEvent({
+      session,
+      event: {
+        id: 'legacy-gate',
+        author: 'marimo',
+        invocationId: 'inv-1',
+        content: {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: 'confirm-1',
+                name: 'adk_request_confirmation',
+                args: {
+                  originalFunctionCall: {
+                    id: 'call-1',
+                    name: 'run_shell',
+                    args: {command: 'ls'},
+                  },
+                  toolConfirmation: {hint: 'Run it?', confirmed: false},
+                },
+              },
+            },
+          ],
+        },
+        timestamp: Date.now(),
+      } as unknown as AdkEvent,
+    });
+
+    expect(await agent.migrateLegacy(profileId, sessionId)).toBe(true);
+    const pending = await agent.harness().pendingGates(sessionId);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      tool: 'run_shell',
+      args: {command: 'ls'},
+      hint: 'Run it?',
+    });
+  });
+
   /*
    * The size control in Settings reads these three numbers. They come from the
    * agent's own store rather than from a second copy of the setting, which is

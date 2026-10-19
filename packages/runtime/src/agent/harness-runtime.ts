@@ -410,6 +410,7 @@ export class HarnessRuntime {
       spaceId?: string;
       purpose?: 'bot-builder';
       agentIds?: readonly string[];
+      gates?: readonly import('@marimo/protocol').PendingGate[];
       author: string;
     },
     messages: readonly TranscriptMessage[],
@@ -420,7 +421,8 @@ export class HarnessRuntime {
     const visible = messages.filter(
       (message) => message.text.trim().length > 0,
     );
-    if (visible.length === 0) {
+    const gates = info.gates ?? [];
+    if (visible.length === 0 && gates.length === 0) {
       return {imported: false, reason: 'There was nothing to bring forward.'};
     }
     const first = visible[0];
@@ -428,7 +430,10 @@ export class HarnessRuntime {
       {
         id: randomUUID(),
         sessionId,
-        at: first?.createdAt ?? new Date().toISOString(),
+        at:
+          first?.createdAt ??
+          gates[0]?.askedAt ??
+          new Date().toISOString(),
         type: 'session.created',
         profileId,
         title: info.title,
@@ -440,14 +445,19 @@ export class HarnessRuntime {
       events.push({
         id: randomUUID(),
         sessionId,
-        at: first?.createdAt ?? new Date().toISOString(),
+        at:
+          first?.createdAt ??
+          gates[0]?.askedAt ??
+          new Date().toISOString(),
         type: 'participants.changed',
         agentIds: [...info.agentIds],
         by: profileId,
       });
     }
+    let lastTurnId = 'legacy-0';
     visible.forEach((message, index) => {
       const turnId = `legacy-${String(Math.floor(index / 2))}`;
+      lastTurnId = turnId;
       if (message.role === 'user') {
         events.push({
           id: randomUUID(),
@@ -472,6 +482,41 @@ export class HarnessRuntime {
         });
       }
     });
+    for (const gate of gates) {
+      const callId = `legacy-${gate.callId}`;
+      const args =
+        gate.args !== null &&
+        typeof gate.args === 'object' &&
+        !Array.isArray(gate.args)
+          ? (gate.args as Record<string, unknown>)
+          : {};
+      events.push(
+        {
+          id: randomUUID(),
+          sessionId,
+          at: gate.askedAt,
+          turnId: lastTurnId,
+          type: 'tool.call',
+          callId,
+          tool: gate.tool,
+          args,
+          author: info.author,
+        },
+        {
+          id: randomUUID(),
+          sessionId,
+          at: gate.askedAt,
+          turnId: lastTurnId,
+          type: 'approval.requested',
+          callId,
+          confirmationId: gate.callId,
+          tool: gate.tool,
+          args,
+          hint: gate.hint,
+          author: info.author,
+        },
+      );
+    }
     await this.store.append(sessionId, events);
     return {imported: true};
   }

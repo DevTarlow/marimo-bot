@@ -242,26 +242,42 @@ export function turnIdOf(event: SessionEvent): string | undefined {
 export function newestTurnEvents(
   events: readonly SessionEvent[],
 ): SessionEvent[] {
+  let fallback: string | undefined;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (event?.type === 'turn.started') {
       return events.filter((entry) => turnIdOf(entry) === event.turnId);
     }
+    if (fallback === undefined) {
+      fallback = turnIdOf(event);
+    }
   }
-  return [];
+  return fallback === undefined
+    ? []
+    : events.filter((entry) => turnIdOf(entry) === fallback);
 }
 
 /** The newest turn's id, when the log has one. */
 export function newestTurnId(
   events: readonly SessionEvent[],
 ): string | undefined {
+  let fallback: string | undefined;
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index];
     if (event?.type === 'turn.started') {
       return event.turnId;
     }
+    /*
+     * An imported v1 conversation has no turn.started: it has the words and,
+     * sometimes, a card the old engine was waiting on. The newest turn-scoped
+     * event is still the answer, and it is what lets that card be answered on
+     * v2 rather than keeping the old host alive for it.
+     */
+    if (fallback === undefined) {
+      fallback = turnIdOf(event);
+    }
   }
-  return undefined;
+  return fallback;
 }
 
 /**

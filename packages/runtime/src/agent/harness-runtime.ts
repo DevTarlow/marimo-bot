@@ -167,6 +167,7 @@ export class HarnessRuntime {
     sessionId: string,
     text: string,
     addressedProfileId?: string,
+    instruction?: string,
   ): AsyncGenerator<AgentUiEvent> {
     let prepared: Prepared;
     try {
@@ -199,6 +200,7 @@ export class HarnessRuntime {
           profileId,
           text,
           harness: prepared.harness,
+          ...(instruction === undefined ? {} : {instruction}),
           session: {title: titleFor(text)},
         }),
         sessionId,

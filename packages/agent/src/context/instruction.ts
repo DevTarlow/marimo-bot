@@ -20,6 +20,8 @@ export interface HarnessSkillSummary {
 export interface HarnessPromptContext {
   memory?: string;
   skills?: readonly HarnessSkillSummary[];
+  /** Text for this turn only: the surface that asked, not the bot. */
+  instruction?: string;
 }
 
 export function composeHarnessInstruction(
@@ -74,6 +76,11 @@ export function composeHarnessInstruction(
         ...skills.map((skill) => `- ${skill.name} — ${skill.description}`),
       ].join('\n'),
     );
+  }
+
+  const instruction = context.instruction?.trim();
+  if (instruction !== undefined && instruction.length > 0) {
+    sections.push(instruction);
   }
 
   return sections.join('\n\n');

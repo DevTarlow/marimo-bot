@@ -24,6 +24,8 @@ export interface DriverRun {
   harness: HarnessSpec;
   /** The conversation as it stood before this turn. */
   history: readonly SessionEvent[];
+  /** Prompt text for this turn only, when the surface that asked has any. */
+  instruction?: string;
   signal: AbortSignal;
 }
 
@@ -41,6 +43,8 @@ export interface DriverResume {
   /** The conversation including the approval decisions just recorded. */
   history: readonly SessionEvent[];
   decisions: readonly GateDecision[];
+  /** The instruction stored when the turn began, replayed on resume. */
+  instruction?: string;
   signal: AbortSignal;
 }
 

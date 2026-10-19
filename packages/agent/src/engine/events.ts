@@ -54,6 +54,8 @@ export const turnStartedSchema = z.object({
   harnessVersion: z.number().int().positive(),
   harnessHash: z.string().min(1),
   model: agentModelSchema,
+  /** Prompt text for this turn only, so a resume can replay it. */
+  instruction: z.string().min(1).optional(),
 });
 
 export const assistantMessageSchema = z.object({

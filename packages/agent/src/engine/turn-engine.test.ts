@@ -44,14 +44,17 @@ class ScriptedDriver implements TurnDriver {
   runCalls = 0;
   resumeCalls = 0;
   lastDecisions: DriverResume['decisions'] = [];
+  lastRunInstruction: string | undefined;
+  lastResumeInstruction: string | undefined;
 
   constructor(runs: DriverEvent[][], resumes: DriverEvent[][] = []) {
     this.runs = runs;
     this.resumes = resumes;
   }
 
-  async *run(_input: DriverRun): AsyncIterable<DriverEvent> {
+  async *run(input: DriverRun): AsyncIterable<DriverEvent> {
     this.runCalls += 1;
+    this.lastRunInstruction = input.instruction;
     for (const event of this.runs.shift() ?? []) {
       yield event;
     }
@@ -60,6 +63,7 @@ class ScriptedDriver implements TurnDriver {
   async *resume(input: DriverResume): AsyncIterable<DriverEvent> {
     this.resumeCalls += 1;
     this.lastDecisions = input.decisions;
+    this.lastResumeInstruction = input.instruction;
     for (const event of this.resumes.shift() ?? []) {
       yield event;
     }
@@ -141,6 +145,53 @@ describe('TurnEngine', () => {
       harnessVersion: 1,
       model: {provider: 'deepseek', model: 'deepseek-chat'},
     });
+  });
+
+  it('stores the turn instruction and replays it on resume', async () => {
+    const driver = new ScriptedDriver(
+      [
+        [
+          {type: 'step'},
+          {type: 'message', text: 'I need to write.'},
+          {
+            type: 'approval.request',
+            callId: 'call-1',
+            tool: 'write_file',
+            args: {path: 'a.md'},
+          },
+          {type: 'done'},
+        ],
+      ],
+      [
+        [{type: 'step'}, {type: 'message', text: 'Done.'}, {type: 'done'}],
+      ],
+    );
+    const {engine, store} = engineFor(driver);
+    const spec = harness();
+    await collect(
+      engine.run({
+        sessionId: 's1',
+        profileId: 'writer',
+        text: 'Write it briefly',
+        harness: spec,
+        instruction: 'Answer in two sentences.',
+      }),
+    );
+    expect(driver.lastRunInstruction).toBe('Answer in two sentences.');
+    const started = (await store.read('s1')).find(
+      (event) => event.type === 'turn.started',
+    );
+    expect(started).toMatchObject({instruction: 'Answer in two sentences.'});
+
+    await collect(
+      engine.approve({
+        sessionId: 's1',
+        callId: 'call-1',
+        confirmed: true,
+        harness: spec,
+      }),
+    );
+    expect(driver.lastResumeInstruction).toBe('Answer in two sentences.');
   });
 
   it('allows a new turn after the previous one completed', async () => {

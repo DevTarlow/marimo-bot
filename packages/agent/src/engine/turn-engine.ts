@@ -37,6 +37,8 @@ export interface RunParams {
   profileId: string;
   text: string;
   harness: HarnessSpec;
+  /** Prompt text that belongs to this turn, not to the bot. */
+  instruction?: string;
   /** Session metadata, when this turn is the first in a new conversation. */
   session?: {title: string; spaceId?: string};
 }
@@ -186,6 +188,9 @@ export class TurnEngine {
           harnessVersion: params.harness.version,
           harnessHash: harnessHash(params.harness),
           model: modelPair(params.harness.model),
+          ...(params.instruction === undefined
+            ? {}
+            : {instruction: params.instruction}),
         },
       );
       await this.append(params.sessionId, opening);
@@ -201,6 +206,9 @@ export class TurnEngine {
         history: [...before, ...opening],
         mode: 'run',
         text: params.text,
+        ...(params.instruction === undefined
+          ? {}
+          : {instruction: params.instruction}),
       });
     } finally {
       this.starting.delete(params.sessionId);
@@ -256,6 +264,10 @@ export class TurnEngine {
       );
       const profileId = params.harness.id;
       const harness = params.harness;
+      const started = after.find(
+        (event) =>
+          event.type === 'turn.started' && event.turnId === turnId,
+      );
       yield* this.drive({
         sessionId: params.sessionId,
         turnId,
@@ -264,6 +276,10 @@ export class TurnEngine {
         history: after,
         mode: 'resume',
         decisions,
+        ...(started?.type !== 'turn.started' ||
+        started.instruction === undefined
+          ? {}
+          : {instruction: started.instruction}),
       });
     } finally {
       this.starting.delete(params.sessionId);
@@ -278,6 +294,7 @@ export class TurnEngine {
     history: readonly SessionEvent[];
     mode: 'run' | 'resume';
     text?: string;
+    instruction?: string;
     decisions?: readonly GateDecision[];
   }): AsyncGenerator<EngineUpdate> {
     const state: TurnState = {
@@ -312,6 +329,9 @@ export class TurnEngine {
               text: params.text ?? '',
               harness: params.harness,
               history: params.history,
+              ...(params.instruction === undefined
+                ? {}
+                : {instruction: params.instruction}),
               signal: state.controller.signal,
             })
           : this.driver.resume({
@@ -321,6 +341,9 @@ export class TurnEngine {
               harness: params.harness,
               history: params.history,
               decisions: params.decisions ?? [],
+              ...(params.instruction === undefined
+                ? {}
+                : {instruction: params.instruction}),
               signal: state.controller.signal,
             });
 

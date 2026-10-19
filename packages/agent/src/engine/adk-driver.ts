@@ -112,7 +112,12 @@ export class AdkDriver implements TurnDriver {
       input.harness,
     );
     const context = await this.toolContextFor(input.harness, input.signal);
-    const runner = this.runnerFor(input.harness, sessions, context);
+    const runner = this.runnerFor(
+      input.harness,
+      sessions,
+      context,
+      input.instruction,
+    );
     yield* this.stream(runner, {
       sessionId: input.sessionId,
       harness: input.harness,
@@ -143,7 +148,12 @@ export class AdkDriver implements TurnDriver {
       input.harness,
     );
     const context = await this.toolContextFor(input.harness, input.signal);
-    const runner = this.runnerFor(input.harness, sessions, context);
+    const runner = this.runnerFor(
+      input.harness,
+      sessions,
+      context,
+      input.instruction,
+    );
     yield* this.stream(runner, {
       sessionId: input.sessionId,
       harness: input.harness,
@@ -306,6 +316,7 @@ export class AdkDriver implements TurnDriver {
     harness: HarnessSpec,
     sessions: InMemorySessionService,
     context: ToolContext,
+    instruction: string | undefined,
   ): Runner {
     const agent = new LlmAgent({
       name: adkAgentName(harness.id),
@@ -317,11 +328,13 @@ export class AdkDriver implements TurnDriver {
        * tools give the model. The frozen spec does not move; what it is
        * surrounding itself with does.
        */
-      instruction: async () =>
-        composeHarnessInstruction(
-          harness,
-          (await this.options.promptContext?.(harness)) ?? {},
-        ),
+      instruction: async () => {
+        const prompt = (await this.options.promptContext?.(harness)) ?? {};
+        return composeHarnessInstruction(harness, {
+          ...prompt,
+          ...(instruction === undefined ? {} : {instruction}),
+        });
+      },
       tools: this.buildTools(harness, context),
     });
     return new Runner({

@@ -24,6 +24,7 @@ import {
   JobStore,
   McpManager,
   secretReaderFor,
+  turnInstruction,
 } from '@marimo/runtime';
 import type {ProcessLock} from '@marimo/runtime';
 import type {
@@ -1427,7 +1428,16 @@ export class AgentService {
         });
         return {accepted: false};
       }
-      this.pump(harness.run(profileId, sessionId, text, agentId));
+      const instruction =
+        origin === 'pet'
+          ? turnInstruction(
+              'pet',
+              (await this.runtime.settings()).companion.answerLength,
+            )
+          : undefined;
+      this.pump(
+        harness.run(profileId, sessionId, text, agentId, instruction),
+      );
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};
     }

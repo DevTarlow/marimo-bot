@@ -374,7 +374,14 @@ tool that answers "nothing available". The result keeps the v1 honesty notes —
 what was searched, a size cap, a stale file — because a short list that reads as
 "the folder holds only this" is the failure those notes exist for.
 
-Documents, jobs, the companion and the bot builder are still on the old path.
+The companion uses the same conversation. A v2 session now carries a turn
+instruction — the length block the moss asks for — and stores it on
+`turn.started` so an approval resumed after a restart is answered in the voice
+that asked. The instruction is prompt text for one turn, not a property of the
+bot, which is why it lives in the log beside the harness hash rather than in the
+profile.
+
+Documents, jobs and the bot builder are still on the old path.
 Jobs in particular cannot move yet: a v2-created job would point at a conversation
 the old scheduler runs, so the job tools stay off in v2 until the runner does.
 

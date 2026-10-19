@@ -1352,6 +1352,16 @@ export class AgentService {
 
   /** Replaces the older part of a conversation with a summary. */
   async compact(profileId: string, sessionId: string): Promise<CompactResult> {
+    if (
+      process.env['MARIMO_HARNESS_V1'] !== '1' &&
+      !(await this.harnessHasLog(sessionId))
+    ) {
+      try {
+        await this.runtime.migrateLegacy(profileId, sessionId);
+      } catch {
+        // The v1 path below answers if the import could not.
+      }
+    }
     if (await this.harnessHasLog(sessionId)) {
       const result = await this.runtime
         .harness()
@@ -1670,6 +1680,17 @@ export class AgentService {
      * known: the events a turn emits carry a conversation, not an agent.
      */
     this.busyProfileId = profileId;
+
+    if (
+      process.env['MARIMO_HARNESS_V1'] !== '1' &&
+      !(await this.harnessHasLog(sessionId))
+    ) {
+      try {
+        await this.runtime.migrateLegacy(profileId, sessionId);
+      } catch {
+        // The v1 path below answers if the import could not.
+      }
+    }
 
     if (await this.harnessHasLog(sessionId)) {
       const harness = this.runtime.harness();

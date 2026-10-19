@@ -157,12 +157,16 @@ export function Learning({
           ...inbox.memory.map((proposal) => ({
             id: proposal.id,
             at: proposal.createdAt,
+            accept: 'Remember',
+            decline: 'Don’t remember',
             node: <MemoryItem proposal={proposal} />,
             resolve,
           })),
           ...inbox.proposals.map((proposal) => ({
             id: proposal.id,
             at: proposal.createdAt,
+            accept: 'Apply',
+            decline: 'Not now',
             node: <LearningItem proposal={proposal} />,
             resolve,
           })),
@@ -207,7 +211,7 @@ export function Learning({
                   void entry.resolve(entry.id, false);
                 }}
               >
-                Not now
+                {entry.decline}
               </button>
               <button
                 type="button"
@@ -217,7 +221,7 @@ export function Learning({
                   void entry.resolve(entry.id, true);
                 }}
               >
-                Apply
+                {entry.accept}
               </button>
             </div>
           </div>

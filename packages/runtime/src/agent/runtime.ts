@@ -1055,8 +1055,8 @@ export class AgentRuntime {
     profileId: string,
     sessionId: string,
   ): Promise<{reviewed: number; total: number}> {
-    const host = await this.ensureHost(profileId);
-    const events = await host.eventsFor(sessionId);
+    await this.assertIndexOwned(sessionId, profileId);
+    const events = await this.sessionIndex.listEvents(sessionId);
     const total = events.filter((event) => event.partial !== true).length;
     const reviewed = await this.proposals.reviewedUpTo(sessionId);
     return {reviewed, total};
@@ -1365,8 +1365,8 @@ export class AgentRuntime {
     profileId: string,
     sessionId: string,
   ): Promise<string[] | undefined> {
-    const host = await this.ensureHost(profileId);
-    return await host.sessionParticipants(sessionId);
+    const entry = await this.assertIndexOwned(sessionId, profileId);
+    return entry.agentIds;
   }
 
   /**
@@ -1983,8 +1983,10 @@ export class AgentRuntime {
     if (!(await this.profileFor(profileId))) {
       return [];
     }
-    const host = await this.ensureHost(profileId);
-    return await host.pendingGates(sessionId);
+    await this.assertIndexOwned(sessionId, profileId);
+    return adkPendingGatesIn(
+      await this.sessionIndex.listEvents(sessionId),
+    );
   }
 
   abort(profileId: string, sessionId: string): boolean {

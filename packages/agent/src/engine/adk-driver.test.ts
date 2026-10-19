@@ -509,6 +509,43 @@ describe('AdkDriver', () => {
     });
   });
 
+  it('replays reasoning on a history that carried a tool call', async () => {
+    const model = new ScriptedLlm([[text('Again.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const prior = history(
+      userMessage('t0', 'First'),
+      {
+        id: 'a-0',
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        turnId: 't0',
+        type: 'assistant.message',
+        author: 'Writer',
+        text: 'It was then.',
+        reasoning: 'I checked the clock.',
+      },
+      userMessage('t1', 'Second'),
+    );
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Second',
+        harness: harness(),
+        history: prior,
+        signal: new AbortController().signal,
+      }),
+    );
+    const parts = (model.requests[0]?.contents ?? []).flatMap(
+      (content) => content.parts ?? [],
+    );
+    expect(parts).toContainEqual({
+      text: 'I checked the clock.',
+      thought: true,
+    });
+  });
+
   it('rebuilds prior tool history without duplicating the current message', async () => {
     const model = new ScriptedLlm([[text('Again.')]]);
     const driver = new AdkDriver({resolveModel: () => model});

@@ -14,7 +14,7 @@
 import {describe, expect, it} from 'vitest';
 
 import type {AdkEvent} from '../sessions/file-session-service.js';
-import {gatesAskedBy, pendingGatesIn} from './agent-host.js';
+import {gatesAskedBy, pendingGatesIn} from './gates.js';
 import {buildCompactedEvent} from './compaction.js';
 
 const GATE = 'adk_request_confirmation';

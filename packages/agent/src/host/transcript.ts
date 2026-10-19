@@ -21,6 +21,7 @@ import type {TranscriptMessage, ToolCallRecord} from '@marimo/protocol';
 import type {AdkEvent} from '../sessions/file-session-service.js';
 import {agentIdFor} from './agent-host.js';
 import {activeEvents} from './compaction.js';
+import {pendingGatesIn} from './gates.js';
 
 const MAX_RECORDED_RESULT = 4_000;
 
@@ -189,9 +190,14 @@ function project(events: readonly AdkEvent[]): TranscriptMessage[] {
 }
 
 /**
- * A gate with no answer means the app closed while the user was deciding. The
- * turn cannot be resumed (approvals live in memory), so the transcript says so
- * instead of looking like the model simply stopped.
+ * A live gate means the turn stopped at the user's approval. The approval lives
+ * in memory rather than on disk, so the transcript says so instead of looking
+ * like the model simply stopped.
+ *
+ * `pendingGatesIn` rather than "any gate with no answer anywhere" is what keeps
+ * this from marking a healthy later turn: an abandoned helper's gate stays
+ * unanswered in the log forever, and a scan for unanswered calls would put this
+ * note on every message after it. Only the newest invocation's gates are live.
  */
 function markInterruptedGate(
   events: AdkEvent[],
@@ -202,41 +208,10 @@ function markInterruptedGate(
     return;
   }
 
-  const pending = new Map<string, string>();
-  for (const event of events) {
-    for (const part of event.content?.parts ?? []) {
-      const call = part.functionCall;
-      if (
-        call?.id &&
-        call.name === REQUEST_CONFIRMATION_FUNCTION_CALL_NAME &&
-        event.author !== 'user'
-      ) {
-        const pinned = pinnedToolName(call.args);
-        pending.set(call.id, pinned);
-      }
-      const response = part.functionResponse;
-      if (
-        response?.id &&
-        response.name === REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
-      ) {
-        pending.delete(response.id);
-      }
-    }
-  }
-
-  if (pending.size > 0) {
+  if (pendingGatesIn(events).length > 0) {
     last.error =
       'This turn stopped while waiting for your approval and cannot be resumed after a restart.';
   }
-}
-
-function pinnedToolName(args: unknown): string {
-  if (!args || typeof args !== 'object') {
-    return 'unknown';
-  }
-  const original = (args as {originalFunctionCall?: {name?: string}})
-    .originalFunctionCall;
-  return original?.name ?? 'unknown';
 }
 
 function textOf(parts: NonNullable<AdkEvent['content']>['parts']): string {

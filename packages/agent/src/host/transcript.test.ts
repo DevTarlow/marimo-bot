@@ -216,6 +216,56 @@ describe('projectTranscript', () => {
     expect(last?.error).toBeUndefined();
   });
 
+  /*
+   * A helper's gate outlives the delegation it belonged to when the user walks
+   * away from the card. Scanning for "any unanswered gate" put this note on the
+   * last message of every later turn in that conversation — a healthy answer
+   * described as a turn that stopped. Only the newest invocation's gate is live.
+   */
+  it('does not flag a later turn for a gate an earlier delegation abandoned', () => {
+    const messages = projectTranscript([
+      createEvent({
+        author: 'user',
+        invocationId: 'parent-1',
+        content: {role: 'user', parts: [{text: 'ask the helper'}]},
+      }) as AdkEvent,
+      createEvent({
+        author: agentNameFor('writer'),
+        invocationId: 'child-1',
+        content: {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: 'old-gate',
+                name: GATE,
+                args: {
+                  originalFunctionCall: {
+                    id: 'old-call',
+                    name: 'write_file',
+                    args: {},
+                  },
+                },
+              },
+            },
+          ] as never,
+        },
+      }) as AdkEvent,
+      createEvent({
+        author: 'user',
+        invocationId: 'parent-2',
+        content: {role: 'user', parts: [{text: 'never mind'}]},
+      }) as AdkEvent,
+      createEvent({
+        author: 'marimo',
+        invocationId: 'parent-2',
+        content: {role: 'model', parts: [{text: 'Okay.'}]},
+      }) as AdkEvent,
+    ]);
+
+    expect(messages[messages.length - 1]?.error).toBeUndefined();
+  });
+
   it('records a model error on the assistant message', () => {
     const errorEvent = createEvent({
       author: 'marimo',

@@ -39,7 +39,6 @@ import {
   SKILLS,
 } from '@marimo/agent';
 import type {
-  AgentConfig,
   DelegationResult,
   DeskService,
   DiscordService,
@@ -109,9 +108,6 @@ import {WorkspaceStore, workspaceRootFor} from '../workspaces.js';
 import {resolveAgentConfig} from './resolve.js';
 import {HarnessRuntime} from './harness-runtime.js';
 import {HarnessVersionStore} from '../harness-versions.js';
-import {BOT_BUILDER_INSTRUCTION} from './bot-builder.js';
-import {turnInstruction} from './pet-turn.js';
-import {turnContext} from './turn-context.js';
 
 /** The services the app has that the agent's tools can use, if any. */
 export interface RuntimeServices {
@@ -1640,150 +1636,6 @@ export class AgentRuntime {
     return {ok: true, host, profile};
   }
 
-  /**
-   * Runs one turn, or explains why it cannot.
-   *
-   * A refusal is reported as a failed turn rather than thrown, because that is
-   * what the window already knows how to draw: a message in the conversation
-   * saying what is wrong. An exception here would be a blank screen and a
-   * console line the user never sees.
-   *
-   * `origin` is which surface asked — the window or the floating companion —
-   * and it is the only thing here that is not in the message. The two share a
-   * conversation and a profile, so the pet's shorter answers have to be decided
-   * per turn and read from the settings at the moment it starts: a user who
-   * moved the length slider while the moss was thinking gets the new length on
-   * the next question, not this one.
-   *
-   * `agentId` is the agent the user addressed with `@`, when they did. The turn
-   * is still the *conversation's* — one host, one session, one turn at a time —
-   * but it is answered by that agent, with its identity, its tools and its model,
-   * and its words are attributed to it. An id that is not a participant is
-   * refused rather than answered by the lead: a message that looks delivered and
-   * is not is worse than a refusal.
-   */
-  async *run(
-    profileId: string,
-    sessionId: string,
-    text: string,
-    origin?: 'window' | 'pet',
-    agentId?: string,
-  ): AsyncGenerator<AgentUiEvent> {
-    const result = await this.host(profileId, sessionId);
-    if (!result.ok) {
-      yield refusal(sessionId, result.problem);
-      return;
-    }
-
-    /*
-     * Before the user's message is appended and before anything is sent: a
-     * conversation whose active history has outgrown its budget is summarized
-     * once, so the turn that follows is a request that fits. Automatic failure is
-     * not a turn failure — `autoCompact` answers rather than throws, and the
-     * provider's own refusal (if any) is the sentence the user sees.
-     */
-    await result.host.autoCompact(sessionId, profileId);
-
-    /*
-     * The addressed agent, resolved before anything is sent. Resolved through the
-     * same function a helper is, so "who is in this chat" and "who may this turn
-     * be answered by" cannot disagree about a name.
-     */
-    let as: {agentId: string; name: string; config: AgentConfig} | undefined;
-    if (agentId !== undefined) {
-      const participants =
-        (await result.host.sessionParticipants(sessionId)) ?? [profileId];
-      if (!participants.includes(agentId)) {
-        yield refusal(
-          sessionId,
-          `"${await this.agentLabel(agentId)}" is not in this conversation. Add ` +
-            'them to it first, or send the message without @.',
-        );
-        return;
-      }
-      const delegated = await this.resolveDelegate({agent: agentId});
-      if ('problem' in delegated) {
-        yield refusal(sessionId, delegated.problem);
-        return;
-      }
-      as = {
-        agentId: delegated.profile.id,
-        name: delegated.profile.name,
-        config: delegated.config,
-      };
-    }
-
-    /*
-     * Read before the turn, not after: ADK appends the user's message as the
-     * turn runs, so a read afterwards would answer "how long since the message
-     * you are about to answer" rather than "how long since they last spoke".
-     */
-    const activity = await result.host.sessionActivity(sessionId);
-    /*
-     * The builder instruction goes last, after the ordinary turn context. It is
-     * the most specific thing this turn is for, and it is a stored fact about
-     * the conversation rather than a flag the window has to remember across a
-     * reload.
-     */
-    const purpose = await result.host.sessionPurpose(sessionId);
-    const instruction = [
-      turnInstruction(
-        origin,
-        (await this.settingsStore.load()).companion.answerLength,
-        turnContext({
-          now: new Date(),
-          origin,
-          ...(activity.lastActivity === undefined
-            ? {}
-            : {lastActivity: activity.lastActivity}),
-          firstExchange: activity.firstExchange,
-          text,
-        }),
-      ),
-      purpose === 'bot-builder' ? BOT_BUILDER_INSTRUCTION : undefined,
-    ]
-      .filter((part): part is string => part !== undefined)
-      .join('\n\n');
-    yield* result.host.run(
-      sessionId,
-      text,
-      instruction.length > 0 ? instruction : undefined,
-      profileId,
-      as,
-    );
-  }
-
-  async *approve(
-    profileId: string,
-    params: {sessionId: string; callId: string; confirmed: boolean},
-  ): AsyncGenerator<AgentUiEvent> {
-    /*
-     * No configuration check on purpose. A paused turn is already paid for and
-     * already waiting; refusing to *answer* it because the key went missing
-     * would strand a conversation that could still be finished — or, worse,
-     * declined. The card is the user's to answer either way.
-     */
-    const profile = await this.profileFor(profileId);
-    if (!profile) {
-      return;
-    }
-    const host = await this.ensureHost(profileId);
-    yield* host.approve({...params, sessionId: params.sessionId});
-  }
-
-  async pendingGates(
-    profileId: string,
-    sessionId: string,
-  ): Promise<PendingGate[]> {
-    if (!(await this.profileFor(profileId))) {
-      return [];
-    }
-    await this.assertIndexOwned(sessionId, profileId);
-    return adkPendingGatesIn(
-      await this.sessionIndex.listEvents(sessionId),
-    );
-  }
-
   /** Whether any agent has a turn in flight. */
   isBusy(): boolean {
     return this.harness().isRunningAny();
@@ -1889,10 +1741,6 @@ export class AgentRuntime {
     return byName;
   }
 
-  /** What to call an agent the user has not named successfully. */
-  private async agentLabel(agentId: string): Promise<string> {
-    return (await this.profileFor(agentId))?.name ?? agentId;
-  }
 
   /**
    * The agents a helper call could name, for the refusal that lists them.
@@ -2298,18 +2146,6 @@ function connectorBlurb(server: McpServer): string {
   return `${server.transport === 'http' ? 'At' : 'Runs'} ${where}. Its own tools are offered beside the built-in ones.`;
 }
 
-/** A turn that never started, said in the shape the window already draws. */
-function refusal(sessionId: string, problem: string): AgentUiEvent {
-  return {
-    type: 'turn.failed',
-    sessionId,
-    // No assistant message was ever written, so there is none to point at. The
-    // window shows this beside the composer rather than under a bubble.
-    messageId: '',
-    code: 'not-configured',
-    message: problem,
-  };
-}
 
 
 function requireEntry(

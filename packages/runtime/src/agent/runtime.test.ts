@@ -333,28 +333,6 @@ describe('AgentRuntime', () => {
       }
     });
 
-    /*
-     * The refusal has to be an event, not an exception. `turn.failed` is what
-     * the window already knows how to draw, next to the composer, where the user
-     * is looking — an exception would be a console line they never see.
-     */
-    it('reports a turn it cannot start as a failed turn', async () => {
-      const agent = runtime({readSecret: noKey});
-      const events = [];
-      for await (const event of agent.run(profileId, 'session-1', 'hello')) {
-        events.push(event);
-      }
-
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({
-        type: 'turn.failed',
-        sessionId: 'session-1',
-        code: 'not-configured',
-      });
-      if (events[0]?.type === 'turn.failed') {
-        expect(events[0].message).toMatch(/API key/u);
-      }
-    });
 
     it('says which agent when the profile does not exist', async () => {
       const result = await runtime().host('no-such-profile');

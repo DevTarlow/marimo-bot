@@ -907,11 +907,11 @@ settings.json           preferences and connectors
 skills/<name>/SKILL.md  a procedure you wrote or copied in
 memory-proposals.json   what the agent would remember, waiting for an answer
 feedback.json           answers the user said were wrong, each naming the turn it
-                        was about: the next review reads the words, the replay
-                        reads the mark
-trees/<session>.json    what the agent tried on each turn — only while the
-                        recording is on, so an install that never turns it on
-                        creates no directory at all
+                        was about: the next review reads the words, and the
+                        learning report counts it
+learning/proposals.json what the bot wants to change — a capability, a policy,
+                        maintenance — and the refusals it keeps
+learning/skill-usage.json  how often each skill was loaded, and when last
 window-state.json       where the main window was left
 companion-state.json    where the moss was left
 recall.pid              the embedding engine, for the same reason

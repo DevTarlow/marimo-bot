@@ -271,11 +271,12 @@ it beside the stores.
 session index was the last one missing the guard, and its lenient read plus an
 unguarded write meant a corrupt index became an empty one on the very next
 message — every conversation gone from the sidebar. When you add a store, add it
-to that list. The two documents added since — `feedback.json`, and the bullet
-dates in `memory/<profile>/provenance.json` — both read through
-`readVersionedDocument` and call `assertWritable` before writing, and the second
-one quarantines an unreadable file first because a date that cannot be trusted is
-not a reason to lose the facts it describes.
+to that list. The documents added since — `feedback.json`, the bullet dates in
+`memory/<profile>/provenance.json`, `learning/proposals.json` and
+`learning/skill-usage.json` — all read through `readVersionedDocument` and call
+`assertWritable` before writing, and the provenance one quarantines an unreadable
+file first because a date that cannot be trusted is not a reason to lose the
+facts it describes.
 
 **A Space's documents are the other kind of file, and the guard points the other
 way.** Everything above is about a file the app *owns* and must not lose; a

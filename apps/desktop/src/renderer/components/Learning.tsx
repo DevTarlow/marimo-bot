@@ -235,8 +235,8 @@ export function Learning({
           </h4>
           <p className="settings-muted">
             Refusals, kept so the bot does not repeat a question you have
-            answered. You can let it ask again, one decision at a time, by
-            clearing them.
+            answered. They expire after about six months, so a bot that has
+            changed gets another chance; clearing them asks for that now.
           </p>
           <details className="memory-why">
             <summary>Show them</summary>

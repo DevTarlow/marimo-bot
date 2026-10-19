@@ -58,6 +58,18 @@ export const MAX_PENDING_LEARNING = 50;
  */
 export const MAX_LESSONS = 200;
 
+/**
+ * How long a refusal keeps a suggestion away.
+ *
+ * Not forever, and the number is a judgement rather than a measurement. A bot
+ * that asked for a tool a year ago was a different bot with a different profile,
+ * and a refusal that can never expire turns one bad afternoon into a permanent
+ * silence. Six months is long enough that the same request does not come back in
+ * the same phase of work, and short enough that a person who changes their mind
+ * does not have to find a settings screen to say so.
+ */
+export const LESSON_TTL_DAYS = 180;
+
 export const LEARNING_VERSION = 1;
 
 const READ_OPTIONS: ReadVersionedOptions = {
@@ -151,7 +163,8 @@ export class LearningProposalStore {
         (lesson) =>
           lesson.profileId === input.profileId &&
           lesson.kind === input.kind &&
-          lesson.summary === subject,
+          lesson.summary === subject &&
+          lessonIsCurrent(lesson, this.now()),
       );
       if (refused) {
         return current;
@@ -222,10 +235,20 @@ export class LearningProposalStore {
     });
   }
 
-  /** The refusals one bot should stop repeating. */
+  /** The refusals one bot should stop repeating, and are still current. */
   async lessonsFor(profileId: string): Promise<LearningLesson[]> {
     const file = await this.load();
-    return file.lessons.filter((lesson) => lesson.profileId === profileId);
+    const now = this.now();
+    return file.lessons.filter(
+      (lesson) => lesson.profileId === profileId && lessonIsCurrent(lesson, now),
+    );
+  }
+
+  /** Every current refusal, for the inbox. */
+  async currentLessons(): Promise<LearningLesson[]> {
+    const file = await this.load();
+    const now = this.now();
+    return file.lessons.filter((lesson) => lessonIsCurrent(lesson, now));
   }
 
   /** Forgets every refusal, so the bot may ask again. */
@@ -302,6 +325,21 @@ export class LearningProposalStore {
     );
     return await run;
   }
+}
+
+/**
+ * Whether a refusal still applies.
+ *
+ * An unparseable date is treated as expired: the alternative is a lesson that
+ * can never be cleared by time, which is the state this constant exists to
+ * avoid.
+ */
+export function lessonIsCurrent(lesson: LearningLesson, now: Date): boolean {
+  const at = Date.parse(lesson.at);
+  if (Number.isNaN(at)) {
+    return false;
+  }
+  return now.getTime() - at < LESSON_TTL_DAYS * 86_400_000;
 }
 
 /**

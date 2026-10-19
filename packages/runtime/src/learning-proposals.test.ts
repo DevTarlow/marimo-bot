@@ -14,6 +14,8 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
 import {
   LearningProposalStore,
+  LESSON_TTL_DAYS,
+  lessonIsCurrent,
   MAX_LESSONS,
   MAX_PENDING_LEARNING,
   proposalSubject,
@@ -112,6 +114,34 @@ describe('the learning proposal store', () => {
     expect(again.proposals).toEqual([]);
   });
 
+  /*
+   * A refusal is not permanent. A bot that asked for a tool a year ago was a
+   * different bot, and a lesson that can never expire turns one bad afternoon
+   * into a silence the person cannot undo without finding a settings screen.
+   */
+  it('lets a refusal expire, so the bot may ask again later', async () => {
+    const day = 86_400_000;
+    const start = Date.parse('2026-01-01T00:00:00.000Z');
+    const early = new LearningProposalStore({
+      file,
+      now: () => new Date(start),
+    });
+    const first = await early.record(grant());
+    await early.remove(first.proposals[0]?.id ?? '', true);
+
+    const soon = new LearningProposalStore({
+      file,
+      now: () => new Date(start + 30 * day),
+    });
+    expect((await soon.record(grant())).proposals).toEqual([]);
+
+    const later = new LearningProposalStore({
+      file,
+      now: () => new Date(start + (LESSON_TTL_DAYS + 1) * day),
+    });
+    expect((await later.record(grant())).proposals).toHaveLength(1);
+  });
+
   it('lets a refusal be cleared, so the bot may ask again', async () => {
     const first = await store.record(grant());
     await store.remove(first.proposals[0]?.id ?? '', true);
@@ -193,6 +223,39 @@ describe('the learning proposal store', () => {
     await expect(store.record(grant())).rejects.toThrow(/newer/i);
     const raw = JSON.parse(await readFile(file, 'utf8')) as {version: number};
     expect(raw.version).toBe(99);
+  });
+});
+
+describe('a lesson\'s age', () => {
+  it('is current inside the window and expired outside it', () => {
+    const lesson = {
+      id: 'l1',
+      profileId: 'p',
+      kind: 'grant' as const,
+      summary: 'tool:read_file',
+      at: '2026-01-01T00:00:00.000Z',
+    };
+    const day = 86_400_000;
+    const start = Date.parse(lesson.at);
+    expect(lessonIsCurrent(lesson, new Date(start + 30 * day))).toBe(true);
+    expect(
+      lessonIsCurrent(lesson, new Date(start + (LESSON_TTL_DAYS + 1) * day)),
+    ).toBe(false);
+  });
+
+  it('treats an unreadable date as expired rather than permanent', () => {
+    expect(
+      lessonIsCurrent(
+        {
+          id: 'l1',
+          profileId: 'p',
+          kind: 'grant',
+          summary: 'tool:read_file',
+          at: 'not a date',
+        },
+        new Date(),
+      ),
+    ).toBe(false);
   });
 });
 

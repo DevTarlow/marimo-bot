@@ -1047,14 +1047,15 @@ export class HarnessRuntime {
     memory: MemoryProposal[];
     lessons: LearningLesson[];
   }> {
-    const [learning, memory] = await Promise.all([
+    const [learning, memory, lessons] = await Promise.all([
       this.learning.load(),
       this.proposals.load(),
+      this.learning.currentLessons(),
     ]);
     return {
       proposals: learning.proposals,
       memory: memory.proposals,
-      lessons: learning.lessons,
+      lessons,
     };
   }
 

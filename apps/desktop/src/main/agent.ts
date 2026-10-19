@@ -1465,6 +1465,22 @@ export class AgentService {
     profileId: string,
     sessionId: string,
   ): Promise<{messages: TranscriptMessage[]; pending: PendingGate[]}> {
+    /*
+     * Opening a v1 conversation is a good moment to bring it forward, as long as
+     * it is not waiting on a card. The old words are copied; the old store is
+     * left alone. A pending card stays on v1, because its click belongs to the
+     * old invocation.
+     */
+    if (
+      process.env['MARIMO_HARNESS_V1'] !== '1' &&
+      !(await this.harnessHasLog(sessionId))
+    ) {
+      try {
+        await this.runtime.migrateLegacy(profileId, sessionId);
+      } catch {
+        // The old reader below still answers if the import could not.
+      }
+    }
     if (await this.harnessHasLog(sessionId)) {
       const harness = this.runtime.harness();
       return {

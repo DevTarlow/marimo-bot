@@ -59,6 +59,40 @@ describe('createJobRunner', () => {
     expect(events.map((event) => event.type)).toEqual(['turn.completed']);
   });
 
+  it('starts a job in a new conversation on v2', async () => {
+    let v1 = 0;
+    let v2 = 0;
+    const runtime = {
+      isBusy: () => false,
+      listSessions: async () => [{id: 's1', messageCount: 0}],
+      createSession: async () => ({id: 's1'}),
+      run: async function* () {
+        v1 += 1;
+        yield {type: 'turn.completed', sessionId: 's1', messageId: 't1'};
+      },
+    } as unknown as AgentRuntime;
+    const harness = {
+      hasLog: async () => false,
+      run: async function* () {
+        v2 += 1;
+        yield {type: 'turn.completed', sessionId: 's1', messageId: 't1'};
+      },
+    } as unknown as HarnessRuntime;
+    const jobs = {setSession: async () => undefined} as unknown as JobStore;
+    const runner = createJobRunner({runtime, harness, jobs});
+    const result = await runner.run({
+      jobId: 'job-1',
+      profileId: 'writer',
+      sessionId: 's1',
+      onSession: () => undefined,
+      prompt: 'Do it.',
+      title: 'A job',
+    });
+    await collect(result.events);
+    expect(v2).toBe(1);
+    expect(v1).toBe(0);
+  });
+
   it('leaves a v1 conversation on the old path', async () => {
     let v1 = 0;
     const runtime = {

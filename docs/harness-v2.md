@@ -293,9 +293,10 @@ one transcript would lose whichever half the window is not reading. Once a
 conversation has a v2 log, that log is the marker that keeps it on the engine
 that asked the question, even after a restart.
 
-`MARIMO_HARNESS_V1=1` is an escape hatch for a broken v2, not a mode: it keeps
-new conversations on the old engine until the next start. It is not a setting
-and it is not in the window.
+There is no engine switch. A conversation with a v1 history is migrated when it
+is read or continued; one the import cannot read reports that instead of falling
+back to a second engine. The old `AgentHost` remains only for the legacy
+configuration/helper surfaces, not for an ordinary turn.
 
 The old `AgentHost` is still present and still owns memory, skills, delegation,
 jobs and the prompt assembly those features need. It is deleted when those
@@ -323,7 +324,7 @@ into the canonical log and the conversation continues on v2. The old ADK log is 
 one-way. A v1 group's membership comes with its words, so an addressed turn can
 continue on v2 too. A waiting v1 card is imported as a canonical approval with
 the original call, confirmation id, tool and arguments, so it can be answered on
-v2; only the `MARIMO_HARNESS_V1=1` escape stays on v1.
+v2. There is no environment escape left for an ordinary conversation.
 
 What is still old: v1 turns behind the escape hatch, and same-conversation helper
 delegation where the helper can raise a gate the parent resumes. The session

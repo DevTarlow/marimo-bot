@@ -8,7 +8,6 @@ describe('the conversation engine route', () => {
       shouldUseV2({
         hasLog: true,
         addressed: false,
-        escapeHatch: false,
         indexMessageCount: 12,
       }),
     ).toBe(true);
@@ -19,7 +18,6 @@ describe('the conversation engine route', () => {
       shouldUseV2({
         hasLog: false,
         addressed: false,
-        escapeHatch: false,
         indexMessageCount: 0,
       }),
     ).toBe(true);
@@ -30,26 +28,16 @@ describe('the conversation engine route', () => {
       shouldUseV2({
         hasLog: false,
         addressed: false,
-        escapeHatch: false,
         indexMessageCount: 3,
       }),
     ).toBe(false);
   });
 
-  it('does not route an addressed or escape-hatched turn to v2 without a log', () => {
+  it('does not route an addressed turn to v2 without a log', () => {
     expect(
       shouldUseV2({
         hasLog: false,
         addressed: true,
-        escapeHatch: false,
-        indexMessageCount: 0,
-      }),
-    ).toBe(false);
-    expect(
-      shouldUseV2({
-        hasLog: false,
-        addressed: false,
-        escapeHatch: true,
         indexMessageCount: 0,
       }),
     ).toBe(false);
@@ -60,7 +48,6 @@ describe('the conversation engine route', () => {
       shouldUseV2({
         hasLog: false,
         addressed: false,
-        escapeHatch: false,
         fallbackEmpty: true,
       }),
     ).toBe(true);
@@ -68,7 +55,6 @@ describe('the conversation engine route', () => {
       shouldUseV2({
         hasLog: false,
         addressed: false,
-        escapeHatch: false,
         fallbackEmpty: false,
       }),
     ).toBe(false);

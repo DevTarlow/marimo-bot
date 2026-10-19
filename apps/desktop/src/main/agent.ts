@@ -1328,7 +1328,7 @@ export class AgentService {
       (agentIds.length > 0 &&
         summary !== undefined &&
         summary.messageCount === 0 &&
-        process.env['MARIMO_HARNESS_V1'] !== '1');
+        true);
     if (startV2) {
       await this.runtime
         .harness()
@@ -1353,7 +1353,6 @@ export class AgentService {
   /** Replaces the older part of a conversation with a summary. */
   async compact(profileId: string, sessionId: string): Promise<CompactResult> {
     if (
-      process.env['MARIMO_HARNESS_V1'] !== '1' &&
       !(await this.harnessHasLog(sessionId))
     ) {
       try {
@@ -1369,14 +1368,12 @@ export class AgentService {
       this.options.sendEvent({type: 'session.changed', sessionId});
       return result;
     }
-    const result = await this.runtime.compact(profileId, sessionId);
-    /*
-     * Told even when nothing happened: the window that ran the command re-reads
-     * the conversation, and the rail's own copy of the entry is now stale — the
-     * summary is a new event, so the count and the time have both moved.
-     */
     this.options.sendEvent({type: 'session.changed', sessionId});
-    return result;
+    return {
+      compacted: false,
+      reason:
+        'This conversation could not be brought forward to the current engine, so there is nothing to compact yet.',
+    };
   }
 
   async deleteSession(profileId: string, sessionId: string): Promise<void> {
@@ -1487,7 +1484,6 @@ export class AgentService {
      * old invocation.
      */
     if (
-      process.env['MARIMO_HARNESS_V1'] !== '1' &&
       !(await this.harnessHasLog(sessionId))
     ) {
       try {
@@ -1522,12 +1518,10 @@ export class AgentService {
     agentId: string | undefined,
   ): Promise<boolean> {
     const hasLog = await this.harnessHasLog(sessionId);
-    const escapeHatch = process.env['MARIMO_HARNESS_V1'] === '1';
-    if (hasLog || agentId !== undefined || escapeHatch) {
+    if (hasLog || agentId !== undefined) {
       return shouldUseV2({
         hasLog,
         addressed: agentId !== undefined,
-        escapeHatch,
       });
     }
     try {
@@ -1541,7 +1535,6 @@ export class AgentService {
       return shouldUseV2({
         hasLog,
         addressed: false,
-        escapeHatch,
         ...(summary === undefined
           ? {
               fallbackEmpty:
@@ -1606,7 +1599,6 @@ export class AgentService {
      * turn or the escape hatch stays on v1.
      */
     if (
-      process.env['MARIMO_HARNESS_V1'] !== '1' &&
       !(await this.harnessHasLog(sessionId))
     ) {
       try {
@@ -1652,20 +1644,15 @@ export class AgentService {
       return {accepted: true};
     }
 
-    if (this.runtime.isBusy()) {
-      this.options.sendEvent({
-        type: 'turn.failed',
-        sessionId,
-        messageId: '',
-        code: 'busy',
-        message:
-          'A turn is already running. Wait for it to finish, or stop it.',
-      });
-      return {accepted: false};
-    }
-
-    this.pump(this.runtime.run(profileId, sessionId, text, origin, agentId));
-    return {accepted: true};
+    this.options.sendEvent({
+      type: 'turn.failed',
+      sessionId,
+      messageId: '',
+      code: 'engine',
+      message:
+        'This conversation could not be brought forward to the current engine. Open it again to retry the migration.',
+    });
+    return {accepted: false};
   }
 
   async approve(
@@ -1682,7 +1669,6 @@ export class AgentService {
     this.busyProfileId = profileId;
 
     if (
-      process.env['MARIMO_HARNESS_V1'] !== '1' &&
       !(await this.harnessHasLog(sessionId))
     ) {
       try {
@@ -1709,20 +1695,15 @@ export class AgentService {
       return {accepted: true};
     }
 
-    if (this.runtime.isBusy()) {
-      this.options.sendEvent({
-        type: 'turn.failed',
-        sessionId,
-        messageId: '',
-        code: 'busy',
-        message:
-          'A turn is already running. Wait for it to finish, or stop it.',
-      });
-      return {accepted: false};
-    }
-
-    this.pump(this.runtime.approve(profileId, {sessionId, callId, confirmed}));
-    return {accepted: true};
+    this.options.sendEvent({
+      type: 'turn.failed',
+      sessionId,
+      messageId: '',
+      code: 'engine',
+      message:
+        'This approval could not be brought forward to the current engine. Open the conversation again to retry the migration.',
+    });
+    return {accepted: false};
   }
 
   abort(profileId: string, sessionId: string): {aborted: boolean} {

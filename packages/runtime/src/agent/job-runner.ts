@@ -63,14 +63,39 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         onSession(id);
       }
 
-      if (options.harness !== undefined && (await options.harness.hasLog(id))) {
-        return {
-          sessionId: id,
-          events: forward(
-            options.harness.run(profileId, id, prompt),
-            options.onEvent,
-          ),
-        };
+      if (options.harness !== undefined) {
+        const sessions = await runtime.listSessions(profileId);
+        const summary = sessions.find((session) => session.id === id);
+        /*
+         * A session the job just created is new work and starts on v2. A v1
+         * conversation is brought forward if it can be; a pending card or an
+         * unreadable import still falls back to the old path for this run.
+         */
+        if (summary?.messageCount === 0) {
+          return {
+            sessionId: id,
+            events: forward(
+              options.harness.run(profileId, id, prompt),
+              options.onEvent,
+            ),
+          };
+        }
+        if (!(await options.harness.hasLog(id))) {
+          try {
+            await runtime.migrateLegacy(profileId, id);
+          } catch {
+            // The fallback below reports the old engine's own failure.
+          }
+        }
+        if (await options.harness.hasLog(id)) {
+          return {
+            sessionId: id,
+            events: forward(
+              options.harness.run(profileId, id, prompt),
+              options.onEvent,
+            ),
+          };
+        }
       }
 
       return {

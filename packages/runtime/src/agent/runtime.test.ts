@@ -129,6 +129,18 @@ describe('AgentRuntime', () => {
     return new AgentRuntime({paths, readSecret: keyPresent, ...options});
   }
 
+  it('creates and lists a conversation without building a host', async () => {
+    const agent = runtime();
+    const hosts = (agent as unknown as {hosts: Map<string, unknown>}).hosts;
+    expect(hosts.size).toBe(0);
+
+    const session = await agent.createSession(profileId, 'A chat');
+    expect(session).toBeDefined();
+    const sessions = await agent.listSessions(profileId);
+    expect(sessions.map((entry) => entry.id)).toContain(session?.id);
+    expect(hosts.size).toBe(0);
+  });
+
   /*
    * The size control in Settings reads these three numbers. They come from the
    * agent's own store rather than from a second copy of the setting, which is

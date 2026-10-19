@@ -71,7 +71,6 @@ import type {
   AgentProfile,
   AgentUiEvent,
   CatalogEntry,
-  CompactResult,
   DismissedMemory,
   DocumentRead,
   DocumentRevision,
@@ -1406,29 +1405,9 @@ export class AgentRuntime {
     const entry = await this.sessionIndex.renameSession(sessionId, title);
     return summaryOf(requireEntry(entry, sessionId));
   }
-
-  /**
-   * Replaces the older part of a conversation with a summary.
-   *
-   * Resolved through `host()` rather than `ensureHost()`, which is the opposite
-   * of what the calls above do and deliberately so: those write metadata a
-   * conversation can be filed or named without a model. This one *asks the
-   * model*, so it needs the real configuration, and an engine that is not up has
-   * to come back as the sentence the window already knows how to draw rather
-   * than as a request to an empty endpoint.
-   */
-  async compact(profileId: string, sessionId: string): Promise<CompactResult> {
-    const resolved = await this.host(profileId, sessionId);
-    if (!resolved.ok) {
-      throw new Error(resolved.problem);
-    }
-    return await resolved.host.compact(sessionId, profileId);
-  }
-
   /** Deletes a conversation, aborting a run in it if there is one. */
   async deleteSession(profileId: string, sessionId: string): Promise<void> {
     await this.assertIndexOwned(sessionId, profileId);
-    this.hosts.get(profileId)?.abort(sessionId);
     await this.sessionIndex.deleteSession({
       appName: MAIN_AGENT_NAME,
       userId: 'local',

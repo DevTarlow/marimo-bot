@@ -148,6 +148,51 @@ describe('TurnEngine', () => {
     });
   });
 
+  it('records what the turn cost on the event that ends it', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'tool.call', callId: 'c1', tool: 'read_file', args: {}},
+        {
+          type: 'tool.result',
+          callId: 'c1',
+          tool: 'read_file',
+          ok: false,
+          result: 'No such file.',
+        },
+        {type: 'step'},
+        {type: 'message', text: 'I could not read it.'},
+        {type: 'done'},
+      ],
+    ]);
+    const {engine, store} = engineFor(driver);
+
+    await collect(
+      engine.run({
+        sessionId: 's1',
+        profileId: 'writer',
+        text: 'Read it',
+        harness: harness(),
+      }),
+    );
+
+    const events = await store.read('s1');
+    const completed = events.find(
+      (event) => event.type === 'turn.completed',
+    );
+    /*
+     * `durationMs` is zero here because the test injects a fixed clock. What is
+     * asserted is the shape and the counts; the clock is not this test's job.
+     */
+    expect(completed?.outcome).toEqual({
+      steps: 2,
+      toolCalls: 1,
+      toolErrors: 1,
+      approvals: 0,
+      durationMs: 0,
+    });
+  });
+
   it('stores the turn instruction and replays it on resume', async () => {
     const driver = new ScriptedDriver(
       [

@@ -128,10 +128,43 @@ export const approvalDecidedSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
 });
 
+/**
+ * What a turn cost, on the event that ends it.
+ *
+ * The log already answered "what was said"; it could not answer "was this turn
+ * worth it". That is the question every proposal in the learning loop has to be
+ * judged against — a skill that saves four tool calls is an improvement, and the
+ * same skill on a turn that failed is not. So the numbers are recorded where the
+ * turn ends, once, rather than recomputed from a transcript later.
+ *
+ * Optional on the schema and always written by this build. An older log has no
+ * outcome, and refusing to read it would make an upgrade lose conversations to
+ * gain a statistic.
+ *
+ * `durationMs` is the wall time of the invocation that finished the turn. A turn
+ * that waited on an approval and was resumed measures the resume, not the
+ * minutes the card sat on screen: including the human's thinking time would make
+ * every gated turn look slow and say nothing about the work.
+ */
+export const turnOutcomeSchema = z.object({
+  /** Model steps: one request and its reply. */
+  steps: z.number().int().nonnegative(),
+  /** Calls the model proposed, including ones that were gated. */
+  toolCalls: z.number().int().nonnegative(),
+  /** Calls that ran and answered `ok: false`. Synthetic closes are not errors. */
+  toolErrors: z.number().int().nonnegative(),
+  /** Approval cards raised during the turn. */
+  approvals: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+});
+
+export type TurnOutcome = z.infer<typeof turnOutcomeSchema>;
+
 export const turnCompletedSchema = z.object({
   ...turnBase,
   type: z.literal('turn.completed'),
   usage: tokenUsageSchema.optional(),
+  outcome: turnOutcomeSchema.optional(),
 });
 
 export const turnFailedSchema = z.object({
@@ -139,11 +172,13 @@ export const turnFailedSchema = z.object({
   type: z.literal('turn.failed'),
   code: z.string().min(1).optional(),
   message: z.string().min(1),
+  outcome: turnOutcomeSchema.optional(),
 });
 
 export const turnAbortedSchema = z.object({
   ...turnBase,
   type: z.literal('turn.aborted'),
+  outcome: turnOutcomeSchema.optional(),
 });
 
 export const sessionRenamedSchema = z.object({

@@ -1952,6 +1952,23 @@ export interface HarnessReport {
   /** Earlier skill bodies kept in history, across every skill. */
   skillVersions: number;
   jobs: number;
+  /**
+   * What finished turns cost, and how many the user corrected.
+   *
+   * The report had counts of documents and tokens but nothing about whether a
+   * turn did its job. This is that denominator: a proposal can cite it, and the
+   * Learning card can say whether the last accepted change moved it.
+   */
+  outcomes: {
+    completed: number;
+    failed: number;
+    aborted: number;
+    toolCalls: number;
+    toolErrors: number;
+    steps: number;
+    approvals: number;
+    corrections: number;
+  };
   paths: {harnessSessions: string; harnessVersions: string};
 }
 

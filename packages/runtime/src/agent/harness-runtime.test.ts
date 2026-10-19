@@ -441,6 +441,16 @@ describe('HarnessRuntime', () => {
     expect(report.reviewedConversations).toBe(0);
     expect(report.skillVersions).toBe(0);
     expect(report.unreadableLogs).toBe(0);
+    expect(report.outcomes).toEqual({
+      completed: 2,
+      failed: 0,
+      aborted: 0,
+      toolCalls: 0,
+      toolErrors: 0,
+      steps: 2,
+      approvals: 0,
+      corrections: 0,
+    });
     expect(report.paths.harnessSessions).toContain('harness');
   });
 

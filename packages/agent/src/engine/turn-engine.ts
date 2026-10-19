@@ -26,7 +26,7 @@ import {
   roundDecided,
   turnIdOf,
 } from './events.js';
-import type {SessionEvent, TokenUsage} from './events.js';
+import type {SessionEvent, TokenUsage, TurnOutcome} from './events.js';
 
 export type EngineUpdate =
   | {type: 'delta'; channel: 'text' | 'reasoning'; text: string}
@@ -88,8 +88,12 @@ interface TurnState {
   profileId: string;
   controller: AbortController;
   timedOut: boolean;
+  /** When the invocation that owns this state began, for `durationMs`. */
+  startedAtMs: number;
   steps: number;
   toolCalls: number;
+  toolErrors: number;
+  approvals: number;
   gates: Set<string>;
   /** Calls that have been offered and have no result yet. */
   calls: Map<string, string>;
@@ -323,8 +327,11 @@ export class TurnEngine {
       profileId: params.profileId,
       controller: new AbortController(),
       timedOut: false,
+      startedAtMs: this.now().getTime(),
       steps: 0,
       toolCalls: 0,
+      toolErrors: 0,
+      approvals: 0,
       gates: new Set(),
       calls: new Map(),
       text: '',
@@ -432,6 +439,7 @@ export class TurnEngine {
           ...this.stamp(params.sessionId),
           turnId: params.turnId,
           type: 'turn.aborted',
+          outcome: this.outcome(state),
         };
         await this.append(params.sessionId, [event]);
         yield {type: 'event', event};
@@ -477,12 +485,24 @@ export class TurnEngine {
         turnId: params.turnId,
         type: 'turn.completed',
         ...(state.usage === undefined ? {} : {usage: state.usage}),
+        outcome: this.outcome(state),
       };
       await this.append(params.sessionId, [completed]);
       yield {type: 'event', event: completed};
     } finally {
       this.active.delete(params.sessionId);
     }
+  }
+
+  /** The cost of the invocation that is ending, for its terminal event. */
+  private outcome(state: TurnState): TurnOutcome {
+    return {
+      steps: state.steps,
+      toolCalls: state.toolCalls,
+      toolErrors: state.toolErrors,
+      approvals: state.approvals,
+      durationMs: Math.max(0, this.now().getTime() - state.startedAtMs),
+    };
   }
 
   private async *fail(
@@ -496,6 +516,7 @@ export class TurnEngine {
       type: 'turn.failed',
       code,
       message,
+      outcome: this.outcome(state),
     };
     await this.append(state.sessionId, [event]);
     yield {type: 'event', event};
@@ -595,6 +616,15 @@ export class TurnEngine {
       case 'tool.result': {
         state.calls.delete(event.callId);
         state.gates.delete(event.callId);
+        /*
+         * Only a driver result reaches here, so this is a tool answering. The
+         * synthetic results `closeDangling` writes never pass through `consume`;
+         * counting those would make every stopped turn look like a turn full of
+         * broken tools, which is the opposite of the signal a proposal needs.
+         */
+        if (!event.ok) {
+          state.toolErrors += 1;
+        }
         const result: SessionEvent = {
           ...this.stamp(params.sessionId),
           turnId: params.turnId,
@@ -611,6 +641,7 @@ export class TurnEngine {
       }
       case 'approval.request': {
         state.toolCalls += 1;
+        state.approvals += 1;
         state.gates.add(event.callId);
         state.calls.set(event.callId, event.tool);
         if (state.toolCalls > params.harness.tools.budgets.maxToolCalls) {

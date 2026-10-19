@@ -328,6 +328,23 @@ export class HarnessRuntime {
     reviewedConversations: number;
     skills: number;
     skillVersions: number;
+    /**
+     * What the finished turns cost, and how many the user corrected.
+     *
+     * The denominator a proposal is judged against. A metric without it says
+     * "three tool errors" and cannot say whether that is a bad week or a bad
+     * bot; `completed` beside it is what makes the number mean something.
+     */
+    outcomes: {
+      completed: number;
+      failed: number;
+      aborted: number;
+      toolCalls: number;
+      toolErrors: number;
+      steps: number;
+      approvals: number;
+      corrections: number;
+    };
     paths: {harnessSessions: string; harnessVersions: string};
   }> {
     let v2 = 0;
@@ -336,6 +353,16 @@ export class HarnessRuntime {
     let completionTokens = 0;
     let totalTokens = 0;
     let unreadableLogs = 0;
+    const outcomes = {
+      completed: 0,
+      failed: 0,
+      aborted: 0,
+      toolCalls: 0,
+      toolErrors: 0,
+      steps: 0,
+      approvals: 0,
+      corrections: 0,
+    };
     const ids = this.store.list === undefined ? [] : await this.store.list();
     for (const id of ids) {
       let events;
@@ -355,10 +382,34 @@ export class HarnessRuntime {
       for (const event of events) {
         if (event.type === 'turn.started') {
           turns += 1;
-        } else if (event.type === 'turn.completed' && event.usage !== undefined) {
-          promptTokens += event.usage.promptTokens;
-          completionTokens += event.usage.completionTokens;
-          totalTokens += event.usage.totalTokens;
+        } else if (event.type === 'turn.completed') {
+          outcomes.completed += 1;
+          if (event.usage !== undefined) {
+            promptTokens += event.usage.promptTokens;
+            completionTokens += event.usage.completionTokens;
+            totalTokens += event.usage.totalTokens;
+          }
+        } else if (event.type === 'turn.failed') {
+          outcomes.failed += 1;
+        } else if (event.type === 'turn.aborted') {
+          outcomes.aborted += 1;
+        }
+        /*
+         * An outcome is optional because a log written before this field existed
+         * has none. Counting only what is there is the honest read: a missing
+         * outcome contributes nothing rather than a zero that looks measured.
+         */
+        if (
+          event.type === 'turn.completed' ||
+          event.type === 'turn.failed' ||
+          event.type === 'turn.aborted'
+        ) {
+          if (event.outcome !== undefined) {
+            outcomes.toolCalls += event.outcome.toolCalls;
+            outcomes.toolErrors += event.outcome.toolErrors;
+            outcomes.steps += event.outcome.steps;
+            outcomes.approvals += event.outcome.approvals;
+          }
         }
       }
     }
@@ -373,6 +424,7 @@ export class HarnessRuntime {
     ).length;
     const dismissedProposals = proposalFile.dismissed.length;
     const reviewedConversations = Object.keys(proposalFile.reviewed).length;
+    outcomes.corrections = (await this.feedback.forProfile(profileId)).length;
     const skillList = await this.skillStore.load();
     let skillVersions = 0;
     for (const skill of skillList) {
@@ -394,6 +446,7 @@ export class HarnessRuntime {
       reviewedConversations,
       skills: skillList.length,
       skillVersions,
+      outcomes,
       paths: {
         harnessSessions: this.options.paths.harnessSessions,
         harnessVersions: this.options.paths.harnessVersions,

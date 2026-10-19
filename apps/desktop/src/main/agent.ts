@@ -1123,6 +1123,7 @@ export class AgentService {
       skills: report.skills,
       skillVersions: report.skillVersions,
       jobs,
+      outcomes: report.outcomes,
       paths: report.paths,
     };
   }

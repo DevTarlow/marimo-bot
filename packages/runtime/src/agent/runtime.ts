@@ -1435,6 +1435,15 @@ export class AgentRuntime {
   }
 
   /** Every conversation, or one agent's. */
+  /** The stored purpose of one conversation, without listing the rail. */
+  async sessionPurpose(
+    profileId: string,
+    sessionId: string,
+  ): Promise<SessionPurpose | undefined> {
+    const host = await this.ensureHost(profileId);
+    return await host.sessionPurpose(sessionId);
+  }
+
   async listSessions(profileId?: string): Promise<SessionSummary[]> {
     const profile = profileId ?? (await this.profileStore.activeProfile()).id;
     const host = await this.ensureHost(profile);

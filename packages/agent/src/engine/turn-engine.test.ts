@@ -12,6 +12,7 @@ import type {
   DriverRun,
   TurnDriver,
 } from './driver.js';
+import {pendingGatesIn} from './events.js';
 import {MemoryEventStore} from './event-store.js';
 import {GateNotFoundError, TurnBusyError, TurnEngine} from './turn-engine.js';
 import type {EngineUpdate} from './turn-engine.js';
@@ -190,6 +191,47 @@ describe('TurnEngine', () => {
       }),
     );
     expect(driver.lastResumeInstruction).toBe('Answer in two sentences.');
+  });
+
+  it('refuses to resume a card after the harness changed', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'I need to write.'},
+        {
+          type: 'approval.request',
+          callId: 'call-1',
+          tool: 'write_file',
+          args: {path: 'a.md'},
+        },
+        {type: 'done'},
+      ],
+    ]);
+    const {engine, store} = engineFor(driver);
+    const original = harness();
+    await collect(
+      engine.run({
+        sessionId: 's1',
+        profileId: 'writer',
+        text: 'Write.',
+        harness: original,
+      }),
+    );
+    const changed = {...original, version: original.version + 1};
+    await expect(
+      collect(
+        engine.approve({
+          sessionId: 's1',
+          callId: 'call-1',
+          confirmed: true,
+          harness: changed,
+        }),
+      ),
+    ).rejects.toThrow('instructions changed');
+    expect(driver.resumeCalls).toBe(0);
+    expect(
+      pendingGatesIn(await store.read('s1')).map((gate) => gate.callId),
+    ).toEqual(['call-1']);
   });
 
   it('allows a new turn after the previous one completed', async () => {

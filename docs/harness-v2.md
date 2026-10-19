@@ -304,6 +304,13 @@ plan was too optimistic: deleting the old host in Phase 1 would have taken the
 shipped product's memory and skills with it, so the cutover follows the feature
 ports rather than the engine.
 
+A resolved spec is frozen all the way down, and the hash recorded on
+`turn.started` is checked again before a waiting card resumes. If the bot's
+instructions, grants or model changed while the card was up, the resume is
+refused with a sentence rather than run under a different policy: the turn was
+started with one contract and cannot finish under another. A new turn is the way
+forward.
+
 What the v2 path now has: memory, the user's skills, recall, literal workspace
 search, web search and fetch, jobs, bot drafting, direct @ addressing,
 `ask_agent`, per-conversation model and Space, rename/delete, and the companion's

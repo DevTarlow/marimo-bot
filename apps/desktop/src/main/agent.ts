@@ -1455,16 +1455,14 @@ export class AgentService {
         });
         return {accepted: false};
       }
-      const session = (await this.runtime.listSessions(profileId)).find(
-        (candidate) => candidate.id === sessionId,
-      );
+      const purpose = await this.runtime.sessionPurpose(profileId, sessionId);
       const instruction =
         origin === 'pet'
           ? turnInstruction(
               'pet',
               (await this.runtime.settings()).companion.answerLength,
             )
-          : session?.purpose === 'bot-builder'
+          : purpose === 'bot-builder'
             ? BOT_BUILDER_INSTRUCTION
             : undefined;
       this.pump(harness.run(profileId, sessionId, text, agentId, instruction));

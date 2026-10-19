@@ -35,6 +35,19 @@ describe('resolveHarness', () => {
     expect(spec.contract).toEqual(DEFAULT_HARNESS.contract);
   });
 
+  it('freezes the spec deeply so a recorded hash stays true', () => {
+    const spec = resolveHarness({profile: profile(), app, version: 1});
+    expect(Object.isFrozen(spec)).toBe(true);
+    expect(Object.isFrozen(spec.tools.grants)).toBe(true);
+    expect(Object.isFrozen(spec.contract)).toBe(true);
+    expect(() => {
+      (spec.tools.grants as string[]).push('run_shell');
+    }).toThrow();
+    expect(() => {
+      (spec.contract as string[]).push('invented');
+    }).toThrow();
+  });
+
   it('drops a persona that is only whitespace', () => {
     const spec = resolveHarness({
       profile: profile({persona: '   '}),

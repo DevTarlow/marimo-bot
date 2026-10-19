@@ -234,7 +234,7 @@ export function resolveHarness(input: ResolveHarnessInput): HarnessSpec {
 
   const persona = input.profile.persona?.trim();
 
-  return harnessSpecSchema.parse({
+  return deepFreeze(harnessSpecSchema.parse({
     id: input.profile.id,
     version: input.version,
     identity: {
@@ -258,5 +258,23 @@ export function resolveHarness(input: ResolveHarnessInput): HarnessSpec {
     model,
     plugins: pluginsFor(builtin.plugins, learning),
     learning,
-  });
+  }));
+}
+
+/**
+ * Freezes the spec all the way down.
+ *
+ * A hash is recorded when a turn starts; a nested array that a later caller can
+ * push to would make that hash describe a document that no longer exists. The
+ * depth is small and the shape is plain data, so a recursive freeze is cheaper
+ * than trusting every caller to treat the spec as immutable.
+ */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const nested of Object.values(value)) {
+      deepFreeze(nested);
+    }
+  }
+  return value;
 }

@@ -250,6 +250,7 @@ export * from './harness/index.js';
 export {
   TurnBusyError,
   GateNotFoundError,
+  HarnessChangedError,
   TurnEngine,
 } from './engine/turn-engine.js';
 export type {

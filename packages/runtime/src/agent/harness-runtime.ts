@@ -523,6 +523,9 @@ export class HarnessRuntime {
 
   /** Whether this conversation has a v2 log, so the shell can fall back. */
   async hasLog(sessionId: string): Promise<boolean> {
+    if (this.store.has !== undefined) {
+      return await this.store.has(sessionId);
+    }
     return (await this.store.read(sessionId)).length > 0;
   }
 

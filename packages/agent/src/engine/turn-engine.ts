@@ -66,6 +66,15 @@ export class TurnBusyError extends Error {
   }
 }
 
+export class HarnessChangedError extends Error {
+  constructor() {
+    super(
+      'The bot’s instructions changed while this call was waiting. Start a new turn; this approval cannot be resumed safely.',
+    );
+    this.name = 'HarnessChangedError';
+  }
+}
+
 export class GateNotFoundError extends Error {
   constructor(callId: string) {
     super(`No approval is waiting for call ${callId}.`);
@@ -231,6 +240,15 @@ export class TurnEngine {
       );
       if (gate === undefined) {
         throw new GateNotFoundError(params.callId);
+      }
+      const begun = before.find(
+        (event) => event.type === 'turn.started' && event.turnId === turnId,
+      );
+      if (
+        begun?.type === 'turn.started' &&
+        begun.harnessHash !== harnessHash(params.harness)
+      ) {
+        throw new HarnessChangedError();
       }
 
       const decision: SessionEvent = {

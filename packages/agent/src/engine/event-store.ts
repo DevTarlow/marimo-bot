@@ -11,6 +11,8 @@ import type {SessionEvent} from './events.js';
 export interface EventStore {
   append(sessionId: string, events: readonly SessionEvent[]): Promise<void>;
   read(sessionId: string): Promise<SessionEvent[]>;
+  /** Whether a conversation has a stored log. */
+  has?(sessionId: string): Promise<boolean>;
   /** Remove a conversation's log, when the conversation is deleted. */
   delete?(sessionId: string): Promise<void>;
 }
@@ -35,6 +37,10 @@ export class MemoryEventStore implements EventStore {
 
   async read(sessionId: string): Promise<SessionEvent[]> {
     return [...(this.sessions.get(sessionId) ?? [])];
+  }
+
+  async has(sessionId: string): Promise<boolean> {
+    return this.sessions.has(sessionId);
   }
 
   async delete(sessionId: string): Promise<void> {

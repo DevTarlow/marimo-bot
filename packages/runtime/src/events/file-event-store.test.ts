@@ -60,6 +60,17 @@ describe('FileEventStore', () => {
     expect(await store.read('s1')).toEqual([created('s1'), message('s1')]);
   });
 
+  it('answers whether a conversation has a log, before and after a delete', async () => {
+    const dir = await root();
+    const store = new FileEventStore({rootDir: dir});
+    expect(await store.has('s1')).toBe(false);
+    await store.append('s1', [created('s1')]);
+    expect(await store.has('s1')).toBe(true);
+    await store.delete('s1');
+    expect(await store.has('s1')).toBe(false);
+    expect(await store.read('s1')).toEqual([]);
+  });
+
   it('answers an empty list for a conversation that was never written', async () => {
     const dir = await root();
     const store = new FileEventStore({rootDir: dir});

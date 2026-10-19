@@ -84,6 +84,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool                                                                                                                                                                                                                                                                                            |
+| Done        | Learning: turn outcomes, memory evidence, capability and policy proposals, a refusal that expires, and one inbox where the person decides |
 | In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## Why it is built this way
@@ -350,6 +351,55 @@ The store holds the user's words verbatim and bounded, and it is scoped to the
 profile, because one agent being told it was wrong about a deployment is not a
 fact about the other one. It reads leniently so a corrupt file still opens the
 window, and it moves that file aside before writing rather than over it.
+
+### Learning: the bot proposes, the person decides, and the log says what it cost
+
+Self-improvement here is not a model editing itself. It is a small set of
+channels through which the bot can ask for a change, a person answering each
+one, and a record of whether the change moved anything.
+
+**A turn records its outcome.** `turn.completed`, `turn.failed` and
+`turn.aborted` carry steps, tool calls, failed tool calls, approval cards and
+the invocation's wall time. The fields are optional because a log written before
+they existed has none. The Settings report adds the user's corrections, which is
+the only outcome the person states directly.
+
+**There are four proposal kinds, and two documents.** Memory keeps
+`memory-proposals.json` because it has a review watermark and an exact-text
+refusal list that mean nothing to a grant. Grants, policy changes and
+maintenance live in `learning/proposals.json`. The window asks
+`learning.proposals` and gets both, so there is one inbox even though the shapes
+are different.
+
+- **Memory.** The idle review proposes facts, and every proposal carries a quote
+  checked against the transcript. A fact nobody said is dropped before the card
+  is drawn, which is the deterministic half of "do not infer".
+- **Grants.** `request_tool` and `request_connector` name a capability from the
+  catalogue with a reason and the turn it came from. `run_shell` is not in the
+  catalogue the prompt shows, is refused by the tool, and is refused again at
+  the write. A grant is applied only by `resolveLearningProposal`, never by the
+  turn that asked.
+- **Policy.** `propose_policy` can change memory recall, compaction room and the
+  tool-call budget. The schema has no field for Role, Persona, the contract or a
+  gate — that is the boundary, expressed as a type rather than a paragraph. The
+  profile carries the safe subset and the resolver maps it into the next turn's
+  harness, which means the change gets a new version hash in the ledger.
+- **Maintenance.** Opening the inbox asks the library two questions: is memory
+  over the limit it was given, and is a granted skill never loaded? Both produce
+  a proposal, never a deletion. A memory prune removes one named bullet, and a
+  skill is switched off rather than removed.
+
+**A refusal is a lesson, and it expires.** A declined grant is keyed by subject
+(`tool:read_file`) rather than by the model's wording, so a rephrased request
+does not get through. A lesson is current for six months; after that the bot may
+ask again, because a bot that asked a year ago was a different bot. The window
+shows only current lessons and can clear them.
+
+**The one write is the answer.** `resolveLearningProposal` is the only method
+that changes a profile from a proposal, and it runs only after the click. The
+harness ledger is the audit: a change that alters the resolved spec produces a
+new version with the old one as its parent, and restoring a version restores
+the policy too.
 
 ### One settings screen, and one grant behind it
 

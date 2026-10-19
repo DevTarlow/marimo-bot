@@ -334,6 +334,33 @@ was removed because it made the Role and the per-tool switches reachable only by
 leaving the everyday screen. Do not add a setting that decides which settings
 exist; if a control is worth having, put it on the one screen.
 
+## Learning
+
+The bot improves by proposing, and only the person's answer writes.
+
+- **Memory** is the one proposal document with a watermark; `memory-proposals.json`
+  also holds the exact-text refusals the reviewer reads.
+- **Everything else** is `learning/proposals.json`: a grant
+  (`request_tool`/`request_connector`), a policy (`propose_policy`) or
+  maintenance. The window asks `learning.proposals` and gets both, so there is
+  one inbox.
+- **A proposal carries evidence.** A memory fact carries a quote verified against
+  the transcript; a grant or policy carries the turn it came from.
+- **`resolveLearningProposal` is the only write.** The tool that asks cannot
+  grant, and `run_shell` is refused by the tool, the catalogue and the write.
+- **A refusal is a lesson.** It is keyed by subject (`tool:read_file`), current
+  for six months, and listed in the inbox with a way to clear it.
+- **A policy proposal changes only the safe subset.** The schema has no field for
+  Role, Persona, the contract or a gate, and the profile's `policy` is mapped
+  into the next turn's harness, so the ledger records a new version.
+- **A turn records its outcome** on `turn.completed`/`failed`/`aborted`; the
+  report adds the user's corrections. A maintenance proposal comes from that
+  library state, not from a model.
+
+When you add a proposal kind, add its subject to `proposalSubject`, its refusal
+path to `resolveLearningProposal`, and a row to
+[`docs/harness-invariants.md`](./docs/harness-invariants.md).
+
 ## The loop
 
 **A task is done when it is committed; the branch moves when a human says so.**

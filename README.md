@@ -29,6 +29,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 - Make bots for writing, research, code or whatever you repeat.
 - Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
 - Keep a memory that follows you between folders.
+- Let a bot ask for a tool or a change, and decide each request yourself.
 - Find a file by what it was about, not the exact words.
 - Schedule a job and close the window.
 - Ask the moss ball when you do not want the window.
@@ -40,6 +41,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 - [Bots](#bots)
 - [Skills](#skills)
 - [Memory](#memory)
+- [Learning](#learning)
 - [Recall](#recall-find-by-meaning)
 - [Jobs](#jobs)
 - [The companion](#the-companion)
@@ -116,9 +118,17 @@ A fact about you follows you between Spaces, while a note about how a project is
 
 What does it remember? Settings lists every line and when it was written. If an answer is wrong, choose **Not quite**, and it records the correction and proposes it the next time the bot reads the chat.
 
-A review also reads a conversation after it goes quiet and proposes facts worth keeping. The suggestions wait in Settings until you accept or dismiss them.
+A review also reads a conversation after it goes quiet and proposes facts worth keeping. Each suggestion shows the sentence it came from, and it waits in **Learning** until you accept or dismiss it.
 
 Memory has a soft limit, so the bot is told when it gets close and can prune what no longer matters. The memory file is plain markdown, so you can read it without the app.
+
+### Learning
+
+The bot can ask to change itself. It can write down a fact it noticed, ask for a tool or a connector it kept needing, or suggest a change to how it runs. None of that happens on its own. Each request waits in **Learning** in Settings, with the reason it gave and the part of the conversation it came from.
+
+A memory suggestion shows the sentence it was drawn from, so you can check the fact before you keep it. A tool or connector request names the capability and says why the bot needed it. A change to how it runs covers how memory is recalled, how much room a turn has before it is compacted, and how many tool calls a turn may spend. The bot cannot change its Role, its Persona or the app's rules, and it cannot give itself the shell.
+
+If you say no, it remembers the answer for about six months and stops asking. The Learning card lists those refusals and lets you clear them. The bot also looks for work it can do on its own notes: when memory is over the limit you set, it may suggest forgetting the oldest fact; when a skill has not been used in a while, it may suggest retiring it. Both are suggestions, and both wait for you.
 
 ### Recall: find by meaning
 
@@ -156,7 +166,7 @@ Settings lets you choose how long its answers are, how many messages float above
 
 Every conversation runs on the harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
 
-The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, memory suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and model as they were. It leaves the Space, the icon and memory alone.
+The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and model as they were. It leaves the Space, the icon and memory alone.
 
 ## Models and keys
 
@@ -173,7 +183,7 @@ Which model should a bot use? That is yours to decide: a model is a service and 
 
 A connector is a server you add in Settings. It can give a bot tools that live in another app or on another machine: a database, an issue tracker or a service on your network. MCP is the Model Context Protocol, a standard way for a tool server to describe what it can do.
 
-Each bot has its own permissions, and a connector that is not ticked is not offered to that bot. The app stores a connector's token or password like a provider key, and the background worker can only use one stored as plain text, with your consent.
+Each bot has its own permissions, and a connector that is not ticked is not offered to that bot. A bot can ask for one it does not have; the request waits in Learning with the reason it gave, and nothing changes until you approve it. The app stores a connector's token or password like a provider key, and the background worker can only use one stored as plain text, with your consent.
 
 ### Keys
 
@@ -191,7 +201,7 @@ The app's own data is not your project, and the two live in different folders on
 
 A command, or a save over a file that already exists, waits for your answer. The app writes a new file without asking. A scheduled job that hits an approval stays paused, and the request survives a restart.
 
-Every tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all.
+Every built-in tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all. A connector's tools follow the connector's own switch.
 
 Recall is off until you turn it on, and it sends its record nowhere.
 

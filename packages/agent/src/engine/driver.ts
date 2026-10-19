@@ -72,7 +72,20 @@ export type DriverEvent =
     }
   | {
       type: 'approval.request';
+      /**
+       * The tool call the gate is about. This is what the window shows and what
+       * the engine keys the gate on.
+       */
       callId: string;
+      /**
+       * The provider's confirmation call id, when it has one.
+       *
+       * ADK wraps a gated call in an `adk_request_confirmation` call with an id
+       * of its own; the decision has to answer *that* id, while the tool result
+       * later answers `callId`. Keeping both is what lets a stored conversation
+       * be replayed without losing the link.
+       */
+      confirmationId?: string;
       tool: string;
       args: Record<string, unknown>;
       hint?: string;

@@ -40,6 +40,8 @@ export interface ResolveHarnessInput {
   version: number;
   /** Whether this turn has a Space to work in. */
   hasSpace?: boolean;
+  /** The folder this turn is confined to, when it has one. */
+  workspaceRoot?: string;
   /** Whether any connector is actually connected, not merely granted. */
   hasConnectors?: boolean;
   builtin?: HarnessBuiltin;
@@ -181,7 +183,7 @@ export function resolveHarness(input: ResolveHarnessInput): HarnessSpec {
   const profileOverrides = input.profile.harness;
   const conversationOverrides = input.conversation?.harness;
 
-  const hasSpace = input.hasSpace ?? false;
+  const hasSpace = input.hasSpace ?? input.workspaceRoot !== undefined;
   const hasConnectors = input.hasConnectors ?? false;
 
   /*
@@ -241,6 +243,9 @@ export function resolveHarness(input: ResolveHarnessInput): HarnessSpec {
       ...(persona === undefined || persona.length === 0 ? {} : {persona}),
     },
     contract: [...builtin.contract],
+    ...(input.workspaceRoot === undefined
+      ? {}
+      : {workspaceRoot: input.workspaceRoot}),
     context,
     tools: {
       grants,

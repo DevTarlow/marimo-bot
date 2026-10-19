@@ -190,6 +190,14 @@ export const harnessSpecSchema = z.object({
   }),
   /** Unconditional app rules. Human text; a proposal never edits it. */
   contract: z.array(z.string().min(1)),
+  /**
+   * The folder file and shell tools are confined to.
+   *
+   * Absent means this turn has no Space: file tools are not offered. The root
+   * is part of the frozen spec because a turn must not move folders halfway
+   * through, and because two turns in different Spaces are different work.
+   */
+  workspaceRoot: z.string().min(1).optional(),
   context: contextSchema,
   tools: toolsSchema,
   collaborators: collaboratorsSchema,

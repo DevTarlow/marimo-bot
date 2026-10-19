@@ -1,0 +1,479 @@
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+
+import {BaseLlm} from '@google/adk';
+import type {LlmRequest, LlmResponse} from '@google/adk';
+import {afterEach, describe, expect, it} from 'vitest';
+
+import {resolveHarness} from '../harness/resolve.js';
+import type {
+  HarnessAppDefaults,
+  HarnessProfile,
+  HarnessSpec,
+} from '../harness/spec.js';
+import {AdkDriver} from './adk-driver.js';
+import type {DriverEvent} from './driver.js';
+import type {SessionEvent} from './events.js';
+
+const app: HarnessAppDefaults = {
+  model: {provider: 'deepseek', model: 'deepseek-chat'},
+  allowPrivateNetworkFetch: false,
+  learning: {mode: 'propose', retainTraces: false},
+};
+
+const profile: HarnessProfile = {
+  id: 'writer',
+  name: 'Writer',
+  role: 'Write for the person.',
+  enabledTools: [
+    'current_time',
+    'read_file',
+    'list_dir',
+    'write_file',
+    'run_shell',
+  ],
+  enabledSkills: [],
+};
+
+class ScriptedLlm extends BaseLlm {
+  readonly requests: LlmRequest[] = [];
+  private readonly scripts: Array<LlmResponse[]>;
+
+  constructor(scripts: LlmResponse[][]) {
+    super({model: 'scripted'});
+    this.scripts = scripts;
+  }
+
+  async *generateContentAsync(
+    request: LlmRequest,
+    _stream?: boolean,
+  ): AsyncGenerator<LlmResponse> {
+    this.requests.push(request);
+    for (const response of this.scripts.shift() ?? []) {
+      yield response;
+    }
+  }
+
+  async connect(): Promise<never> {
+    throw new Error('The scripted model has no live connection.');
+  }
+}
+
+function text(value: string): LlmResponse {
+  return {
+    content: {role: 'model', parts: [{text: value}]},
+    turnComplete: true,
+  };
+}
+
+function call(
+  name: string,
+  args: Record<string, unknown>,
+  id = 'call_1',
+): LlmResponse {
+  return {
+    content: {
+      role: 'model',
+      parts: [{functionCall: {id, name, args}}],
+    },
+    turnComplete: true,
+  };
+}
+
+async function collect(
+  stream: AsyncIterable<DriverEvent>,
+): Promise<DriverEvent[]> {
+  const events: DriverEvent[] = [];
+  for await (const event of stream) {
+    events.push(event);
+  }
+  return events;
+}
+
+const roots: string[] = [];
+
+async function workDir(): Promise<string> {
+  const dir = await mkdtemp(join(process.cwd(), '.marimo-adk-driver-'));
+  roots.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  await Promise.all(
+    roots
+      .splice(0)
+      .map((dir) =>
+        rm(dir, {recursive: true, force: true, maxRetries: 5, retryDelay: 20}),
+      ),
+  );
+});
+
+function harness(workspaceRoot?: string, grants?: string[]): HarnessSpec {
+  return resolveHarness({
+    profile:
+      grants === undefined ? profile : {...profile, enabledTools: grants},
+    app,
+    version: 1,
+    ...(workspaceRoot === undefined ? {} : {workspaceRoot}),
+  });
+}
+
+function userMessage(turnId: string, text: string): SessionEvent {
+  return {
+    id: `u-${turnId}`,
+    sessionId: 's1',
+    at: '2026-01-01T00:00:00.000Z',
+    turnId,
+    type: 'user.message',
+    text,
+  };
+}
+
+function toolCall(
+  turnId: string,
+  callId: string,
+  tool: string,
+  args: Record<string, unknown>,
+): SessionEvent {
+  return {
+    id: `c-${callId}`,
+    sessionId: 's1',
+    at: '2026-01-01T00:00:00.000Z',
+    turnId,
+    type: 'tool.call',
+    callId,
+    tool,
+    args,
+    author: 'Writer',
+  };
+}
+
+function gate(
+  turnId: string,
+  callId: string,
+  confirmationId: string,
+  tool: string,
+  args: Record<string, unknown>,
+): SessionEvent {
+  return {
+    id: `g-${callId}`,
+    sessionId: 's1',
+    at: '2026-01-01T00:00:00.000Z',
+    turnId,
+    type: 'approval.requested',
+    callId,
+    confirmationId,
+    tool,
+    args,
+    author: 'Writer',
+  };
+}
+
+function decision(
+  turnId: string,
+  callId: string,
+  confirmationId: string,
+): SessionEvent {
+  return {
+    id: `d-${callId}`,
+    sessionId: 's1',
+    at: '2026-01-01T00:00:00.000Z',
+    turnId,
+    type: 'approval.decided',
+    callId,
+    confirmationId,
+    confirmed: true,
+  };
+}
+
+function history(...events: SessionEvent[]): SessionEvent[] {
+  return events;
+}
+
+describe('AdkDriver', () => {
+  it('streams a text reply and records one step', async () => {
+    const model = new ScriptedLlm([[text('Hello.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const updates = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Hi',
+        harness: harness(),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(updates.map((update) => update.type)).toEqual(['step', 'message']);
+    expect(updates.find((update) => update.type === 'message')).toMatchObject({
+      text: 'Hello.',
+    });
+    expect(model.requests).toHaveLength(1);
+  });
+
+  it('runs a non-gated tool and feeds its result back to the model', async () => {
+    const model = new ScriptedLlm([
+      [call('current_time', {})],
+      [text('It is now.')],
+    ]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const updates = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'What time is it?',
+        harness: harness(),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const types = updates.map((update) => update.type);
+    expect(types).toContain('tool.call');
+    expect(types).toContain('tool.result');
+    expect(types).toContain('message');
+    const result = updates.find((update) => update.type === 'tool.result');
+    expect(result).toMatchObject({ok: true});
+    expect(model.requests).toHaveLength(2);
+  });
+
+  it('refuses a path that leaves the Space without asking the user', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([
+      [call('read_file', {path: '../outside.txt'})],
+      [text('I could not read it.')],
+    ]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const updates = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Read outside',
+        harness: harness(dir),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const result = updates.find((update) => update.type === 'tool.result');
+    expect(result).toMatchObject({ok: false});
+    expect(
+      result !== undefined && result.type === 'tool.result'
+        ? String(result.result)
+        : '',
+    ).toContain('outside the workspace');
+  });
+
+  it('does not gate creating a file, and gates replacing one', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'existing.md'), 'old', 'utf8');
+
+    const create = new ScriptedLlm([
+      [call('write_file', {path: 'new.md', content: 'new'})],
+      [text('Created.')],
+    ]);
+    const createDriver = new AdkDriver({resolveModel: () => create});
+    const created = await collect(
+      createDriver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Create it',
+        harness: harness(dir),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(created.map((update) => update.type)).not.toContain(
+      'approval.request',
+    );
+    expect(
+      created.find((update) => update.type === 'tool.result'),
+    ).toMatchObject({
+      ok: true,
+    });
+
+    const replace = new ScriptedLlm([
+      [call('write_file', {path: 'existing.md', content: 'new'})],
+    ]);
+    const replaceDriver = new AdkDriver({resolveModel: () => replace});
+    const gated = await collect(
+      replaceDriver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Replace it',
+        harness: harness(dir),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const approval = gated.find((update) => update.type === 'approval.request');
+    expect(approval).toMatchObject({
+      tool: 'write_file',
+      args: {path: 'existing.md'},
+    });
+    expect(gated.map((update) => update.type)).toContain('tool.call');
+    expect(gated.map((update) => update.type)).not.toContain('tool.result');
+  });
+
+  it('resumes an approved call and records the tool result', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'existing.md'), 'old', 'utf8');
+
+    const first = new ScriptedLlm([
+      [call('write_file', {path: 'existing.md', content: 'new'})],
+    ]);
+    const driver = new AdkDriver({resolveModel: () => first});
+    const paused = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Replace it',
+        harness: harness(dir),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const approval = paused.find(
+      (update): update is Extract<DriverEvent, {type: 'approval.request'}> =>
+        update.type === 'approval.request',
+    );
+    expect(approval).toBeDefined();
+
+    const gateEvent = gate(
+      't1',
+      approval?.callId ?? '',
+      approval?.confirmationId ?? '',
+      'write_file',
+      {path: 'existing.md', content: 'new'},
+    );
+    const prior = history(
+      userMessage('t1', 'Replace it'),
+      toolCall('t1', approval?.callId ?? '', 'write_file', {
+        path: 'existing.md',
+        content: 'new',
+      }),
+      gateEvent,
+      decision('t1', approval?.callId ?? '', approval?.confirmationId ?? ''),
+    );
+
+    const second = new ScriptedLlm([[text('Replaced.')]]);
+    const resumeDriver = new AdkDriver({resolveModel: () => second});
+    const resumed = await collect(
+      resumeDriver.resume({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        harness: harness(dir),
+        history: prior,
+        decisions: [
+          {
+            callId: approval?.callId ?? '',
+            confirmed: true,
+          },
+        ],
+        signal: new AbortController().signal,
+      }),
+    );
+    const result = resumed.find((update) => update.type === 'tool.result');
+    expect(result).toMatchObject({ok: true, callId: approval?.callId});
+    expect(resumed.find((update) => update.type === 'message')).toMatchObject({
+      text: 'Replaced.',
+    });
+    const written = await import('node:fs/promises').then((fs) =>
+      fs.readFile(join(dir, 'existing.md'), 'utf8'),
+    );
+    expect(written).toBe('new');
+  });
+
+  it('maps a denial to a failed tool result', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'existing.md'), 'old', 'utf8');
+    const model = new ScriptedLlm([[text('I did not replace it.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const prior = history(
+      userMessage('t1', 'Replace it'),
+      toolCall('t1', 'call_1', 'write_file', {
+        path: 'existing.md',
+        content: 'new',
+      }),
+      gate('t1', 'call_1', 'confirm_1', 'write_file', {
+        path: 'existing.md',
+        content: 'new',
+      }),
+      decision('t1', 'call_1', 'confirm_1'),
+    );
+    const updates = await collect(
+      driver.resume({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        harness: harness(dir),
+        history: prior,
+        decisions: [{callId: 'call_1', confirmed: false}],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(
+      updates.find((update) => update.type === 'tool.result'),
+    ).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it('rebuilds prior tool history without duplicating the current message', async () => {
+    const model = new ScriptedLlm([[text('Again.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const prior = history(
+      userMessage('t0', 'First'),
+      toolCall('t0', 'call_0', 'current_time', {}),
+      {
+        id: 'r-0',
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        turnId: 't0',
+        type: 'tool.result',
+        callId: 'call_0',
+        tool: 'current_time',
+        ok: true,
+        result: 'now',
+      },
+      {
+        id: 'a-0',
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        turnId: 't0',
+        type: 'assistant.message',
+        author: 'Writer',
+        text: 'It was then.',
+      },
+      userMessage('t1', 'Second'),
+    );
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Second',
+        harness: harness(),
+        history: prior,
+        signal: new AbortController().signal,
+      }),
+    );
+    const contents = model.requests[0]?.contents ?? [];
+    const texts = contents
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .filter((value) => value.length > 0);
+    expect(texts.filter((value) => value === 'Second')).toHaveLength(1);
+    expect(texts).toContain('First');
+    expect(texts).toContain('It was then.');
+    const responses = contents
+      .flatMap((content) => content.parts ?? [])
+      .filter((part) => part.functionResponse !== undefined);
+    expect(responses).toHaveLength(1);
+  });
+});

@@ -95,6 +95,17 @@ describe('resolveHarness', () => {
     });
     expect(withSpace.context.memory.scopes).toEqual(['person', 'space']);
     expect(withSpace.context.spaceContext).toBe(true);
+
+    const rooted = resolveHarness({
+      profile: profile(),
+      app,
+      version: 1,
+      workspaceRoot: '/tmp/space',
+    });
+    expect(rooted.workspaceRoot).toBe('/tmp/space');
+    expect(rooted.context.memory.scopes).toEqual(['person', 'space']);
+    expect(rooted.context.spaceContext).toBe(true);
+    expect(noSpace.workspaceRoot).toBeUndefined();
   });
 
   it('lets a profile narrow private-network access but never widen it', () => {

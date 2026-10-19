@@ -230,6 +230,9 @@ export class TurnEngine {
         turnId,
         type: 'approval.decided',
         callId: params.callId,
+        ...(gate.confirmationId === undefined
+          ? {}
+          : {confirmationId: gate.confirmationId}),
         confirmed: params.confirmed,
         ...(params.payload === undefined ? {} : {payload: params.payload}),
       };
@@ -577,6 +580,9 @@ export class TurnEngine {
           turnId: params.turnId,
           type: 'approval.requested',
           callId: event.callId,
+          ...(event.confirmationId === undefined
+            ? {}
+            : {confirmationId: event.confirmationId}),
           tool: event.tool,
           args: event.args,
           ...(event.hint === undefined ? {} : {hint: event.hint}),
@@ -624,6 +630,35 @@ export class TurnEngine {
         .filter((event) => event.type === 'tool.result')
         .map((event) => event.callId),
     );
+    const decided = new Set(
+      turn
+        .filter((event) => event.type === 'approval.decided')
+        .map((event) => event.callId),
+    );
+
+    /*
+     * A card nobody answered is declined, not left open. The confirmation call
+     * is a provider-level function call like any other; without a response the
+     * next request is invalid. The tool call beside it then gets a result too,
+     * because the provider also requires one per issued call.
+     */
+    const decisions: SessionEvent[] = turn
+      .filter(
+        (event): event is Extract<SessionEvent, {type: 'approval.requested'}> =>
+          event.type === 'approval.requested' && !decided.has(event.callId),
+      )
+      .map((event) => ({
+        ...this.stamp(sessionId),
+        turnId,
+        type: 'approval.decided',
+        callId: event.callId,
+        ...(event.confirmationId === undefined
+          ? {}
+          : {confirmationId: event.confirmationId}),
+        confirmed: false,
+        synthetic: true,
+      }));
+
     const calls = new Map<string, string>();
     for (const event of turn) {
       if (
@@ -632,9 +667,6 @@ export class TurnEngine {
       ) {
         calls.set(event.callId, event.tool);
       }
-    }
-    if (calls.size === 0) {
-      return [];
     }
     const results: SessionEvent[] = [...calls].map(([callId, tool]) => ({
       ...this.stamp(sessionId),
@@ -646,8 +678,12 @@ export class TurnEngine {
       result: message,
       synthetic: true,
     }));
-    await this.append(sessionId, results);
-    return results;
+    if (decisions.length === 0 && results.length === 0) {
+      return [];
+    }
+    const closing = [...decisions, ...results];
+    await this.append(sessionId, closing);
+    return closing;
   }
 
   /**

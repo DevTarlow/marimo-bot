@@ -93,7 +93,15 @@ export const toolResultSchema = z.object({
 export const approvalRequestedSchema = z.object({
   ...turnBase,
   type: z.literal('approval.requested'),
+  /** The tool call being gated; the tool result later uses this id. */
   callId: z.string().min(1),
+  /**
+   * The provider's confirmation call id, when the provider wraps gates.
+   *
+   * ADK does; a scripted driver may not. Absent means the decision answers the
+   * tool call directly, which is the simpler shape and what the fake driver uses.
+   */
+  confirmationId: z.string().min(1).optional(),
   tool: z.string().min(1),
   args: z.record(z.string(), z.unknown()),
   hint: z.string().min(1).optional(),
@@ -104,7 +112,10 @@ export const approvalDecidedSchema = z.object({
   ...turnBase,
   type: z.literal('approval.decided'),
   callId: z.string().min(1),
+  confirmationId: z.string().min(1).optional(),
   confirmed: z.boolean(),
+  /** True when the engine declined the gate to close a turn nobody resumed. */
+  synthetic: z.boolean().optional(),
   payload: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -208,6 +219,7 @@ export function newestTurnId(
 export function pendingGatesIn(events: readonly SessionEvent[]): Array<{
   turnId: string;
   callId: string;
+  confirmationId?: string;
   tool: string;
   args: Record<string, unknown>;
   hint?: string;
@@ -238,6 +250,9 @@ export function pendingGatesIn(events: readonly SessionEvent[]): Array<{
     .map((event) => ({
       turnId: event.turnId,
       callId: event.callId,
+      ...(event.confirmationId === undefined
+        ? {}
+        : {confirmationId: event.confirmationId}),
       tool: event.tool,
       args: event.args,
       ...(event.hint === undefined ? {} : {hint: event.hint}),

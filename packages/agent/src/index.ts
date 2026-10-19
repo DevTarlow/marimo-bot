@@ -277,3 +277,18 @@ export {
   turnIdOf,
 } from './engine/events.js';
 export type {SessionEvent, TokenUsage} from './engine/events.js';
+/*
+ * The real driver and the tools it can offer. ADK stays behind this export: the
+ * runtime builds a driver, never an ADK object.
+ */
+export {AdkDriver, adkAgentName} from './engine/adk-driver.js';
+export type {AdkDriverOptions} from './engine/adk-driver.js';
+export {CORE_TOOLS, gateFor, toolsFor} from './engine/core-tools.js';
+export type {AnyToolDefinition} from './engine/core-tools.js';
+export {describeToolError, outcome} from './engine/tool-contract.js';
+export type {
+  ToolContext,
+  ToolDefinition,
+  ToolOutcome,
+} from './engine/tool-contract.js';
+export {composeHarnessInstruction} from './context/instruction.js';

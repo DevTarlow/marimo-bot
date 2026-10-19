@@ -258,8 +258,8 @@ learning/signals.json
 skills/<name>/SKILL.md                 versioned skills
 memory/<profile>/memory.md             person-scope memory + index
 <space>/.marimo/<profile>/memory.md    space-scope memory
-sessions/<id>.jsonl                    canonical event log
-sessions/index.json                    sidebar index
+harness/sessions/<id>.jsonl            canonical event log (v2)
+sessions/<id>.jsonl                    the v1 ADK log, read until cutover
 tasks.json
 jobs.json
 usage.json
@@ -270,6 +270,32 @@ newer document is refused, an unreadable one is quarantined before a write.
 There is no SQLite in this rebuild: one user per install does not need it, and
 avoiding a native dependency keeps packaging honest. The store interfaces leave
 room for it later.
+
+## Phase 1: what runs now
+
+The v2 turn path is live behind one environment flag:
+
+```bash
+MARIMO_HARNESS_V2=1 pnpm --filter @marimo/desktop dev
+```
+
+With it set, a new, empty conversation runs on the v2 engine: the canonical log,
+the ADK driver, the five core tools, approvals, denial, abort and the transcript
+projection. A conversation that already has a v1 history stays on v1, and so do
+the companion, `@`-addressed group messages and scheduled jobs. Turning the flag
+off does not abandon a v2 conversation that is waiting on a card; its log is the
+marker that keeps it on the engine that asked the question.
+
+The old `AgentHost` is still present and still owns memory, skills, delegation,
+jobs and the prompt assembly those features need. It is deleted when those
+features have v2 homes, not before. That is the one place this document's phase
+plan was too optimistic: deleting the old host in Phase 1 would have taken the
+shipped product's memory and skills with it, so the cutover follows the feature
+ports rather than the engine.
+
+What the v2 path does not have yet: memory, the user's skills, recall, jobs,
+documents, bot drafting, group collaboration and the companion's shorter answer.
+Those are Phase 2 and Phase 4.
 
 ## What is not in scope
 

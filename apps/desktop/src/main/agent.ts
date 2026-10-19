@@ -1234,7 +1234,56 @@ export class AgentService {
     profileId: string,
     sessionId: string,
   ): Promise<{messages: TranscriptMessage[]; pending: PendingGate[]}> {
+    if (await this.harnessHasLog(sessionId)) {
+      const harness = this.runtime.harness();
+      return {
+        messages: await harness.transcript(sessionId, profileId),
+        pending: await harness.pendingGates(sessionId),
+      };
+    }
     return await this.runtime.transcript(profileId, sessionId);
+  }
+
+  /**
+   * Whether this turn should run on the v2 engine.
+   *
+   * A conversation that already has a v2 log stays on it, so turning the preview
+   * off does not abandon a turn that is waiting on a card. A conversation with a
+   * v1 history stays on v1, because two formats in one transcript would lose
+   * whichever half the window is not reading. Only an empty conversation starts
+   * on v2, and only when the preview is on.
+   */
+  private async useHarness(
+    profileId: string,
+    sessionId: string,
+    origin: 'window' | 'pet' | undefined,
+    agentId: string | undefined,
+  ): Promise<boolean> {
+    if (agentId !== undefined || origin === 'pet') {
+      return false;
+    }
+    if (await this.harnessHasLog(sessionId)) {
+      return true;
+    }
+    if (process.env['MARIMO_HARNESS_V2'] !== '1') {
+      return false;
+    }
+    try {
+      return (
+        (await this.runtime.transcript(profileId, sessionId)).messages
+          .length === 0
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async harnessHasLog(sessionId: string): Promise<boolean> {
+    try {
+      return await this.runtime.harness().hasLog(sessionId);
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -1273,6 +1322,23 @@ export class AgentService {
      */
     this.busyProfileId = profileId;
 
+    if (await this.useHarness(profileId, sessionId, origin, agentId)) {
+      const harness = this.runtime.harness();
+      if (harness.isRunning(sessionId)) {
+        this.options.sendEvent({
+          type: 'turn.failed',
+          sessionId,
+          messageId: '',
+          code: 'busy',
+          message:
+            'A turn is already running. Wait for it to finish, or stop it.',
+        });
+        return {accepted: false};
+      }
+      this.pump(harness.run(profileId, sessionId, text));
+      return {accepted: true};
+    }
+
     if (this.runtime.isBusy()) {
       this.options.sendEvent({
         type: 'turn.failed',
@@ -1302,6 +1368,23 @@ export class AgentService {
      */
     this.busyProfileId = profileId;
 
+    if (await this.harnessHasLog(sessionId)) {
+      const harness = this.runtime.harness();
+      if (harness.isRunning(sessionId)) {
+        this.options.sendEvent({
+          type: 'turn.failed',
+          sessionId,
+          messageId: '',
+          code: 'busy',
+          message:
+            'A turn is already running. Wait for it to finish, or stop it.',
+        });
+        return {accepted: false};
+      }
+      this.pump(harness.approve(profileId, {sessionId, callId, confirmed}));
+      return {accepted: true};
+    }
+
     if (this.runtime.isBusy()) {
       this.options.sendEvent({
         type: 'turn.failed',
@@ -1319,6 +1402,14 @@ export class AgentService {
   }
 
   abort(profileId: string, sessionId: string): {aborted: boolean} {
+    /*
+     * Abort answers synchronously, so it cannot ask the log which engine owns
+     * this conversation. Trying the v2 turn first is safe: it answers false when
+     * it has nothing running, and the v1 path is then the fallback.
+     */
+    if (this.runtime.harness().abort(sessionId)) {
+      return {aborted: true};
+    }
     return {aborted: this.runtime.abort(profileId, sessionId)};
   }
 

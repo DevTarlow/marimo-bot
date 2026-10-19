@@ -21,6 +21,14 @@ export interface AppPaths {
   userData: string;
   /** One JSONL file per conversation, plus the index the sidebar reads. */
   sessions: string;
+  /**
+   * The v2 canonical logs, one JSONL file per conversation.
+   *
+   * A directory of its own rather than reusing `sessions`: the v1 files are ADK
+   * event streams with a different shape, and mixing the two in one folder would
+   * make a format change look like a corrupt conversation.
+   */
+  harnessSessions: string;
   /** Window geometry, rail widths, theme, and the plain preferences. */
   settings: string;
   /**
@@ -185,6 +193,7 @@ export function resolveAppPaths(
   return {
     userData,
     sessions: join(userData, 'sessions'),
+    harnessSessions: join(userData, 'harness', 'sessions'),
     settings: join(userData, 'settings.json'),
     secretsDir,
     /*

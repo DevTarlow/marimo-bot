@@ -404,3 +404,17 @@ export type {RuntimeSkillServiceOptions} from './skill-service.js';
  */
 export {EventLogError, FileEventStore} from './events/file-event-store.js';
 export type {FileEventStoreOptions} from './events/file-event-store.js';
+
+/*
+ * The v2 turn path: harness resolution, the ADK driver and the projection back
+ * into the window's events. The old `AgentRuntime` still owns everything that is
+ * not a turn.
+ */
+export {HarnessRuntime, HarnessRuntimeError} from './agent/harness-runtime.js';
+export type {HarnessRuntimeOptions} from './agent/harness-runtime.js';
+export {
+  projectPendingGates,
+  projectTurn,
+  textOfResult,
+  transcriptFromEvents,
+} from './agent/harness-projection.js';

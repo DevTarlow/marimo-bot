@@ -224,6 +224,7 @@ export function pendingGatesIn(events: readonly SessionEvent[]): Array<{
   args: Record<string, unknown>;
   hint?: string;
   author: string;
+  askedAt: string;
 }> {
   const turn = newestTurnEvents(events);
   if (turn.length === 0) {
@@ -257,6 +258,7 @@ export function pendingGatesIn(events: readonly SessionEvent[]): Array<{
       args: event.args,
       ...(event.hint === undefined ? {} : {hint: event.hint}),
       author: event.author,
+      askedAt: event.at,
     }));
 }
 

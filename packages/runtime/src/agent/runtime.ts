@@ -104,6 +104,7 @@ import {SkillStore} from '../skills.js';
 import {RuntimeSkillService} from '../skill-service.js';
 import {WorkspaceStore, workspaceRootFor} from '../workspaces.js';
 import {resolveAgentConfig} from './resolve.js';
+import {HarnessRuntime} from './harness-runtime.js';
 import {BOT_BUILDER_INSTRUCTION} from './bot-builder.js';
 import {turnInstruction} from './pet-turn.js';
 import {turnContext} from './turn-context.js';
@@ -193,6 +194,8 @@ export type HostResult =
   | {ok: false; problem: string};
 
 export class AgentRuntime {
+  /** The v2 turn path, built lazily so an install that never uses it pays nothing. */
+  private harnessRuntime: HarnessRuntime | undefined;
   private readonly settingsStore: SettingsStore;
   private readonly profileStore: ProfileStore;
   /**
@@ -1905,7 +1908,26 @@ export class AgentRuntime {
    * memory and a spinning fan with no window left to explain it — which is
    * exactly the failure the pid file is the second line of defence against.
    */
+  /**
+   * The v2 turn path, over the same documents the v1 path reads.
+   *
+   * One set of stores, so a profile edited in Settings is the profile both
+   * paths see. The facade is built lazily: a preview that is off is not a
+   * second runtime doing work at boot.
+   */
+  harness(): HarnessRuntime {
+    this.harnessRuntime ??= new HarnessRuntime({
+      paths: this.options.paths,
+      settings: this.settingsStore,
+      profiles: this.profileStore,
+      workspaces: this.workspaceStore,
+      readSecret: this.options.readSecret,
+    });
+    return this.harnessRuntime;
+  }
+
   async dispose(): Promise<void> {
+    this.harnessRuntime?.dispose();
     for (const host of this.hosts.values()) {
       host.dispose();
     }

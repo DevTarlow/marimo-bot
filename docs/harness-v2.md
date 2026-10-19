@@ -452,11 +452,11 @@ bot, which is why it lives in the log beside the harness hash rather than in the
 profile.
 
 Jobs are v2 now, on both sides. The scheduling tools are offered only when the
-runtime has a job service; creating, changing or removing a job is gated. A job
-whose conversation has a v2 log runs through the v2 engine in the app and in the
-headless runner; a job created before the log existed stays on the old path.
-The job is still stamped with the conversation the turn was in, so it reports
-back where it was asked for.
+runtime has a job service; creating, changing or removing a job is gated. A new
+job conversation starts on v2; an existing v1 conversation is migrated before the
+run. If the import cannot read it, the run fails with a sentence rather than
+falling back to the old engine. The job is still stamped with the conversation the
+turn was in, so it reports back where it was asked for.
 
 The bot builder is v2 too: `draft_bot` is the same proposal-shaped tool, the
 builder session's instruction is passed as the turn instruction, and the existing

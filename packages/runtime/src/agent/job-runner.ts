@@ -100,10 +100,21 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
 
       return {
         sessionId: id,
-        events: forward(runtime.run(profileId, id, prompt), options.onEvent),
+        events: failed(
+          id,
+          'This job’s conversation could not be brought forward to the current engine, so the run did not start.',
+        ),
       };
     },
   };
+}
+
+/** One failure, in the shape the scheduler and the window already read. */
+async function* failed(
+  sessionId: string,
+  message: string,
+): AsyncGenerator<AgentUiEvent> {
+  yield {type: 'turn.failed', sessionId, messageId: '', message};
 }
 
 /** Whether a conversation still exists for this agent. */

@@ -93,7 +93,7 @@ describe('createJobRunner', () => {
     expect(v1).toBe(0);
   });
 
-  it('leaves a v1 conversation on the old path', async () => {
+  it('fails a job whose v1 conversation cannot be brought forward', async () => {
     let v1 = 0;
     const runtime = {
       isBusy: () => false,
@@ -120,7 +120,8 @@ describe('createJobRunner', () => {
       prompt: 'Do it.',
       title: 'A job',
     });
-    await collect(result.events);
-    expect(v1).toBe(1);
+    const events = await collect(result.events);
+    expect(v1).toBe(0);
+    expect(events.map((event) => event.type)).toEqual(['turn.failed']);
   });
 });

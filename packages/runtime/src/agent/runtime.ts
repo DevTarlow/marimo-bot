@@ -1199,9 +1199,11 @@ export class AgentRuntime {
     profileId: string,
     sessionId: string,
   ): Promise<string | undefined> {
-    const host = await this.ensureHost(profileId);
-    const filed = await host.sessionWorkspaceId(sessionId);
-    return workspaceRootFor(await this.workspaceStore.load(), filed);
+    const entry = await this.assertIndexOwned(sessionId, profileId);
+    return workspaceRootFor(
+      await this.workspaceStore.load(),
+      entry?.workspaceId,
+    );
   }
 
   /**

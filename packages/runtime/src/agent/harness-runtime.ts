@@ -13,6 +13,7 @@ import type {
   AgentProfile,
   AgentUiEvent,
   MemorySupersede,
+  CompactResult,
   PendingGate,
   ProviderId,
   StoredSkill,
@@ -426,6 +427,71 @@ export class HarnessRuntime {
       model: spec.model,
     });
     return profile;
+  }
+
+  /**
+   * Replaces the replayed history with a model-written summary.
+   *
+   * The canonical log keeps every event; the summary is the only thing the ADK
+   * driver replays for the events it covers. A gate waiting means the user is in
+   * the middle of a decision, so compaction refuses rather than making the card
+   * harder to explain.
+   */
+  async compactSession(
+    profileId: string,
+    sessionId: string,
+  ): Promise<CompactResult> {
+    await this.assertOwner(sessionId, profileId);
+    const events = await this.store.read(sessionId);
+    if (pendingGatesFromLog(events).length > 0) {
+      return {
+        compacted: false,
+        reason: 'Answer the waiting card first; the turn is still in progress.',
+      };
+    }
+    const messages = await this.transcript(sessionId, profileId);
+    const visible = messages.filter((message) => message.text.trim().length > 0);
+    if (visible.length < 4) {
+      return {
+        compacted: false,
+        reason: 'This conversation is short enough to fit; nothing was replaced.',
+      };
+    }
+    const conversation = visible
+      .map(
+        (message) =>
+          `${message.role === 'user' ? 'Person' : 'Bot'}: ${message.text.trim()}`,
+      )
+      .join('\n\n')
+      .slice(-40_000);
+    const prompt = [
+      'Summarise the conversation below for the bot’s own future context.',
+      'Keep decisions, facts, names, open tasks and anything the person asked to remember.',
+      'Omit small talk and tool mechanics. Write compactly in the third person.',
+      '',
+      conversation,
+    ].join('\n');
+    const prepared = await this.prepare(profileId, sessionId);
+    const summary = (
+      await (this.options.answerer?.(prompt) ?? this.askOnce(prepared, prompt))
+    ).trim();
+    if (summary.length === 0) {
+      return {compacted: false, reason: 'The summariser returned nothing.'};
+    }
+    const last = events.at(-1);
+    if (last === undefined) {
+      return {compacted: false, reason: 'There is nothing to compact.'};
+    }
+    const event: import('@marimo/agent').SessionEvent = {
+      id: randomUUID(),
+      sessionId,
+      at: new Date().toISOString(),
+      type: 'summary',
+      text: summary,
+      coversThrough: last.id,
+    };
+    await this.store.append(sessionId, [event]);
+    return {compacted: true};
   }
 
   async participants(profileId: string, sessionId: string): Promise<string[]> {

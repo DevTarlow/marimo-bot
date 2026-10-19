@@ -546,6 +546,53 @@ describe('AdkDriver', () => {
     });
   });
 
+  it('replays a summary instead of the events it covers', async () => {
+    const model = new ScriptedLlm([[text('Okay.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const prior = history(
+      userMessage('t0', 'The old question.'),
+      {
+        id: 'a-0',
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        turnId: 't0',
+        type: 'assistant.message',
+        author: 'Writer',
+        text: 'The old answer.',
+      },
+      {
+        id: 'sum-1',
+        sessionId: 's1',
+        at: '2026-01-01T00:00:01.000Z',
+        type: 'summary',
+        text: 'They discussed the old question.',
+        coversThrough: 'a-0',
+      },
+      userMessage('t1', 'The newer question.'),
+    );
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't2',
+        profileId: 'writer',
+        text: 'Now.',
+        harness: harness(),
+        history: prior,
+        signal: new AbortController().signal,
+      }),
+    );
+    const texts = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .filter((value) => value.length > 0);
+    expect(texts.some((value) => value.includes('They discussed the old question.'))).toBe(
+      true,
+    );
+    expect(texts).toContain('The newer question.');
+    expect(texts).not.toContain('The old question.');
+    expect(texts).not.toContain('The old answer.');
+  });
+
   it('rebuilds prior tool history without duplicating the current message', async () => {
     const model = new ScriptedLlm([[text('Again.')]]);
     const driver = new AdkDriver({resolveModel: () => model});

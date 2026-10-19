@@ -313,13 +313,14 @@ forward.
 
 What the v2 path now has: memory, the user's skills, recall, literal workspace
 search, web search and fetch, jobs, bot drafting, direct @ addressing,
-`ask_agent`, per-conversation model and Space, rename/delete, and the companion's
-turn instruction. Documents are the runtime's own service on both engines.
+`ask_agent`, `start_task` with posted results, per-conversation model and Space,
+rename/delete, compaction, and the companion's turn instruction. Documents are
+the runtime's own service on both engines.
 
-What is still old: v1 conversations, tool-using delegation where a helper can
-raise its own cards, asynchronous tasks, and the old host's summarising
-compaction. V2 caps the replayed history instead and says when it did; that is a
-safety net, not the summariser it should become.
+What is still old: v1 conversations and same-conversation helper delegation
+where the helper can raise a gate the parent resumes. V2 also caps the replayed
+history at a hard ceiling and says when it did; that remains a safety net behind
+the explicit summary.
 
 ## Phase 2: memory, skills and a review
 

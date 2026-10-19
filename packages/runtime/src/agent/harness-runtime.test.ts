@@ -578,6 +578,33 @@ describe('HarnessRuntime', () => {
     ).rejects.toThrow('does not belong');
   });
 
+  it('compacts a v2 conversation into a summary that covers the old events', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'First answer.'}, {type: 'done'}],
+      [{type: 'step'}, {type: 'message', text: 'Second answer.'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(
+      deps,
+      () => driver,
+      undefined,
+      async () => 'They discussed two questions.',
+    );
+    await collect(runtime.run(profileId, 's1', 'First question.'));
+    await collect(runtime.run(profileId, 's1', 'Second question.'));
+
+    const result = await runtime.compactSession(profileId, 's1');
+    expect(result).toEqual({compacted: true});
+    const events = await deps.store.read('s1');
+    const summary = events.find((event) => event.type === 'summary');
+    expect(summary).toMatchObject({
+      type: 'summary',
+      text: 'They discussed two questions.',
+      coversThrough: events.at(-2)?.id,
+    });
+    expect(await runtime.transcript('s1', profileId)).toHaveLength(4);
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

@@ -183,7 +183,42 @@ export class AdkDriver implements TurnDriver {
       userId: this.userId,
       sessionId,
     });
-    const capped = capHistory(history);
+    /*
+     * A summary stands in for everything through its `coversThrough` event. The
+     * events before that are still in the canonical log for the window and for
+     * audit; they are not replayed into the provider, or compaction would cost a
+     * model call and change nothing.
+     */
+    const summary = [...history].reverse().find((event) => event.type === 'summary');
+    const through =
+      summary === undefined
+        ? -1
+        : history.findIndex((event) => event.id === summary.coversThrough);
+    const working =
+      summary === undefined || through === -1
+        ? history
+        : history.filter(
+            (event, index) => index > through && event.type !== 'summary',
+          );
+    if (summary !== undefined && through !== -1) {
+      await service.appendEvent({
+        session,
+        event: createEvent({
+          invocationId: 'summary',
+          timestamp: Date.now(),
+          author: 'user',
+          content: {
+            role: 'user',
+            parts: [
+              {
+                text: `[Conversation so far — summary]\n${summary.text}`,
+              },
+            ],
+          },
+        }),
+      });
+    }
+    const capped = capHistory(working);
     if (capped.omitted) {
       const note = createEvent({
         invocationId: 'history',

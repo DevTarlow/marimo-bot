@@ -1970,20 +1970,10 @@ export class AgentRuntime {
     );
   }
 
-  abort(profileId: string, sessionId: string): boolean {
-    return this.hosts.get(profileId)?.abort(sessionId) ?? false;
-  }
-
   /** Whether any agent has a turn in flight. */
   isBusy(): boolean {
     return this.harness().isRunningAny();
   }
-
-  /** Which agent is mid-turn, for a caller that has to say something about it. */
-  busyProfile(): string | undefined {
-    return undefined;
-  }
-
   /** Forgets a profile's host, so the next turn builds one from current state. */
   private dropHost(profileId: string): void {
     const host = this.hosts.get(profileId);

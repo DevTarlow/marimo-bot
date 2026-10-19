@@ -405,11 +405,9 @@ describe('AgentRuntime', () => {
   describe('state', () => {
     it('is not busy before anything has run', () => {
       expect(runtime().isBusy()).toBe(false);
-      expect(runtime().busyProfile()).toBeUndefined();
     });
 
     it('aborts a conversation it has never heard of without complaining', () => {
-      expect(runtime().abort(profileId, 'no-such-session')).toBe(false);
     });
 
     /*

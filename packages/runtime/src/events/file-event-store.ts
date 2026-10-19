@@ -10,7 +10,7 @@
  * because a lenient read plus a write is how a conversation disappears. The
  * caller gets an `EventLogError` naming the line and decides what to do.
  */
-import {appendFile, mkdir, readFile} from 'node:fs/promises';
+import {appendFile, mkdir, readFile, unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {parseSessionEvent} from '@marimo/agent';
@@ -160,6 +160,27 @@ export class FileEventStore implements EventStore {
       events.push(parsed.event);
     }
     return events;
+  }
+
+  async delete(sessionId: string): Promise<void> {
+    assertSessionId(sessionId);
+    const previous = this.queues.get(sessionId) ?? Promise.resolve();
+    const next = previous.then(async () => {
+      await unlink(this.fileFor(sessionId)).catch((error: unknown) => {
+        if (!isMissing(error)) {
+          throw new Error(
+            `Could not delete this conversation: ${describeError(error)}`,
+          );
+        }
+      });
+    });
+    this.queues.set(
+      sessionId,
+      next.catch(() => {
+        // The caller sees the failure; the queue moves on.
+      }),
+    );
+    await next;
   }
 
   private fileFor(sessionId: string): string {

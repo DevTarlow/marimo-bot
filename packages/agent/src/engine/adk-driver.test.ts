@@ -283,6 +283,46 @@ describe('AdkDriver', () => {
     ).toContain('prefers tabs');
   });
 
+  it('caps an over-long history and says it was omitted', async () => {
+    const model = new ScriptedLlm([[text('Recent answer.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const history: SessionEvent[] = [];
+    for (let index = 0; index < 700; index += 1) {
+      history.push({
+        id: `u-${index}`,
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        turnId: `t-${index}`,
+        type: 'user.message',
+        text: `question ${index}`,
+      });
+      history.push({
+        id: `a-${index}`,
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        turnId: `t-${index}`,
+        type: 'assistant.message',
+        author: 'Writer',
+        text: `answer ${index}`,
+      });
+    }
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't-now',
+        profileId: 'writer',
+        text: 'Now.',
+        harness: harness(),
+        history,
+        signal: new AbortController().signal,
+      }),
+    );
+    const contents = model.requests[0]?.contents ?? [];
+    expect(contents.length).toBeLessThan(650);
+    const first = contents[0]?.parts?.[0]?.text ?? '';
+    expect(first).toContain('omitted from the prompt');
+  });
+
   it('refuses a path that leaves the Space without asking the user', async () => {
     const dir = await workDir();
     const model = new ScriptedLlm([

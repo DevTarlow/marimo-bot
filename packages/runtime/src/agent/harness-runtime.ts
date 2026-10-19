@@ -37,6 +37,7 @@ import {
   type JobService,
   type RecallLookup,
   type SkillToolService,
+  type WebSearchProvider,
   type TurnDriver,
 } from '@marimo/agent';
 
@@ -91,6 +92,8 @@ export interface HarnessRuntimeOptions {
     profileId: string,
     workspaceRoot: string,
   ) => Promise<JobService | undefined>;
+  /** Search, when this install has a provider. */
+  webSearch?: WebSearchProvider;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -101,6 +104,7 @@ interface Prepared {
   config: AgentConfig;
   harness: HarnessSpec;
   workspaceRoot: string;
+  spaceId?: string;
   memory: MemoryStore;
   recall?: RecallLookup;
   jobs?: JobService;
@@ -192,7 +196,7 @@ export class HarnessRuntime {
           `"${answering}" is not in this conversation.`,
         );
       }
-      prepared = await this.prepare(answering);
+      prepared = await this.prepare(answering, sessionId);
     } catch (error) {
       yield failed(sessionId, error);
       return;
@@ -208,7 +212,12 @@ export class HarnessRuntime {
           text,
           harness: prepared.harness,
           ...(instruction === undefined ? {} : {instruction}),
-          session: {title: titleFor(text)},
+          session: {
+            title: titleFor(text),
+            ...(prepared.spaceId === undefined
+              ? {}
+              : {spaceId: prepared.spaceId}),
+          },
         }),
         sessionId,
       );
@@ -232,7 +241,7 @@ export class HarnessRuntime {
       if (gate === undefined) {
         throw new GateNotFoundError(params.callId);
       }
-      prepared = await this.prepare(gate.agentId ?? profileId);
+      prepared = await this.prepare(gate.agentId ?? profileId, params.sessionId);
     } catch (error) {
       yield failed(params.sessionId, error);
       return;
@@ -269,6 +278,74 @@ export class HarnessRuntime {
    * Sets who is in a v2 conversation. The owner is implicit; the list is the
    * other agents, or the whole membership the window passed.
    */
+  /** Renames a v2 conversation; the window's own title is what the log keeps. */
+  async renameSession(
+    profileId: string,
+    sessionId: string,
+    title: string,
+  ): Promise<void> {
+    await this.assertOwner(sessionId, profileId);
+    const trimmed = title.trim();
+    if (trimmed.length === 0) {
+      throw new HarnessRuntimeError('A conversation needs a title.');
+    }
+    const event: import('@marimo/agent').SessionEvent = {
+      id: randomUUID(),
+      sessionId,
+      at: new Date().toISOString(),
+      type: 'session.renamed',
+      title: trimmed,
+      by: profileId,
+    };
+    await this.store.append(sessionId, [event]);
+  }
+
+  /** Deletes a v2 conversation's log and its waiting proposals. */
+  async deleteSession(profileId: string, sessionId: string): Promise<void> {
+    await this.assertOwner(sessionId, profileId);
+    this.states.get(sessionId)?.engine.abort(sessionId);
+    this.states.delete(sessionId);
+    await this.proposals.forget(sessionId);
+    if (this.store.delete !== undefined) {
+      await this.store.delete(sessionId);
+    }
+  }
+
+  /** Points a v2 conversation at a model of its own, or back at its agent's. */
+  async setSessionModel(
+    profileId: string,
+    sessionId: string,
+    model: import('@marimo/protocol').AgentModel | null,
+  ): Promise<void> {
+    await this.assertOwner(sessionId, profileId);
+    const event: import('@marimo/agent').SessionEvent = {
+      id: randomUUID(),
+      sessionId,
+      at: new Date().toISOString(),
+      type: 'session.model',
+      ...(model === null ? {} : {model}),
+    };
+    await this.store.append(sessionId, [event]);
+  }
+
+  /** Files a v2 conversation under a Space, or removes it from one. */
+  async moveSession(
+    profileId: string,
+    sessionId: string,
+    workspaceId: string | null,
+  ): Promise<void> {
+    await this.assertOwner(sessionId, profileId);
+    const event: import('@marimo/agent').SessionEvent = {
+      id: randomUUID(),
+      sessionId,
+      at: new Date().toISOString(),
+      type: 'session.moved',
+      ...(workspaceId === null ? {} : {spaceId: workspaceId}),
+      by: profileId,
+    };
+    await this.store.append(sessionId, [event]);
+  }
+
   async setParticipants(
     profileId: string,
     sessionId: string,
@@ -310,7 +387,10 @@ export class HarnessRuntime {
   }> {
     const events = await this.store.read(sessionId);
     const title = events
-      .filter((event) => event.type === 'session.created')
+      .filter(
+        (event) =>
+          event.type === 'session.created' || event.type === 'session.renamed',
+      )
       .at(-1)?.title;
     const messageCount = events.filter(
       (event) => event.type === 'user.message',
@@ -348,7 +428,7 @@ export class HarnessRuntime {
     if (owner === undefined) {
       return {proposals: [], events: 0};
     }
-    const prepared = await this.prepare(owner);
+    const prepared = await this.prepare(owner, sessionId);
     const reviewable = reviewEvents(events);
     const from = await this.proposals.reviewedUpTo(sessionId);
     if (reviewable.length <= from) {
@@ -412,7 +492,10 @@ export class HarnessRuntime {
     let supersede: MemorySupersede | undefined;
     if (accept) {
       try {
-        const prepared = await this.prepare(proposal.profileId);
+        const prepared = await this.prepare(
+          proposal.profileId,
+          proposal.sessionId ?? undefined,
+        );
         const report = await prepared.memory.update(
           {
             content: proposal.text,
@@ -462,7 +545,10 @@ export class HarnessRuntime {
     }
   }
 
-  private async prepare(profileId: string): Promise<Prepared> {
+  private async prepare(
+    profileId: string,
+    sessionId?: string,
+  ): Promise<Prepared> {
     const settings = await this.options.settings.load();
     const profile = (await this.options.profiles.profiles()).find(
       (candidate) => candidate.id === profileId,
@@ -472,7 +558,12 @@ export class HarnessRuntime {
     }
 
     const workspaces = await this.options.workspaces.load();
-    const workspaceRoot = workspaceRootFor(workspaces, profile.spaceId);
+    const events =
+      sessionId === undefined ? [] : await this.store.read(sessionId);
+    const filed = spaceIdOf(events);
+    const sessionModel = modelOf(events);
+    const spaceId = filed ?? profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
+    const workspaceRoot = workspaceRootFor(workspaces, spaceId);
     if (workspaceRoot === undefined) {
       throw new HarnessRuntimeError(
         `"${profile.name}" has no Space to work in. Load one in the rail first.`,
@@ -484,6 +575,7 @@ export class HarnessRuntime {
       profile,
       readSecret: this.options.readSecret,
       workspaceRoot,
+      ...(sessionModel === undefined ? {} : {sessionModel}),
     });
     if (!resolved.ok) {
       throw new HarnessRuntimeError(resolved.problem);
@@ -520,6 +612,9 @@ export class HarnessRuntime {
       },
       version: this.options.version ?? 1,
       workspaceRoot,
+      ...(sessionModel === undefined
+        ? {}
+        : {conversation: {model: sessionModel}}),
     });
 
     const recall = await this.options.recallFor?.(profile.id, workspaceRoot);
@@ -530,6 +625,7 @@ export class HarnessRuntime {
       harness,
       workspaceRoot,
       memory,
+      ...(spaceId === undefined ? {} : {spaceId}),
       ...(recall === undefined ? {} : {recall}),
       ...(jobs === undefined ? {} : {jobs}),
     };
@@ -600,6 +696,11 @@ export class HarnessRuntime {
         ...(prepared.jobs === undefined ? {} : {jobs: prepared.jobs}),
         sessionId,
         profileId: profileId,
+        allowPrivateNetworkFetch:
+          prepared.harness.tools.policy.network === 'private',
+        ...(this.options.webSearch === undefined
+          ? {}
+          : {webSearch: this.options.webSearch}),
         delegate: async ({agent, task}) =>
           await this.askAgent(profileId, agent, task),
       }),
@@ -772,4 +873,32 @@ function reviewEvents(
     }
   }
   return reviewable;
+}
+
+
+function spaceIdOf(
+  events: readonly import('@marimo/agent').SessionEvent[],
+): string | undefined {
+  let filed: string | undefined;
+  for (const event of events) {
+    if (event.type === 'session.created') {
+      filed = event.spaceId;
+    } else if (event.type === 'session.moved') {
+      filed = event.spaceId;
+    }
+  }
+  return filed;
+}
+
+
+function modelOf(
+  events: readonly import('@marimo/agent').SessionEvent[],
+): import('@marimo/protocol').AgentModel | undefined {
+  let model: import('@marimo/protocol').AgentModel | undefined;
+  for (const event of events) {
+    if (event.type === 'session.model') {
+      model = event.model;
+    }
+  }
+  return model;
 }

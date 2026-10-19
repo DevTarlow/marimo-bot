@@ -286,18 +286,16 @@ room for it later.
 
 ## Phase 1: what runs now
 
-The v2 turn path is live behind one environment flag:
+A new, empty conversation runs on the v2 engine: the canonical log, the ADK
+driver, the tool set, approvals, denial, abort and the transcript projection. A
+conversation that already has a v1 history stays on v1, because two formats in
+one transcript would lose whichever half the window is not reading. Once a
+conversation has a v2 log, that log is the marker that keeps it on the engine
+that asked the question, even after a restart.
 
-```bash
-MARIMO_HARNESS_V2=1 pnpm --filter @marimo/desktop dev
-```
-
-With it set, a new, empty conversation runs on the v2 engine: the canonical log,
-the ADK driver, the five core tools, approvals, denial, abort and the transcript
-projection. A conversation that already has a v1 history stays on v1, and so do
-the companion, `@`-addressed group messages and scheduled jobs. Turning the flag
-off does not abandon a v2 conversation that is waiting on a card; its log is the
-marker that keeps it on the engine that asked the question.
+`MARIMO_HARNESS_V1=1` is an escape hatch for a broken v2, not a mode: it keeps
+new conversations on the old engine until the next start. It is not a setting
+and it is not in the window.
 
 The old `AgentHost` is still present and still owns memory, skills, delegation,
 jobs and the prompt assembly those features need. It is deleted when those
@@ -306,9 +304,15 @@ plan was too optimistic: deleting the old host in Phase 1 would have taken the
 shipped product's memory and skills with it, so the cutover follows the feature
 ports rather than the engine.
 
-What the v2 path does not have yet: memory, the user's skills, recall, jobs,
-documents, bot drafting, group collaboration and the companion's shorter answer.
-Those are Phase 2 and Phase 4.
+What the v2 path now has: memory, the user's skills, recall, literal workspace
+search, web search and fetch, jobs, bot drafting, direct @ addressing,
+`ask_agent`, per-conversation model and Space, rename/delete, and the companion's
+turn instruction. Documents are the runtime's own service on both engines.
+
+What is still old: v1 conversations, tool-using delegation where a helper can
+raise its own cards, asynchronous tasks, and the old host's summarising
+compaction. V2 caps the replayed history instead and says when it did; that is a
+safety net, not the summariser it should become.
 
 ## Phase 2: memory, skills and a review
 

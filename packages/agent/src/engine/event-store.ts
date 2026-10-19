@@ -11,6 +11,8 @@ import type {SessionEvent} from './events.js';
 export interface EventStore {
   append(sessionId: string, events: readonly SessionEvent[]): Promise<void>;
   read(sessionId: string): Promise<SessionEvent[]>;
+  /** Remove a conversation's log, when the conversation is deleted. */
+  delete?(sessionId: string): Promise<void>;
 }
 
 export class MemoryEventStore implements EventStore {
@@ -33,5 +35,9 @@ export class MemoryEventStore implements EventStore {
 
   async read(sessionId: string): Promise<SessionEvent[]> {
     return [...(this.sessions.get(sessionId) ?? [])];
+  }
+
+  async delete(sessionId: string): Promise<void> {
+    this.sessions.delete(sessionId);
   }
 }

@@ -1154,11 +1154,17 @@ export class AgentService {
     sessionId: string,
     workspaceId: string | null,
   ): Promise<SessionSummary> {
-    return await this.runtime.setSessionWorkspace(
+    const session = await this.runtime.setSessionWorkspace(
       profileId,
       sessionId,
       workspaceId,
     );
+    if (await this.harnessHasLog(sessionId)) {
+      await this.runtime
+        .harness()
+        .moveSession(profileId, sessionId, workspaceId);
+    }
+    return session;
   }
 
   async renameSession(
@@ -1166,7 +1172,15 @@ export class AgentService {
     sessionId: string,
     title: string,
   ): Promise<SessionSummary> {
-    return await this.runtime.renameSession(profileId, sessionId, title);
+    const session = await this.runtime.renameSession(
+      profileId,
+      sessionId,
+      title,
+    );
+    if (await this.harnessHasLog(sessionId)) {
+      await this.runtime.harness().renameSession(profileId, sessionId, title);
+    }
+    return session;
   }
 
   /**
@@ -1181,7 +1195,15 @@ export class AgentService {
     sessionId: string,
     model: AgentModel | null,
   ): Promise<SessionSummary> {
-    return await this.runtime.setSessionModel(profileId, sessionId, model);
+    const session = await this.runtime.setSessionModel(
+      profileId,
+      sessionId,
+      model,
+    );
+    if (await this.harnessHasLog(sessionId)) {
+      await this.runtime.harness().setSessionModel(profileId, sessionId, model);
+    }
+    return session;
   }
 
   /**
@@ -1233,6 +1255,9 @@ export class AgentService {
   }
 
   async deleteSession(profileId: string, sessionId: string): Promise<void> {
+    if (await this.harnessHasLog(sessionId)) {
+      await this.runtime.harness().deleteSession(profileId, sessionId);
+    }
     await this.runtime.deleteSession(profileId, sessionId);
   }
 

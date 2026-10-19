@@ -320,6 +320,43 @@ describe('HarnessRuntime', () => {
     });
   });
 
+  it('renames and deletes a v2 conversation', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hello'}, {type: 'done'}],
+    ]);
+    const {runtime, profileId} = await runtimeFor(driver);
+    await collect(runtime.run(profileId, 's1', 'A first question'));
+    await runtime.renameSession(profileId, 's1', 'A better title');
+    expect(await runtime.sessionInfo('s1')).toMatchObject({
+      title: 'A better title',
+    });
+
+    await runtime.deleteSession(profileId, 's1');
+    expect(await runtime.hasLog('s1')).toBe(false);
+    expect(await runtime.transcript('s1')).toEqual([]);
+  });
+
+  it('runs a conversation on its own model when it has one', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hello'}, {type: 'done'}],
+    ]);
+    let seen: {provider: string; model: string} | undefined;
+    const {deps, profileId} = await setup();
+    const runtime = new HarnessRuntime({
+      ...deps,
+      driverFactory: (config) => {
+        seen = {provider: config.provider, model: config.model};
+        return driver;
+      },
+    });
+    await runtime.setSessionModel(profileId, 's1', {
+      provider: 'gemini',
+      model: 'gemini-flash',
+    });
+    await collect(runtime.run(profileId, 's1', 'Hello'));
+    expect(seen).toEqual({provider: 'gemini', model: 'gemini-flash'});
+  });
+
   it('asks another bot with its own instructions and memory', async () => {
     const {deps, profileId} = await setup();
     const other = await deps.profiles.create({

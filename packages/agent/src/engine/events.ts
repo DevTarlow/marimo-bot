@@ -144,6 +144,28 @@ export const turnAbortedSchema = z.object({
   type: z.literal('turn.aborted'),
 });
 
+export const sessionRenamedSchema = z.object({
+  ...base,
+  type: z.literal('session.renamed'),
+  title: z.string().min(1),
+  by: z.string().min(1),
+});
+
+export const sessionModelSchema = z.object({
+  ...base,
+  type: z.literal('session.model'),
+  /** Absent means this conversation follows its agent's model again. */
+  model: agentModelSchema.optional(),
+});
+
+export const sessionMovedSchema = z.object({
+  ...base,
+  type: z.literal('session.moved'),
+  /** Absent means the conversation is not filed under any Space. */
+  spaceId: z.string().min(1).optional(),
+  by: z.string().min(1),
+});
+
 export const participantsChangedSchema = z.object({
   ...base,
   type: z.literal('participants.changed'),
@@ -174,6 +196,9 @@ export const sessionEventSchema = z.discriminatedUnion('type', [
   turnCompletedSchema,
   turnFailedSchema,
   turnAbortedSchema,
+  sessionRenamedSchema,
+  sessionModelSchema,
+  sessionMovedSchema,
   participantsChangedSchema,
   summarySchema,
 ]);

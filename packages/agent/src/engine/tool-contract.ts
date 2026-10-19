@@ -16,6 +16,7 @@ import type {GateRule} from '../harness/spec.js';
 import type {MemoryStore} from '../memory/memory-store.js';
 import type {JobService} from '../tools/job-tools.js';
 import type {RecallLookup} from '../tools/recall-tools.js';
+import type {WebSearchProvider} from '../tools/web-search-tool.js';
 
 export type ToolOutcome =
   {ok: true; result: unknown} | {ok: false; result: string};
@@ -65,6 +66,10 @@ export interface ToolContext {
   recall?: RecallLookup;
   /** Present only when this runtime can schedule jobs. */
   jobs?: JobService;
+  /** Present only when this install has a search provider. */
+  webSearch?: WebSearchProvider;
+  /** Whether http_fetch may reach loopback and private hosts. */
+  allowPrivateNetworkFetch?: boolean;
   /** The conversation this turn belongs to, for a job that reports back. */
   sessionId?: string;
   /** The agent the turn answers for. */
@@ -89,6 +94,8 @@ export interface ToolDefinition<Args = unknown> {
   requiresRecall?: boolean;
   /** A tool that needs scheduling is absent when no job service is present. */
   requiresJobs?: boolean;
+  /** A tool that needs web search is absent when no provider is present. */
+  requiresWebSearch?: boolean;
   execute(args: Args, context: ToolContext): Promise<ToolOutcome>;
 }
 

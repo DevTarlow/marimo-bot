@@ -66,6 +66,16 @@ export interface AdkDriverOptions {
 
 const DEFAULT_APP_NAME = 'marimo';
 const DEFAULT_USER_ID = 'local';
+/**
+ * A hard ceiling on the history replayed into ADK.
+ *
+ * The canonical log keeps everything; this is only what the provider sees. A
+ * turn that outgrows the window would otherwise fail with a provider error, so
+ * the oldest turns are dropped and a note says so. A model summary is the better
+ * answer and is what compaction should become; this is the failure it replaces.
+ */
+const MAX_HISTORY_CHARS = 240_000;
+const MAX_HISTORY_EVENTS = 600;
 
 const GATE_STRENGTH: Record<GateRule, number> = {
   never: 0,
@@ -173,7 +183,27 @@ export class AdkDriver implements TurnDriver {
       userId: this.userId,
       sessionId,
     });
-    for (const event of history) {
+    const capped = capHistory(history);
+    if (capped.omitted) {
+      const note = createEvent({
+        invocationId: 'history',
+        timestamp: Date.now(),
+        author: 'user',
+        content: {
+          role: 'user',
+          parts: [
+            {
+              text:
+                'Earlier parts of this conversation were omitted from the prompt ' +
+                'to fit the model window. The full log is still on disk; ask the ' +
+                'person if you need a detail from before this point.',
+            },
+          ],
+        },
+      });
+      await service.appendEvent({session, event: note});
+    }
+    for (const event of capped.events) {
       const mapped = this.historyEvent(event, harness);
       if (mapped !== undefined) {
         await service.appendEvent({session, event: mapped});
@@ -367,6 +397,7 @@ export class AdkDriver implements TurnDriver {
         skills: context.skills !== undefined,
         delegate: context.delegate !== undefined,
         jobs: context.jobs !== undefined,
+        webSearch: context.webSearch !== undefined,
       });
     return definitions.map((definition) => {
       const rule = strongerGate(
@@ -705,4 +736,52 @@ function confirmationParts(
     });
   }
   return parts;
+}
+
+
+function capHistory(history: readonly SessionEvent[]): {
+  events: readonly SessionEvent[];
+  omitted: boolean;
+} {
+  let chars = 0;
+  let start = history.length;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const event = history[index];
+    if (event === undefined) {
+      continue;
+    }
+    if (start < history.length && history.length - index > MAX_HISTORY_EVENTS) {
+      break;
+    }
+    if (start < history.length && chars + eventChars(event) > MAX_HISTORY_CHARS) {
+      break;
+    }
+    chars += eventChars(event);
+    start = index;
+  }
+  if (start === 0) {
+    return {events: history, omitted: false};
+  }
+  const nextUser = history.findIndex(
+    (event, index) => index >= start && event.type === 'user.message',
+  );
+  return {
+    events: history.slice(nextUser === -1 ? start : nextUser),
+    omitted: true,
+  };
+}
+
+function eventChars(event: SessionEvent): number {
+  switch (event.type) {
+    case 'user.message':
+      return event.text.length;
+    case 'assistant.message':
+      return event.text.length + (event.reasoning?.length ?? 0);
+    case 'tool.call':
+      return JSON.stringify(event.args).length;
+    case 'tool.result':
+      return JSON.stringify(event.result ?? '').length;
+    default:
+      return 80;
+  }
 }

@@ -1927,6 +1927,9 @@ export class AgentRuntime {
           ?.recallService,
       jobsFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))?.jobService,
+      ...(this.options.webSearch === undefined
+        ? {}
+        : {webSearch: this.options.webSearch}),
     });
     return this.harnessRuntime;
   }

@@ -704,21 +704,29 @@ export class AgentService {
     }
     try {
       /*
-       * What was read, before the review, so the event can carry the same numbers
-       * the decision was made on. Read here rather than returned by the review
-       * because the review answers with what it *found*, and the interesting case
-       * is finding nothing — a review that reports only when it has something to
-       * say is indistinguishable from one that never ran.
+       * A v1 conversation is brought forward first, so the review reads the same
+       * canonical log every other v2 surface reads. A conversation that cannot
+       * migrate is left alone; the next turn will report its own reason.
        */
-      const progress = await this.runtime.reviewProgress(profileId, sessionId);
-      const found = await this.runtime.reviewMemory(profileId, sessionId);
+      try {
+        await this.runtime.migrateLegacy(profileId, sessionId);
+      } catch {
+        // The review below checks for a v2 log and does nothing without one.
+      }
+      if (!(await this.harnessHasLog(sessionId))) {
+        return;
+      }
+      const result = await this.runtime.harness().reviewMemory(sessionId);
       this.options.sendEvent({
         type: 'memory.reviewed',
-        events: progress.reviewed,
-        found: found.length,
+        events: result.events,
+        found: result.proposals.length,
       });
-      if (found.length > 0) {
-        this.options.sendEvent({type: 'memory.proposed', count: found.length});
+      if (result.proposals.length > 0) {
+        this.options.sendEvent({
+          type: 'memory.proposed',
+          count: result.proposals.length,
+        });
       }
     } catch (error) {
       /*
@@ -909,18 +917,15 @@ export class AgentService {
 
   /** Accepts one into memory, or drops it. */
   async resolveMemoryProposal(proposalId: string, accept: boolean) {
-    const proposals = await this.runtime.memoryProposals();
-    const proposal = proposals.find((entry) => entry.id === proposalId);
-    if (
-      proposal?.sessionId !== null &&
-      proposal?.sessionId !== undefined &&
-      (await this.harnessHasLog(proposal.sessionId))
-    ) {
-      return await this.runtime
-        .harness()
-        .resolveMemoryProposal(proposalId, accept);
-    }
-    return await this.runtime.resolveMemoryProposal(proposalId, accept);
+    /*
+     * The v2 resolver works from the proposal's own session and profile, so it
+     * needs no log gate: a proposal with no conversation still writes into the
+     * profile's person-wide memory. One path also means a correction cannot be
+     * applied by one engine and read by the other.
+     */
+    return await this.runtime
+      .harness()
+      .resolveMemoryProposal(proposalId, accept);
   }
 
   /** Every suggestion this user has refused, newest last. */

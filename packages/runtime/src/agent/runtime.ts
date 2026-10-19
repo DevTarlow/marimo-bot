@@ -32,6 +32,8 @@ import {
   MAX_MEMORY_BYTES,
   FileSessionService,
   MemoryStore,
+  pendingGatesIn as adkPendingGatesIn,
+  projectTranscript,
   resolvePersonMemoryFile,
   runReview,
   SAFE_DEFAULT_TOOLS,
@@ -1620,13 +1622,14 @@ export class AgentRuntime {
       };
     }
     /*
-     * The placeholder-config host, which is the same one a turn uses before its
-     * configuration is resolved. It has the session service and nothing else,
-     * which is exactly what reading needs.
+     * A v1 conversation is read from the same index and event store, without a
+     * host: reading has never needed a model. `pendingGatesIn` is the old gate
+     * projection, kept for the format those events are in.
      */
-    const host = await this.ensureHost(profileId);
-    const {messages} = await host.getTranscript(sessionId, profileId);
-    const pending = await host.pendingGates(sessionId);
+    await this.assertIndexOwned(sessionId, profileId);
+    const events = await this.sessionIndex.listEvents(sessionId);
+    const messages = projectTranscript(events);
+    const pending = adkPendingGatesIn(events);
     /*
      * And what the user said about those answers, joined here rather than in the
      * window.
@@ -1708,12 +1711,9 @@ export class AgentRuntime {
       );
       return conversation;
     }
-    const host = await this.ensureHost(profileId);
-    const events = await host.eventsFor(sessionId);
-    const summary = (await host.listSessions(profileId)).find(
-      (entry) => entry.id === sessionId,
-    );
-    return {title: summary?.title ?? '', events};
+    const entry = await this.assertIndexOwned(sessionId, profileId);
+    const events = await this.sessionIndex.listEvents(sessionId);
+    return {title: entry.title, events};
   }
 
   /**

@@ -40,6 +40,11 @@ function from(
   return {...event(invocationId, ...parts), author};
 }
 
+/** A tool call that is not a gate, such as the parent's `ask_agent`. */
+function call(id: string, name: string): Record<string, unknown> {
+  return {functionCall: {id, name, args: {}}};
+}
+
 /** The call ADK makes when a tool needs approving. */
 function gate(
   id: string | undefined,
@@ -209,6 +214,27 @@ describe('pendingGatesIn', () => {
         'helper',
       ),
     ).toEqual([]);
+  });
+
+  /*
+   * A gate from a delegation the user walked away from is still unanswered on
+   * disk. A later click approves a different call, and executing the old one
+   * because it happens to be in the same conversation would run an action
+   * nobody is looking at — so the lookup is scoped to the current ask_agent
+   * call, and a call the log cannot name yields nothing rather than everything.
+   */
+  it('ignores a helper gate from an abandoned delegation', () => {
+    const events = [
+      from('marimo', 'parent-1', call('old-ask', 'ask_agent')),
+      from('helper', 'child-old', gate('old-gate', 'write_file')),
+      from('marimo', 'parent-2', call('new-ask', 'ask_agent')),
+      from('helper', 'child-new', gate('new-gate', 'write_file')),
+    ];
+
+    expect(
+      gatesAskedBy(events, 'helper', 'new-ask').map((entry) => entry.callId),
+    ).toEqual(['new-gate']);
+    expect(gatesAskedBy(events, 'helper', 'missing-ask')).toEqual([]);
   });
 
   /*

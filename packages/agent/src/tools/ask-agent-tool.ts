@@ -33,9 +33,9 @@
  * conversation — a request every provider refuses on the next turn. So the call
  * raises a card of its own, through ADK's `requestConfirmation`, and the user's
  * answer resumes *this* tool. It is then the one place the two sides can be
- * joined: the card the user clicked belongs to this call, and the work that has
- * to carry on belongs to the helper, which is told what was decided and runs
- * again.
+ * joined: the card the user clicked belongs to this call, and the tool answers
+ * the helper's own gate with that decision, so the call the user approved is the
+ * call that runs.
  *
  * The user sees one card and clicks it once. The helper's own gate is still in the
  * conversation beside it — the child's runner put it there, and that is what stops
@@ -188,10 +188,19 @@ export interface AgentDelegation {
    * just decide about? Without it the resumed helper can only be told the news
    * in a sentence, which is what made it re-plan (and re-ask) in the first place.
    *
+   * Scoped by `afterCallId`, the parent's own `ask_agent` call: a gate from a
+   * delegation the user walked away from is still in the log and still
+   * unanswered, and executing it because a later click approved a different call
+   * would run an action nobody is looking at.
+   *
    * Optional because the tool is also built in tests and in places that have no
    * session store; the sentence is the fallback there.
    */
-  helperGates?: (sessionId: string, author: string) => Promise<AgentGate[]>;
+  helperGates?: (
+    sessionId: string,
+    author: string,
+    afterCallId: string,
+  ) => Promise<AgentGate[]>;
   /** How the helper's work reaches the window while the turn is suspended. */
   onEvent?: (event: AgentUiEvent) => void;
   limits?: Partial<AgentLimits>;
@@ -368,7 +377,7 @@ async function runAgent(
    * the decision. A sentence is only the fallback for a store that cannot say
    * which gate the helper was waiting on.
    */
-  const resume = await resumeMessage(deps, sessionId, helper, decision);
+  const resume = await resumeMessage(deps, sessionId, helper, decision, callId);
 
   let steps = 0;
   let answer = '';
@@ -598,13 +607,14 @@ async function resumeMessage(
   sessionId: string,
   helper: AgentTools,
   decision: ToolConfirmation | undefined,
+  callId: string,
 ): Promise<Content | undefined> {
   if (decision === undefined || deps.helperGates === undefined) {
     return undefined;
   }
   let gates: AgentGate[];
   try {
-    gates = await deps.helperGates(sessionId, helper.author);
+    gates = await deps.helperGates(sessionId, helper.author, callId);
   } catch {
     /*
      * A conversation that cannot be read is not a reason to end the parent's

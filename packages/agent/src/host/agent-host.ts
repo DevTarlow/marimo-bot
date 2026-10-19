@@ -1839,9 +1839,9 @@ export class AgentHost {
           callId: gate.callId,
           tool: gate.tool,
         })),
-      helperGates: async (sessionId, author) => {
+      helperGates: async (sessionId, author, afterCallId) => {
         const events = await this.sessionService.listEvents(sessionId);
-        return gatesAskedBy(events, author).map((gate) => ({
+        return gatesAskedBy(events, author, afterCallId).map((gate) => ({
           callId: gate.callId,
           tool: gate.tool,
         }));
@@ -2728,15 +2728,37 @@ export function pendingGatesIn(events: readonly AdkEvent[]): PendingGate[] {
  * the child's gate outlives the child's invocation, and the parent's click is a
  * different invocation entirely. Answers are read from every author because the
  * confirmation response is written as the user's.
+ *
+ * `afterCallId` is the parent's `ask_agent` call, and it is what keeps an
+ * abandoned delegation out of a later one. A helper's gate from a turn the user
+ * walked away from is still unanswered on disk; answering it because a later
+ * click approved a different call would execute an action nobody is looking at.
+ * Scoping to the current call means only the gate this click is about can be
+ * resumed. If the call is not in the log — compacted away, say — the answer is
+ * nothing, and the caller falls back to the sentence rather than guessing.
  */
 export function gatesAskedBy(
   events: readonly AdkEvent[],
   author: string,
+  afterCallId?: string,
 ): PendingGate[] {
+  let scoped: readonly AdkEvent[] = events;
+  if (afterCallId !== undefined) {
+    const start = events.findIndex((event) =>
+      (event.content?.parts ?? []).some(
+        (part) => part.functionCall?.id === afterCallId,
+      ),
+    );
+    if (start < 0) {
+      return [];
+    }
+    scoped = events.slice(start);
+  }
+
   const asked = new Map<string, PendingGate>();
   const answered = new Set<string>();
 
-  for (const event of events) {
+  for (const event of scoped) {
     if (isCompactedEvent(event)) {
       continue;
     }

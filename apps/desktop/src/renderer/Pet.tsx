@@ -138,6 +138,16 @@ export function Pet(): React.JSX.Element {
   );
 
   /*
+   * The answer the note would be about, when there is one to judge.
+   *
+   * `markedWrong` is asked rather than remembered, because the window and the
+   * moss are two surfaces on one conversation: an answer noted in the window is
+   * the same answer, and offering to note it again here is how one turn collects
+   * two entries.
+   */
+  const noteable = lastStoredAnswer(shown);
+
+  /*
    * The outbox is in the dependencies as well as the stored messages: the echo
    * is a bubble that has to be visible without scrolling as soon as it exists,
    * and the transcript it will be replaced by has not grown yet.
@@ -286,15 +296,22 @@ export function Pet(): React.JSX.Element {
             arriving. A turn still streaming has no stored message to record
             against, and an answer halfway written is not one to judge.
           */}
-          {!busy && lastStoredAnswer(shown) !== undefined && (
+          {!busy && noteable !== undefined && noteable.markedWrong !== true && (
             <button
               type="button"
               className="pet-note"
               onClick={() => {
-                const answer = lastStoredAnswer(shown);
-                if (answer !== undefined) {
-                  void agent.noteCorrection(answer);
-                }
+                void agent.noteCorrection(noteable).then((ok) => {
+                  /*
+                   * Re-read rather than hide locally: the note is stored, and the
+                   * next read is what says so — the same rule the window follows,
+                   * applied once here instead of a second flag that could
+                   * disagree with the file.
+                   */
+                  if (ok) {
+                    void agent.refresh();
+                  }
+                });
               }}
             >
               Not quite

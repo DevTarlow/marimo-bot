@@ -148,6 +148,31 @@ describe('memory and skill tools', () => {
     expect(saved).toMatchObject({ok: true});
   });
 
+  it('asks another bot only when delegation is available', async () => {
+    const spec = resolveHarness({
+      profile: {...profile(), enabledTools: ['ask_agent']},
+      app,
+      version: 1,
+    });
+    expect(toolsFor(spec, {delegate: false})).toEqual([]);
+    expect(toolsFor(spec, {delegate: true}).map((entry) => entry.name)).toEqual(
+      ['ask_agent'],
+    );
+    const result = await tool('ask_agent').execute(
+      {agent: 'Reader', task: 'What do you think?'},
+      {
+        workspaceRoot: '/tmp',
+        signal: new AbortController().signal,
+        delegate: async ({agent, task}) => ({
+          ok: true,
+          result: `${agent}: ${task}`,
+        }),
+      },
+    );
+    expect(result).toMatchObject({ok: true});
+    expect(String(result.result)).toContain('Reader: What do you think?');
+  });
+
   it('puts memory and the skill index in the prompt, not the skill body', () => {
     const spec = resolveHarness({profile: profile(), app, version: 1});
     const prompt = composeHarnessInstruction(spec, {

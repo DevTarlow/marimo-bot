@@ -352,6 +352,7 @@ export class AdkDriver implements TurnDriver {
       toolsFor(harness, {
         memory: context.memory !== undefined,
         skills: context.skills !== undefined,
+        delegate: context.delegate !== undefined,
       });
     return definitions.map((definition) => {
       const rule = strongerGate(

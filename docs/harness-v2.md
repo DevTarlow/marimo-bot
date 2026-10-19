@@ -21,7 +21,7 @@ Two projects prompted the question. Neither is a foundation for this app:
 
 - **Harness²** (`google-research/harness2`) is a Python 3.12 research harness for
   benchmarked recursive harness optimization. It has no product storage, UI, IPC,
-  packaging or desktop runtime. Its *design* is the useful part: eight editable
+  packaging or desktop runtime. Its _design_ is the useful part: eight editable
   harness components, and an improvement loop that keeps lessons across tasks.
 - **DeepSeek Harness** is a developer preview whose own README promises
   breaking changes. A plugin built on it would inherit that instability and lose
@@ -35,23 +35,23 @@ invariants have a named test in the new engine. See
 
 ## What changes, what stays
 
-| Area | Disposition |
-| --- | --- |
-| `HarnessSpec`, resolution, versions | New |
-| Turn engine, event log, gates, budgets | New |
-| Context assembly, memory block, skills index, compaction | New |
-| Tool policy and the built-in tool set | New |
-| Delegation and group collaboration | New |
-| Learning: traces, proposals, versions, rollback | New |
-| OpenAI-compatible transport, provider catalogue | Ported |
-| MCP client and wire format | Ported |
-| Profiles, Spaces, documents, jobs, text recall, secrets, OS service | Kept, adapted |
-| Electron shell, preload, tray, companion window | Kept |
-| Renderer shell and visual language | Kept; pages added and replaced |
-| Dream-RSI (standalone) | Removed; the trace recorder idea moves into learning |
-| Discord tools | Removed |
-| Notes / to-do desk | Removed |
-| Media recall (images, audio, video) | Removed from the shipped app; text recall stays |
+| Area                                                                | Disposition                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------- |
+| `HarnessSpec`, resolution, versions                                 | New                                                  |
+| Turn engine, event log, gates, budgets                              | New                                                  |
+| Context assembly, memory block, skills index, compaction            | New                                                  |
+| Tool policy and the built-in tool set                               | New                                                  |
+| Delegation and group collaboration                                  | New                                                  |
+| Learning: traces, proposals, versions, rollback                     | New                                                  |
+| OpenAI-compatible transport, provider catalogue                     | Ported                                               |
+| MCP client and wire format                                          | Ported                                               |
+| Profiles, Spaces, documents, jobs, text recall, secrets, OS service | Kept, adapted                                        |
+| Electron shell, preload, tray, companion window                     | Kept                                                 |
+| Renderer shell and visual language                                  | Kept; pages added and replaced                       |
+| Dream-RSI (standalone)                                              | Removed; the trace recorder idea moves into learning |
+| Discord tools                                                       | Removed                                              |
+| Notes / to-do desk                                                  | Removed                                              |
+| Media recall (images, audio, video)                                 | Removed from the shipped app; text recall stays      |
 
 ## The shape
 
@@ -90,7 +90,11 @@ interface HarnessSpec {
   identity: {name: string; role: string; persona?: string};
   contract: string[];
   context: {
-    memory: {scopes: ('person' | 'space')[]; policy: 'all' | 'relevant'; softLimit: number};
+    memory: {
+      scopes: ('person' | 'space')[];
+      policy: 'all' | 'relevant';
+      softLimit: number;
+    };
     skills: {enabled: string[]; advertise: true};
     compaction: {maxContextTokens: number; reserve: number};
     spaceContext: boolean;
@@ -100,9 +104,18 @@ interface HarnessSpec {
     guidance: string[];
     mcpServerIds: string[] | 'all';
     policy: {gates: Record<string, GateRule>; network: 'default' | 'private'};
-    budgets: {maxSteps: number; maxToolCalls: number; maxDelegations: number; timeoutMs: number};
+    budgets: {
+      maxSteps: number;
+      maxToolCalls: number;
+      maxDelegations: number;
+      timeoutMs: number;
+    };
   };
-  collaborators: {mode: 'lead' | 'participant'; delegates: string[]; maxDepth: 1};
+  collaborators: {
+    mode: 'lead' | 'participant';
+    delegates: string[];
+    maxDepth: 1;
+  };
   model: {provider: ProviderId; model: string; maxOutputTokens?: number};
   plugins: string[];
   learning: {mode: 'propose' | 'off'; retainTraces: boolean};
@@ -116,16 +129,16 @@ Rollback is selecting the parent.
 
 The eight Harness² components map as follows:
 
-| Harness² component | Here |
-| --- | --- |
-| system prompt | `identity` + `contract` |
-| guardrails | `tools.policy` and the engine's gates |
-| memory | `context.memory` |
-| tool guidance | `tools.guidance` |
-| subagents | `collaborators` |
-| skills | `context.skills` |
-| plugins | `plugins` (loop guard, trace, redaction) |
-| scripts | Reserved, not implemented |
+| Harness² component | Here                                     |
+| ------------------ | ---------------------------------------- |
+| system prompt      | `identity` + `contract`                  |
+| guardrails         | `tools.policy` and the engine's gates    |
+| memory             | `context.memory`                         |
+| tool guidance      | `tools.guidance`                         |
+| subagents          | `collaborators`                          |
+| skills             | `context.skills`                         |
+| plugins            | `plugins` (loop guard, trace, redaction) |
+| scripts            | Reserved, not implemented                |
 
 Scripts are deliberately absent. A field nothing sets is a branch nobody tests,
 and there is no workflow in this app that a skill plus a tool cannot already

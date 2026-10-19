@@ -61,9 +61,18 @@ class ScriptedDriver implements TurnDriver {
   }
 }
 
-async function runtimeFor(
-  driver: TurnDriver,
-): Promise<{runtime: HarnessRuntime; profileId: string}> {
+interface RuntimeDeps {
+  paths: ReturnType<typeof import('../paths.js').resolveAppPaths>;
+  settings: SettingsStore;
+  profiles: ProfileStore;
+  workspaces: WorkspaceStore;
+  store: MemoryEventStore;
+  readSecret: () => Promise<{state: 'present'; value: string}>;
+  now: () => Date;
+  createId: () => string;
+}
+
+async function setup(): Promise<{deps: RuntimeDeps; profileId: string}> {
   const dir = await root();
   const paths = (await import('../paths.js')).resolveAppPaths(dir);
   const settings = new SettingsStore(paths.settings);
@@ -81,18 +90,36 @@ async function runtimeFor(
   });
   await workspaces.load();
   let counter = 0;
-  const runtime = new HarnessRuntime({
-    paths,
-    settings,
-    profiles,
-    workspaces,
-    readSecret: async () => ({state: 'present', value: 'test-key'}),
-    driverFactory: () => driver,
-    store: new MemoryEventStore(),
-    now: () => new Date('2026-01-01T00:00:00.000Z'),
-    createId: () => `id-${(counter += 1)}`,
+  return {
+    deps: {
+      paths,
+      settings,
+      profiles,
+      workspaces,
+      store: new MemoryEventStore(),
+      readSecret: async () => ({state: 'present', value: 'test-key'}),
+      now: () => new Date('2026-01-01T00:00:00.000Z'),
+      createId: () => `id-${(counter += 1)}`,
+    },
+    profileId: profileFile.activeProfileId,
+  };
+}
+
+function runtimeFrom(
+  deps: RuntimeDeps,
+  driverFactory: () => TurnDriver,
+): HarnessRuntime {
+  return new HarnessRuntime({
+    ...deps,
+    driverFactory,
   });
-  return {runtime, profileId: profileFile.activeProfileId};
+}
+
+async function runtimeFor(
+  driver: TurnDriver,
+): Promise<{runtime: HarnessRuntime; profileId: string}> {
+  const {deps, profileId} = await setup();
+  return {runtime: runtimeFrom(deps, () => driver), profileId};
 }
 
 async function collect(
@@ -215,6 +242,133 @@ describe('HarnessRuntime', () => {
       'session.changed',
     ]);
     expect(await runtime.pendingGates('s1')).toEqual([]);
+  });
+
+  it('records a denial as a failed tool result and clears the card', async () => {
+    const driver = new ScriptedDriver(
+      [
+        [
+          {type: 'step'},
+          {
+            type: 'approval.request',
+            callId: 'call_1',
+            confirmationId: 'confirm_1',
+            tool: 'write_file',
+            args: {path: 'a.md'},
+            hint: 'Replace a.md',
+          },
+          {type: 'done'},
+        ],
+      ],
+      [
+        [
+          {type: 'step'},
+          {
+            type: 'tool.result',
+            callId: 'call_1',
+            tool: 'write_file',
+            ok: false,
+            result: 'The tool call was rejected.',
+          },
+          {type: 'message', text: 'I did not replace it.'},
+          {type: 'done'},
+        ],
+      ],
+    );
+    const {runtime, profileId} = await runtimeFor(driver);
+    await collect(runtime.run(profileId, 's1', 'Write a.md'));
+    const resumed = await collect(
+      runtime.approve(profileId, {
+        sessionId: 's1',
+        callId: 'call_1',
+        confirmed: false,
+      }),
+    );
+    expect(resumed.find((event) => event.type === 'tool.finished')).toMatchObject({
+      ok: false,
+    });
+    expect(await runtime.pendingGates('s1')).toEqual([]);
+  });
+
+  it('keeps a pending card across a restart and resumes it', async () => {
+    const gateDriver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'I need to write.'},
+        {
+          type: 'approval.request',
+          callId: 'call_1',
+          confirmationId: 'confirm_1',
+          tool: 'write_file',
+          args: {path: 'a.md'},
+          hint: 'Replace a.md',
+        },
+        {type: 'done'},
+      ],
+    ]);
+    const {deps, profileId} = await setup();
+    const first = runtimeFrom(deps, () => gateDriver);
+    await collect(first.run(profileId, 's1', 'Write a.md'));
+    first.dispose();
+
+    const resumeDriver = new ScriptedDriver(
+      [],
+      [
+        [
+          {type: 'step'},
+          {
+            type: 'tool.result',
+            callId: 'call_1',
+            tool: 'write_file',
+            ok: true,
+            result: 'wrote a.md',
+          },
+          {type: 'message', text: 'Done.'},
+          {type: 'done'},
+        ],
+      ],
+    );
+    const second = runtimeFrom(deps, () => resumeDriver);
+    expect(await second.pendingGates('s1')).toHaveLength(1);
+    await collect(
+      second.approve(profileId, {
+        sessionId: 's1',
+        callId: 'call_1',
+        confirmed: true,
+      }),
+    );
+    expect(resumeDriver.resumeCalls).toBe(1);
+    expect(await second.pendingGates('s1')).toEqual([]);
+  });
+
+  it('runs two conversations at once', async () => {
+    let started = 0;
+    let release!: () => void;
+    const both = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const factory = (): TurnDriver => ({
+      async *run() {
+        started += 1;
+        if (started === 2) {
+          release();
+        }
+        await both;
+        yield {type: 'message', text: 'done'};
+      },
+      async *resume() {
+        // unused
+      },
+    });
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, factory);
+    const first = collect(runtime.run(profileId, 's1', 'one'));
+    const second = collect(runtime.run(profileId, 's2', 'two'));
+    await both;
+    const [one, two] = await Promise.all([first, second]);
+    expect(started).toBe(2);
+    expect(one.map((event) => event.type)).toContain('turn.completed');
+    expect(two.map((event) => event.type)).toContain('turn.completed');
   });
 
   it('stops a turn through the facade', async () => {

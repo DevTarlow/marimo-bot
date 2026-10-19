@@ -71,6 +71,7 @@ import {fetchProviderModels} from '@marimo/agent';
 import type {JobService} from '@marimo/agent';
 
 import {providerSecretStore, secretStore} from './secrets.js';
+import {shouldUseV2} from './harness-route.js';
 import {BrowserSearchProvider} from './search/search-window.js';
 import {RecallHost} from './recall.js';
 import {MediaDecodingWindow} from './media/decode-window.js';
@@ -1308,13 +1309,25 @@ export class AgentService {
     sessionId: string,
     agentIds: string[],
   ): Promise<SessionSummary> {
-    if (await this.harnessHasLog(sessionId)) {
+    const hasLog = await this.harnessHasLog(sessionId);
+    const summary = (await this.runtime.listSessions(profileId)).find(
+      (session) => session.id === sessionId,
+    );
+    /*
+     * A new group is opened by setting its members before its first turn. With
+     * no log and no messages, that write is what starts v2 for it; an empty
+     * participant list does not force the new engine on a cleared chat.
+     */
+    const startV2 =
+      hasLog ||
+      (agentIds.length > 0 &&
+        summary !== undefined &&
+        summary.messageCount === 0 &&
+        process.env['MARIMO_HARNESS_V1'] !== '1');
+    if (startV2) {
       await this.runtime
         .harness()
         .setParticipants(profileId, sessionId, agentIds);
-      const summary = (await this.runtime.listSessions(profileId)).find(
-        (session) => session.id === sessionId,
-      );
       if (summary === undefined) {
         throw new Error(`Unknown session: ${sessionId}`);
       }
@@ -1474,23 +1487,38 @@ export class AgentService {
   private async useHarness(
     profileId: string,
     sessionId: string,
-    origin: 'window' | 'pet' | undefined,
+    _origin: 'window' | 'pet' | undefined,
     agentId: string | undefined,
   ): Promise<boolean> {
-    if (await this.harnessHasLog(sessionId)) {
-      return true;
-    }
-    if (agentId !== undefined || origin === 'pet') {
-      return false;
-    }
-    if (process.env['MARIMO_HARNESS_V2'] !== '1') {
-      return false;
+    const hasLog = await this.harnessHasLog(sessionId);
+    const escapeHatch = process.env['MARIMO_HARNESS_V1'] === '1';
+    if (hasLog || agentId !== undefined || escapeHatch) {
+      return shouldUseV2({
+        hasLog,
+        addressed: agentId !== undefined,
+        escapeHatch,
+      });
     }
     try {
-      return (
-        (await this.runtime.transcript(profileId, sessionId)).messages
-          .length === 0
-      );
+      /*
+       * The index answers this without building a host. A conversation with a
+       * row and no messages is new work; only an id the index does not know
+       * falls back to the old transcript read.
+       */
+      const sessions = await this.runtime.listSessions(profileId);
+      const summary = sessions.find((session) => session.id === sessionId);
+      return shouldUseV2({
+        hasLog,
+        addressed: false,
+        escapeHatch,
+        ...(summary === undefined
+          ? {
+              fallbackEmpty:
+                (await this.runtime.transcript(profileId, sessionId)).messages
+                  .length === 0,
+            }
+          : {indexMessageCount: summary.messageCount}),
+      });
     } catch {
       return false;
     }

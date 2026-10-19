@@ -1516,7 +1516,7 @@ export class HarnessRuntime {
           name = server.id;
         }
 
-        const file = await this.learning.record({
+        await this.learning.record({
           kind: 'grant',
           target: input.target,
           name,
@@ -1536,11 +1536,15 @@ export class HarnessRuntime {
                 ],
         });
         const subject = `${input.target}:${name.toLocaleLowerCase()}`;
-        const refused = file.lessons.some(
+        /*
+         * The current refusals, not the whole list. An expired lesson stays in
+         * the document for the audit but no longer suppresses an ask, and a
+         * check against the raw list would tell the model a person had said no
+         * when the TTL had already let the question back in.
+         */
+        const refused = (await this.learning.lessonsFor(profileId)).some(
           (lesson) =>
-            lesson.profileId === profileId &&
-            lesson.kind === 'grant' &&
-            lesson.summary === subject,
+            lesson.kind === 'grant' && lesson.summary === subject,
         );
         if (refused) {
           return {
@@ -1576,7 +1580,7 @@ export class HarnessRuntime {
           };
         }
         const summary = describePolicy(patch);
-        const file = await this.learning.record({
+        await this.learning.record({
           kind: 'policy',
           patch,
           summary,
@@ -1596,11 +1600,9 @@ export class HarnessRuntime {
                 ],
         });
         const subject = `policy:${JSON.stringify(patch)}`;
-        const refused = file.lessons.some(
+        const refused = (await this.learning.lessonsFor(profileId)).some(
           (lesson) =>
-            lesson.profileId === profileId &&
-            lesson.kind === 'policy' &&
-            lesson.summary === subject,
+            lesson.kind === 'policy' && lesson.summary === subject,
         );
         if (refused) {
           return {

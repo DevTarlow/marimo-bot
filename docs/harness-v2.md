@@ -381,7 +381,14 @@ that asked. The instruction is prompt text for one turn, not a property of the
 bot, which is why it lives in the log beside the harness hash rather than in the
 profile.
 
-Documents, jobs and the bot builder are still on the old path.
+Jobs are v2 now, on both sides. The scheduling tools are offered only when the
+runtime has a job service; creating, changing or removing a job is gated. A job
+whose conversation has a v2 log runs through the v2 engine in the app and in the
+headless runner; a job created before the log existed stays on the old path.
+The job is still stamped with the conversation the turn was in, so it reports
+back where it was asked for.
+
+Documents and the bot builder are still on the old path.
 Jobs in particular cannot move yet: a v2-created job would point at a conversation
 the old scheduler runs, so the job tools stay off in v2 until the runner does.
 

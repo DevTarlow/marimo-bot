@@ -275,6 +275,7 @@ export class AgentService {
       store: this.jobsStore,
       runner: createJobRunner({
         runtime: this.runtime,
+        harness: this.runtime.harness(),
         jobs: this.jobsStore,
         onEvent: (event) => {
           options.sendEvent(event);
@@ -1435,9 +1436,7 @@ export class AgentService {
               (await this.runtime.settings()).companion.answerLength,
             )
           : undefined;
-      this.pump(
-        harness.run(profileId, sessionId, text, agentId, instruction),
-      );
+      this.pump(harness.run(profileId, sessionId, text, agentId, instruction));
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};
     }

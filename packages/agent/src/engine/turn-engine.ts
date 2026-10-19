@@ -265,8 +265,7 @@ export class TurnEngine {
       const profileId = params.harness.id;
       const harness = params.harness;
       const started = after.find(
-        (event) =>
-          event.type === 'turn.started' && event.turnId === turnId,
+        (event) => event.type === 'turn.started' && event.turnId === turnId,
       );
       yield* this.drive({
         sessionId: params.sessionId,

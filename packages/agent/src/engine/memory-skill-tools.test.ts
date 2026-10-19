@@ -10,6 +10,7 @@ import {composeHarnessInstruction} from '../context/instruction.js';
 import {CORE_TOOLS, toolsFor} from './core-tools.js';
 import type {SkillToolService, ToolContext} from './tool-contract.js';
 import type {RecallLookup} from '../tools/recall-tools.js';
+import type {JobService} from '../tools/job-tools.js';
 
 const app: HarnessAppDefaults = {
   model: {provider: 'deepseek', model: 'deepseek-chat'},
@@ -213,6 +214,64 @@ describe('memory and skill tools', () => {
     expect(result).toMatchObject({ok: true});
     expect(String(result.result)).toContain('notes.md:4');
     expect(String(result.result)).toContain('backs off');
+  });
+
+  it('schedules a job only when a job service is present', async () => {
+    const spec = resolveHarness({
+      profile: {
+        ...profile(),
+        enabledTools: ['list_jobs', 'create_job', 'update_job', 'delete_job'],
+      },
+      app,
+      version: 1,
+    });
+    expect(toolsFor(spec, {jobs: false})).toEqual([]);
+    const made: Array<Record<string, unknown>> = [];
+    const jobs: JobService = {
+      list: async () => [],
+      create: async (input) => {
+        made.push(input);
+        return {
+          id: 'job-1',
+          name: input.name,
+          description: input.description,
+          schedules: input.schedules ?? ['0 9 * * *'],
+          enabled: true,
+          profileId: input.profileId,
+          sessionId: input.sessionId,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        };
+      },
+      update: async () => null,
+      remove: async () => false,
+    };
+    const context = {
+      workspaceRoot: '/tmp',
+      signal: new AbortController().signal,
+      jobs,
+      profileId: 'writer',
+      sessionId: 's1',
+    };
+    expect(toolsFor(spec, {jobs: true}).map((entry) => entry.name)).toEqual([
+      'list_jobs',
+      'create_job',
+      'update_job',
+      'delete_job',
+    ]);
+    const created = await tool('create_job').execute(
+      {
+        name: 'Morning digest',
+        description: 'Summarise the inbox.',
+        schedules: ['0 9 * * *'],
+      },
+      context,
+    );
+    expect(created).toMatchObject({ok: true});
+    expect(made[0]).toMatchObject({
+      name: 'Morning digest',
+      profileId: 'writer',
+      sessionId: 's1',
+    });
   });
 
   it('puts memory and the skill index in the prompt, not the skill body', () => {

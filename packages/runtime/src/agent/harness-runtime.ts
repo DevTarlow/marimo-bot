@@ -34,6 +34,7 @@ import {
   type AgentConfig,
   type EventStore,
   type HarnessSpec,
+  type JobService,
   type RecallLookup,
   type SkillToolService,
   type TurnDriver,
@@ -85,6 +86,11 @@ export interface HarnessRuntimeOptions {
     profileId: string,
     workspaceRoot: string,
   ) => Promise<RecallLookup | undefined>;
+  /** Scheduling, when the app has a job service for this profile. */
+  jobsFor?: (
+    profileId: string,
+    workspaceRoot: string,
+  ) => Promise<JobService | undefined>;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -97,6 +103,7 @@ interface Prepared {
   workspaceRoot: string;
   memory: MemoryStore;
   recall?: RecallLookup;
+  jobs?: JobService;
 }
 
 interface SessionState {
@@ -192,7 +199,7 @@ export class HarnessRuntime {
     }
 
     const state = this.stateFor(sessionId, prepared.config);
-    state.driver.current = this.driverFor(prepared);
+    state.driver.current = this.driverFor(prepared, sessionId);
     try {
       yield* projectTurn(
         state.engine.run({
@@ -232,7 +239,7 @@ export class HarnessRuntime {
     }
 
     const state = this.stateFor(params.sessionId, prepared.config);
-    state.driver.current = this.driverFor(prepared);
+    state.driver.current = this.driverFor(prepared, params.sessionId);
     try {
       yield* projectTurn(
         state.engine.approve({
@@ -516,6 +523,7 @@ export class HarnessRuntime {
     });
 
     const recall = await this.options.recallFor?.(profile.id, workspaceRoot);
+    const jobs = await this.options.jobsFor?.(profile.id, workspaceRoot);
     return {
       profile,
       config,
@@ -523,6 +531,7 @@ export class HarnessRuntime {
       workspaceRoot,
       memory,
       ...(recall === undefined ? {} : {recall}),
+      ...(jobs === undefined ? {} : {jobs}),
     };
   }
 
@@ -547,7 +556,7 @@ export class HarnessRuntime {
     return state;
   }
 
-  private driverFor(prepared: Prepared): TurnDriver {
+  private driverFor(prepared: Prepared, sessionId: string): TurnDriver {
     if (this.options.driverFactory !== undefined) {
       return this.options.driverFactory(prepared.config);
     }
@@ -588,6 +597,9 @@ export class HarnessRuntime {
         memory: prepared.memory,
         skills,
         ...(prepared.recall === undefined ? {} : {recall: prepared.recall}),
+        ...(prepared.jobs === undefined ? {} : {jobs: prepared.jobs}),
+        sessionId,
+        profileId: profileId,
         delegate: async ({agent, task}) =>
           await this.askAgent(profileId, agent, task),
       }),

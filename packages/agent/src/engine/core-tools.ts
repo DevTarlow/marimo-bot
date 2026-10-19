@@ -18,6 +18,7 @@ import {z} from 'zod';
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
 import {askAgentTool} from './delegation-tools.js';
 import {MEMORY_TOOLS} from './memory-tools.js';
+import {JOB_TOOLS} from './job-tools.js';
 import {recallTool} from './recall-tool.js';
 import {SKILL_TOOLS} from './skill-tools.js';
 import {
@@ -302,6 +303,7 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   ...SKILL_TOOLS,
   askAgentTool,
   recallTool,
+  ...JOB_TOOLS,
 ];
 
 /**
@@ -316,6 +318,7 @@ export interface ToolAvailability {
   skills?: boolean;
   delegate?: boolean;
   recall?: boolean;
+  jobs?: boolean;
 }
 
 export function toolsFor(
@@ -331,7 +334,8 @@ export function toolsFor(
       (tool.requiresMemory !== true || available.memory === true) &&
       (tool.requiresSkills !== true || available.skills === true) &&
       (tool.requiresDelegate !== true || available.delegate === true) &&
-      (tool.requiresRecall !== true || available.recall === true),
+      (tool.requiresRecall !== true || available.recall === true) &&
+      (tool.requiresJobs !== true || available.jobs === true),
   );
 }
 

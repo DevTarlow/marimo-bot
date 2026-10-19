@@ -22,11 +22,14 @@
 import type {AgentUiEvent} from '@marimo/protocol';
 
 import type {AgentRuntime} from './runtime.js';
+import type {HarnessRuntime} from './harness-runtime.js';
 import type {JobStore} from '../jobs.js';
 import type {JobRunner} from '../scheduler.js';
 
 export interface JobRunnerOptions {
   runtime: AgentRuntime;
+  /** The v2 path, when the job's conversation has a v2 log. */
+  harness?: HarnessRuntime;
   jobs: JobStore;
   /**
    * Told about every event as it passes, when anything is listening.
@@ -58,6 +61,16 @@ export function createJobRunner(options: JobRunnerOptions): JobRunner {
         // still leaves the job pointing at the conversation it began in.
         await jobs.setSession(jobId, id);
         onSession(id);
+      }
+
+      if (options.harness !== undefined && (await options.harness.hasLog(id))) {
+        return {
+          sessionId: id,
+          events: forward(
+            options.harness.run(profileId, id, prompt),
+            options.onEvent,
+          ),
+        };
       }
 
       return {

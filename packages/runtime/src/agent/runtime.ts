@@ -1925,6 +1925,8 @@ export class AgentRuntime {
       recallFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))
           ?.recallService,
+      jobsFor: async (profileId, workspaceRoot) =>
+        (await this.options.services?.(profileId, workspaceRoot))?.jobService,
     });
     return this.harnessRuntime;
   }

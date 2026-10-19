@@ -14,6 +14,7 @@ import type {ZodObject, ZodRawShape} from 'zod';
 
 import type {GateRule} from '../harness/spec.js';
 import type {MemoryStore} from '../memory/memory-store.js';
+import type {JobService} from '../tools/job-tools.js';
 import type {RecallLookup} from '../tools/recall-tools.js';
 
 export type ToolOutcome =
@@ -62,6 +63,12 @@ export interface ToolContext {
   delegate?: (request: DelegationRequest) => Promise<DelegationResult>;
   /** Present only when recall is switched on and has a corpus. */
   recall?: RecallLookup;
+  /** Present only when this runtime can schedule jobs. */
+  jobs?: JobService;
+  /** The conversation this turn belongs to, for a job that reports back. */
+  sessionId?: string;
+  /** The agent the turn answers for. */
+  profileId?: string;
 }
 
 export interface ToolDefinition<Args = unknown> {
@@ -80,6 +87,8 @@ export interface ToolDefinition<Args = unknown> {
   requiresDelegate?: boolean;
   /** A tool that needs recall is absent when the index is not available. */
   requiresRecall?: boolean;
+  /** A tool that needs scheduling is absent when no job service is present. */
+  requiresJobs?: boolean;
   execute(args: Args, context: ToolContext): Promise<ToolOutcome>;
 }
 

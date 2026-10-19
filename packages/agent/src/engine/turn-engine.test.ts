@@ -162,9 +162,7 @@ describe('TurnEngine', () => {
           {type: 'done'},
         ],
       ],
-      [
-        [{type: 'step'}, {type: 'message', text: 'Done.'}, {type: 'done'}],
-      ],
+      [[{type: 'step'}, {type: 'message', text: 'Done.'}, {type: 'done'}]],
     );
     const {engine, store} = engineFor(driver);
     const spec = harness();

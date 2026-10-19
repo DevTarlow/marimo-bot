@@ -316,7 +316,7 @@ export async function runDue(options: {
   const ran = new Set<string>();
   const scheduler = new JobScheduler({
     store: jobs,
-    runner: createJobRunner({runtime: agent, jobs}),
+    runner: createJobRunner({runtime: agent, harness: agent.harness(), jobs}),
     onChange: (jobId) => {
       ran.add(jobId);
       options.onRun?.(jobId);

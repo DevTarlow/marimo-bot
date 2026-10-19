@@ -35,7 +35,6 @@ import {
   pendingGatesIn as adkPendingGatesIn,
   projectTranscript,
   resolvePersonMemoryFile,
-  runReview,
   SAFE_DEFAULT_TOOLS,
   SKILLS,
 } from '@marimo/agent';
@@ -712,105 +711,6 @@ export class AgentRuntime {
     this.dropHost(profileId);
     return file;
   }
-
-  /**
-   * Reads a conversation back and proposes what is worth remembering.
-   *
-   * Answers what it added, so a caller can say so. Does nothing at all when the
-   * agent cannot be built — a review is a background nicety, and an
-   * unconfigured install has nothing to review *with*.
-   *
-   * The watermark is moved whether or not anything was found. That is the
-   * difference between a feature and a nuisance: "I looked and found nothing" is
-   * the answer most of the time, and not recording it means looking again on
-   * every idle moment, forever.
-   */
-  async reviewMemory(
-    profileId: string,
-    sessionId: string,
-  ): Promise<MemoryProposal[]> {
-    const profile = await this.profileFor(profileId);
-    if (profile === undefined) {
-      return [];
-    }
-    /*
-     * The same host a turn would get: the review reads the memory of the folder
-     * this conversation works in, so what it proposes belongs to the project the
-     * conversation is about.
-     */
-    const resolved = await this.host(profileId, sessionId);
-    if (!resolved.ok) {
-      return [];
-    }
-    const host = resolved.host;
-
-    /*
-     * The watermark counts final events, so the slice has to be taken from the
-     * same list it was counted against — not from the raw log, where an event
-     * still being written would shift every index after it.
-     */
-    const reviewable = (await host.eventsFor(sessionId)).filter(
-      (event) => event.partial !== true,
-    );
-    const from = await this.proposals.reviewedUpTo(sessionId);
-    if (reviewable.length <= from) {
-      // Nothing new since last time. Not asking is the common case and the
-      // reason the watermark exists.
-      return [];
-    }
-
-    const memory = await host.memoryText();
-    /*
-     * What this agent has already been told no about. Read from the same document
-     * the proposals live in, so a refusal and the queue it came from cannot
-     * disagree — and scoped to the profile, because a fact refused in one agent's
-     * conversation is not a refusal by the person in another's.
-     */
-    const refused = (await this.proposals.load()).dismissed
-      .filter((entry) => entry.profileId === profileId)
-      .map((entry) => ({text: entry.text}));
-    /*
-     * And what the user said about the agent's own answers. Newest last, and read
-     * from this profile's entries only: one agent being told it was wrong about a
-     * deployment is not a fact about the other one.
-     */
-    const corrections = (await this.feedbackStore.forProfile(profileId)).map(
-      (entry) => ({excerpt: entry.excerpt, text: entry.correction}),
-    );
-    /*
-     * Only what has not been read before, and only as much of it as one look
-     * covers. `used` is what the look actually reached, which is what the
-     * watermark may move past: a conversation longer than the cap drains over
-     * successive looks instead of having its beginning marked read unread.
-     */
-    const found = await runReview({
-      events: reviewable.slice(from),
-      memory,
-      refused,
-      corrections,
-      ask: async (prompt) => await host.ask(prompt),
-    });
-
-    const recorded = await this.proposals.record(
-      sessionId,
-      from + found.used,
-      found.proposals.map((proposal) => ({
-        sessionId,
-        profileId,
-        section: proposal.section,
-        text: proposal.text,
-        reason: proposal.reason,
-        ...(proposal.replaces === undefined
-          ? {}
-          : {replaces: proposal.replaces}),
-      })),
-    );
-
-    // The ids the store assigned, so the window can act on them.
-    const added = new Set(found.proposals.map((proposal) => proposal.text));
-    return recorded.proposals.filter((proposal) => added.has(proposal.text));
-  }
-
   /** The suggestions waiting for this agent. */
   async memoryProposals(profileId?: string): Promise<MemoryProposal[]> {
     const file = await this.proposals.load();

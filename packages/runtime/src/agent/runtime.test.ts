@@ -72,7 +72,6 @@ const noKey = async (): Promise<SecretRead> => ({state: 'absent'});
  * is the same trick the injected engine used to play, and one test needs the
  * *ask* to fail rather than to answer.
  */
-const DEAD_ADDRESS = 'http://127.0.0.1:1/v1';
 
 /**
  * Gives the install a folder to work in.
@@ -437,76 +436,6 @@ describe('AgentRuntime', () => {
    * it, and no later look would ask about it again. The failure is silent — the
    * first thing said in a long conversation is simply never remembered.
    */
-  it('reads a long conversation in stretches instead of marking it all read', async () => {
-    const agent = runtime();
-    /*
-     * Pointed at an address nothing answers on, so the look below fails instead
-     * of reaching a real service from a unit test.
-     */
-    await agent.updateSettings({
-      providers: {configs: {deepseek: {baseUrl: DEAD_ADDRESS}}},
-    });
-    const summary = await agent.createSession(profileId);
-    const sessionId = summary?.id ?? '';
-
-    /*
-     * Events go in through the same store the host reads, because there is no
-     * model here to produce them. The watermark is the subject, not the turn
-     * that would normally have written the conversation.
-     */
-    const store = new FileSessionService({rootDir: paths.sessions});
-    const session = await store.getSession({
-      appName: 'marimo',
-      userId: 'local',
-      sessionId,
-    });
-    if (session === undefined) {
-      throw new Error('the session was not created');
-    }
-
-    const events = 10;
-    for (let index = 0; index < events; index += 1) {
-      await store.appendEvent({
-        session,
-        event: {
-          id: `event-${String(index)}`,
-          author: 'user',
-          content: {
-            role: 'user',
-            parts: [{text: `fact ${String(index)} ${'x'.repeat(5_000)}`}],
-          },
-        } as unknown as AdkEvent,
-      });
-    }
-
-    const before = await agent.reviewProgress(profileId, sessionId);
-    expect(before).toEqual({reviewed: 0, total: events});
-
-    /*
-     * The ask fails, so the look finds nothing to propose. That is the point: the
-     * watermark is about what was *read*, not about what was found, and an ask
-     * that failed still moved it — otherwise a failing request would be re-sent
-     * on every idle moment.
-     */
-    await agent.reviewMemory(profileId, sessionId);
-    let progress = await agent.reviewProgress(profileId, sessionId);
-    expect(progress.reviewed).toBeGreaterThan(0);
-    // The cap did not mark the rest of the conversation read.
-    expect(progress.reviewed).toBeLessThan(before.total);
-
-    // Successive looks continue where the last stopped, until nothing is left.
-    for (
-      let guard = 0;
-      guard < 10 && progress.reviewed < progress.total;
-      guard += 1
-    ) {
-      const was = progress.reviewed;
-      await agent.reviewMemory(profileId, sessionId);
-      progress = await agent.reviewProgress(profileId, sessionId);
-      expect(progress.reviewed).toBeGreaterThan(was);
-    }
-    expect(progress.reviewed).toBe(progress.total);
-  });
 
   /*
    * What the panel's age list reads.

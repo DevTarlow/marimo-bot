@@ -1244,6 +1244,19 @@ export class AgentService {
 
   /** Replaces the older part of a conversation with a summary. */
   async compact(profileId: string, sessionId: string): Promise<CompactResult> {
+    if (await this.harnessHasLog(sessionId)) {
+      /*
+       * V2 keeps the log and caps what it replays, so there is nothing to
+       * replace yet. Saying so is better than the old host's "nothing to
+       * compact", which sounds like the command looked at this conversation.
+       */
+      this.options.sendEvent({type: 'session.changed', sessionId});
+      return {
+        compacted: false,
+        reason:
+          'This conversation is on the new engine: the full log stays on disk and older turns are dropped from the model window automatically when it gets long.',
+      };
+    }
     const result = await this.runtime.compact(profileId, sessionId);
     /*
      * Told even when nothing happened: the window that ran the command re-reads

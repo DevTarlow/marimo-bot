@@ -43,11 +43,16 @@ const PRIVATE_V4 = [
 
 function isPrivateAddress(address: string): boolean {
   if (isIP(address) === 6) {
+    const lower = address.toLowerCase();
+    if (lower.startsWith('::ffff:')) {
+      return isPrivateAddress(lower.slice('::ffff:'.length));
+    }
     return (
-      address === '::1' ||
-      address.startsWith('fc') ||
-      address.startsWith('fd') ||
-      address.startsWith('fe80:')
+      lower === '::' ||
+      lower === '::1' ||
+      lower.startsWith('fc') ||
+      lower.startsWith('fd') ||
+      lower.startsWith('fe80:')
     );
   }
   return PRIVATE_V4.some((pattern) => pattern.test(address));

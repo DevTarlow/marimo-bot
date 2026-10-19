@@ -72,6 +72,17 @@ describe('the web and knowledge tools', () => {
     );
     expect(result.ok).toBe(false);
     expect(String(result.result)).toContain('private or loopback');
+
+    const mapped = await tool('http_fetch').execute(
+      {url: 'http://[::1]/admin'},
+      {
+        workspaceRoot: '/tmp',
+        signal: new AbortController().signal,
+        allowPrivateNetworkFetch: false,
+      },
+    );
+    expect(mapped.ok).toBe(false);
+    expect(String(mapped.result)).toContain('private or loopback');
   });
 
   it('formats web search results and citations', async () => {

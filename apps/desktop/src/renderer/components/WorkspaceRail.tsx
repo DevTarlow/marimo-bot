@@ -425,6 +425,7 @@ export function WorkspaceRail({
       {menuSession !== undefined && menu !== null && (
         <SessionMenu
           session={menuSession}
+          profileId={activeProfileId ?? ''}
           workspaces={workspaces}
           anchor={menu.anchor}
           onClose={() => {

@@ -438,6 +438,24 @@ describe('HarnessRuntime', () => {
     expect(report.paths.harnessSessions).toContain('harness');
   });
 
+  it('answers one conversation’s usage from its own log', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'One'},
+        {type: 'usage', usage: {promptTokens: 7, completionTokens: 3, totalTokens: 10}},
+        {type: 'done'},
+      ],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(runtime.run(profileId, 's1', 'First'));
+    expect(await runtime.sessionUsage(profileId, 's1')).toEqual({
+      turns: 1,
+      usage: {promptTokens: 7, completionTokens: 3, totalTokens: 10},
+    });
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

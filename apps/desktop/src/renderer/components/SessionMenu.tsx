@@ -10,15 +10,16 @@
  * Discord mention and an on-disk file all call this conversation, and unlike the
  * title nobody edits it.
  */
-import {useState} from 'react';
+import {useEffect, useState} from 'react';
 
-import type {SessionSummary, Workspace} from '@marimo/protocol';
+import type {SessionSummary, SessionUsage, Workspace} from '@marimo/protocol';
 
 import {PopoverItem, Popover} from './Popover.js';
 import type {PopoverAnchor} from './Popover.js';
 
 export function SessionMenu({
   session,
+  profileId,
   workspaces,
   anchor,
   onClose,
@@ -27,6 +28,7 @@ export function SessionMenu({
   onDelete,
 }: {
   session: SessionSummary;
+  profileId: string;
   workspaces: readonly Workspace[];
   anchor: PopoverAnchor;
   onClose: () => void;
@@ -36,6 +38,29 @@ export function SessionMenu({
 }): React.JSX.Element {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [usage, setUsage] = useState<SessionUsage | 'loading' | 'error' | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let live = true;
+    setUsage('loading');
+    void window.marimo
+      .call('sessions.usage', {profileId, sessionId: session.id})
+      .then((next) => {
+        if (live) {
+          setUsage(next);
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setUsage('error');
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [profileId, session.id]);
 
   return (
     <Popover
@@ -66,6 +91,19 @@ export function SessionMenu({
         >
           {copied ? 'Copied' : 'Copy'}
         </button>
+      </div>
+
+      <div className="popover-id">
+        <span className="popover-label">Usage</span>
+        <span className="settings-muted">
+          {usage === null || usage === 'loading'
+            ? 'Reading…'
+            : usage === 'error'
+              ? 'Could not read this conversation’s usage.'
+              : usage.engine === 'v1'
+                ? 'v1 history — token usage is not recorded.'
+                : `${usage.usage.totalTokens.toLocaleString()} tokens · ${usage.turns.toLocaleString()} turn${usage.turns === 1 ? '' : 's'}`}
+        </span>
       </div>
 
       {confirming ? (

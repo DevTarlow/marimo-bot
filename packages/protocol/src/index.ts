@@ -1901,6 +1901,19 @@ export interface CompactResult {
  * token totals are the v2 logs' own `turn.completed` usage, so they are a fact
  * about what the provider reported rather than a local estimate.
  */
+/**
+ * What one conversation has used, for the session menu.
+ *
+ * A v1 conversation has no token record — the old host did not write one — so
+ * `engine` says which answer this is rather than a zero pretending to be a
+ * measurement.
+ */
+export interface SessionUsage {
+  engine: 'v1' | 'v2';
+  turns: number;
+  usage: TokenUsage;
+}
+
 export interface HarnessReport {
   engine: 'v2-for-new';
   conversations: {v2: number; v1: number};
@@ -3192,6 +3205,10 @@ export const agentCallSchemas = {
    * acted on is re-read afterwards, which is what shows the summary card.
    */
   'harness.report': z.object({profileId: z.string().min(1)}),
+  'sessions.usage': z.object({
+    profileId: z.string().min(1),
+    sessionId: z.string().min(1),
+  }),
   'sessions.compact': z.object({
     profileId: z.string().min(1),
     sessionId: z.string().min(1),
@@ -3601,6 +3618,7 @@ export interface AgentCallResults {
   'sessions.rename': {session: SessionSummary};
   'sessions.compact': CompactResult;
   'harness.report': HarnessReport;
+  'sessions.usage': SessionUsage;
   'sessions.delete': {deleted: boolean};
   /**
    * What was attached and what was refused, with the folder both were judged

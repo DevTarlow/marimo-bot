@@ -353,6 +353,32 @@ export class HarnessRuntime {
     };
   }
 
+  /** One v2 conversation's turns and the usage its completed turns reported. */
+  async sessionUsage(
+    profileId: string,
+    sessionId: string,
+  ): Promise<{
+    turns: number;
+    usage: {promptTokens: number; completionTokens: number; totalTokens: number};
+  }> {
+    await this.assertOwner(sessionId, profileId);
+    const events = await this.store.read(sessionId);
+    let turns = 0;
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+    for (const event of events) {
+      if (event.type === 'turn.started') {
+        turns += 1;
+      } else if (event.type === 'turn.completed' && event.usage !== undefined) {
+        promptTokens += event.usage.promptTokens;
+        completionTokens += event.usage.completionTokens;
+        totalTokens += event.usage.totalTokens;
+      }
+    }
+    return {turns, usage: {promptTokens, completionTokens, totalTokens}};
+  }
+
   async participants(profileId: string, sessionId: string): Promise<string[]> {
     await this.assertOwner(sessionId, profileId);
     return participantsIn(await this.store.read(sessionId));

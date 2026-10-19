@@ -59,6 +59,7 @@ import type {
   RecallQueryResult,
   RecallScopeName,
   SessionSummary,
+  SessionUsage,
   SkillDraft,
   SkillHistoryEntry,
   StoredSkill,
@@ -1079,6 +1080,21 @@ export class AgentService {
       skills: report.skills,
       jobs,
       paths: report.paths,
+    };
+  }
+
+  async sessionUsage(
+    profileId: string,
+    sessionId: string,
+  ): Promise<SessionUsage> {
+    if (await this.harnessHasLog(sessionId)) {
+      const usage = await this.runtime.harness().sessionUsage(profileId, sessionId);
+      return {engine: 'v2', ...usage};
+    }
+    return {
+      engine: 'v1',
+      turns: 0,
+      usage: {promptTokens: 0, completionTokens: 0, totalTokens: 0},
     };
   }
 

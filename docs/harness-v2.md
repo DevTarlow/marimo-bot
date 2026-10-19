@@ -360,10 +360,12 @@ record.
 conversation counts for the active bot, turns, the token totals the provider
 reported, the number of frozen specs, waiting memory suggestions, skills and
 jobs, and the two data paths. It reads every v2 log, so it mounts only when the
-card is opened and has its own Refresh; it is not on the turn path.
+card is opened and has its own Refresh; it is not on the turn path. One
+conversation's own menu reads its turns and token total from its log; a v1
+conversation says that token usage was not recorded rather than showing zeros.
 
-Not yet in Phase 2: rollback from the ledger, per-conversation usage, and a
-learning dashboard beyond these counts.
+Not yet in Phase 2: rollback from the ledger and a learning dashboard beyond
+these counts.
 
 ## Phase 3: participants, so far
 

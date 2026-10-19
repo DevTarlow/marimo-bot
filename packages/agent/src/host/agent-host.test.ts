@@ -2611,9 +2611,17 @@ describe('a conversation with a helper agent', () => {
     expect(
       card?.type === 'approval.request' ? card.hint : '',
     ).toContain('Researcher');
+    /*
+     * The path, not the tool's name: the card the user decides on has to say
+     * *what* will be overwritten. The tool is in the arguments the gate carries,
+     * and `write_file` in the sentence was the jargon this replaced.
+     */
     expect(
       card?.type === 'approval.request' ? card.hint : '',
-    ).toContain('write_file');
+    ).toContain('notes.txt');
+    expect(
+      card?.type === 'approval.request' ? card.hint : '',
+    ).not.toContain('write_file');
     expect((await host.pendingGates(session)).map((gate) => gate.tool)).toEqual([
       'ask_agent',
     ]);

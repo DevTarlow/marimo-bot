@@ -32,6 +32,7 @@ import type {
 } from '@marimo/protocol';
 
 import {Copy, Markdown} from './components/Markdown.js';
+import {gateCopy} from './gate-copy.js';
 import {useAgent} from './hooks/useAgent.js';
 
 export function Pet(): React.JSX.Element {
@@ -210,32 +211,41 @@ export function Pet(): React.JSX.Element {
           stops on one will not proceed and will not give up — so the companion
           shows it rather than leaving the answer to be found in the window.
         */}
-        {agent.pending.map((gate) => (
-          <div className="pet-bubble pet-gate" key={gate.callId}>
-            <strong>{gate.tool}</strong>
-            <span className="pet-gate-hint">{gate.hint}</span>
-            <div className="pet-gate-actions">
-              <button
-                type="button"
-                className="pet-button"
-                onClick={() => {
-                  void agent.decide(gate.callId, false);
-                }}
-              >
-                Deny
-              </button>
-              <button
-                type="button"
-                className="pet-button pet-button-go"
-                onClick={() => {
-                  void agent.decide(gate.callId, true);
-                }}
-              >
-                Allow
-              </button>
+        {agent.pending.map((gate) => {
+          const copy = gateCopy(gate);
+          /*
+           * The bubble is small, so it names the action and the one thing it is
+           * about rather than the whole card the window draws — the first line
+           * of a preview, not a file's contents.
+           */
+          const line = copy.hint ?? copy.primary?.split('\n')[0] ?? '';
+          return (
+            <div className="pet-bubble pet-gate" key={gate.callId}>
+              <strong>{copy.heading}</strong>
+              <span className="pet-gate-hint">{line}</span>
+              <div className="pet-gate-actions">
+                <button
+                  type="button"
+                  className="pet-button"
+                  onClick={() => {
+                    void agent.decide(gate.callId, false);
+                  }}
+                >
+                  Deny
+                </button>
+                <button
+                  type="button"
+                  className="pet-button pet-button-go"
+                  onClick={() => {
+                    void agent.decide(gate.callId, true);
+                  }}
+                >
+                  Allow
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {agent.error !== null && (
           <div className="pet-bubble pet-error">{agent.error}</div>

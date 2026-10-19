@@ -27,6 +27,7 @@ describe('summarizeApproval', () => {
     expect(preview.primary).toBe('notes/todo.md');
     expect(preview.note).toBe('8 bytes of new content will replace it');
     expect(preview.detail).toBe('buy milk');
+    expect(preview.detailLabel).toBe('Show the new contents');
   });
 
   it('clips a long overwrite preview', () => {
@@ -43,7 +44,7 @@ describe('summarizeApproval', () => {
 
   it('falls back to pretty JSON for an unknown tool', () => {
     const preview = summarizeApproval('mystery_tool', {a: 1, b: 'two'});
-    expect(preview.headline).toBe('Run mystery_tool');
+    expect(preview.headline).toBe('Use mystery tool');
     expect(preview.primary).toContain('"a": 1');
   });
 
@@ -115,5 +116,67 @@ describe('summarizeApproval for save_skill', () => {
     const preview = summarizeApproval('save_skill', {});
     expect(preview.headline).toBe('Save this skill and switch it on');
     expect(preview.primary.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The gates that are not a file or a command. These exist because a card headed
+ * "Run create_job" told the person nothing about what they were agreeing to —
+ * every one of these is a decision with a real consequence behind it.
+ */
+describe('summarizeApproval for the other gated tools', () => {
+  it('names a job and says when it runs, in words', () => {
+    const preview = summarizeApproval('create_job', {
+      name: 'Morning inbox digest',
+      description: 'Read the unread mail and post a summary.',
+      schedules: ['0 9 * * 1-5'],
+    });
+
+    expect(preview.headline).toBe('Schedule this job');
+    expect(preview.primary).toBe('Morning inbox digest');
+    expect(preview.note).toContain('09:00');
+    expect(preview.note).not.toContain('0 9 * * 1-5');
+    expect(preview.detail).toContain('Read the unread mail');
+    expect(preview.detailLabel).toBe('Show the instruction it runs');
+  });
+
+  it('says what a job change will touch', () => {
+    const preview = summarizeApproval('update_job', {
+      jobId: 'job-1',
+      enabled: false,
+      name: 'New name',
+    });
+
+    expect(preview.headline).toBe('Change a scheduled job');
+    expect(preview.primary).toBe('job-1');
+    expect(preview.note).toContain('name');
+    expect(preview.note).toContain('paused');
+  });
+
+  it('says that deleting a job is permanent', () => {
+    const preview = summarizeApproval('delete_job', {jobId: 'job-1'});
+    expect(preview.note).toContain('for good');
+  });
+
+  it('shows a Discord message and where it is going', () => {
+    const preview = summarizeApproval('send_discord_message', {
+      text: 'Standup in five.',
+      channel: 'general',
+    });
+
+    expect(preview.headline).toBe('Post this message on Discord');
+    expect(preview.primary).toBe('Standup in five.');
+    expect(preview.note).toBe('Channel: #general');
+  });
+
+  it('names the bot being handed work', () => {
+    const preview = summarizeApproval('ask_agent', {
+      agent: 'Writer',
+      task: 'Write the top ten fruits to a file.\nThen report back.',
+    });
+
+    expect(preview.headline).toBe('Hand work to another bot');
+    expect(preview.primary).toBe('Writer');
+    expect(preview.note).toBe('Write the top ten fruits to a file.');
   });
 });

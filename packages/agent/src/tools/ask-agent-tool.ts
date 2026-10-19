@@ -49,6 +49,7 @@ import type {Context, ToolConfirmation} from '@google/adk';
 import type {Content} from '@google/genai';
 import {z} from 'zod';
 
+import {summarizeApproval} from '@marimo/protocol';
 import type {AgentUiEvent} from '@marimo/protocol';
 
 import {describeToolResult, hasError} from '../host/tool-result.js';
@@ -125,6 +126,13 @@ export interface AgentGate {
   callId: string;
   /** The tool the user is being asked about, for the sentence that parks. */
   tool: string;
+  /**
+   * The call's arguments, so the card can name the file rather than the tool.
+   *
+   * Optional because a gate read from an older log may not carry them, and the
+   * sentence falls back to the tool's own name rather than refusing to ask.
+   */
+  args?: unknown;
 }
 
 /**
@@ -512,9 +520,8 @@ async function runAgent(
         parked = true;
         toolContext?.requestConfirmation({
           hint:
-            `"${helper.name}" needs your approval to use ` +
-            `${waiting.map((gate) => gate.tool).join(', ')}. Approving this ` +
-            'lets it carry on where it stopped.',
+            `${waiting.map((gate) => gateSentence(helper.name, gate)).join(' ')} ` +
+            'Approving lets it carry on where it stopped.',
         });
       }
     }
@@ -669,6 +676,47 @@ function textOf(event: {content?: {parts?: Array<{text?: string}>}}): string {
     .map((part) => part.text ?? '')
     .filter((text) => text.length > 0)
     .join('');
+}
+
+/**
+ * What a parked helper is actually asking to do, in one sentence.
+ *
+ * The tool's name alone — "needs your approval to use write_file" — is jargon,
+ * and it hid the fact that mattered: the call was about to replace a file that
+ * already existed. The gate carries the helper's arguments, so this names the
+ * path (or the command, or the job) the same way the window's card does.
+ */
+function gateSentence(name: string, gate: AgentGate): string {
+  const preview = summarizeApproval(gate.tool, gate.args);
+  const object = oneLine(preview.primary);
+  const action = preview.headline.toLowerCase();
+  return object.length > 0
+    ? `${name} wants to ${action}: ${object}.`
+    : `${name} wants to ${action}.`;
+}
+
+/**
+ * The part of a preview that fits in a sentence.
+ *
+ * A tool this file does not know falls back to its arguments as pretty JSON, and
+ * a `{` in the middle of a sentence reads as a mistake. The summary's headline
+ * already says what the call is, so the sentence simply stops there.
+ */
+function oneLine(text: string): string {
+  const [first = '', ...rest] = text.split('\n');
+  const line = first.trim();
+  if (line.length === 0 || line.startsWith('{') || line.startsWith('[')) {
+    return '';
+  }
+  const clipped =
+    line.length > 200 ? `${line.slice(0, 200).trimEnd()}…` : line;
+  /*
+   * A command can be several lines, and the part after the first is still part
+   * of what the user is approving. An ellipsis is the least a one-line card can
+   * do about that: silently dropping it would show a command that is not the
+   * command.
+   */
+  return rest.length > 0 ? `${clipped} …` : clipped;
 }
 
 /** Cut to the ceiling, and say so — a silent cut reads as a complete answer. */

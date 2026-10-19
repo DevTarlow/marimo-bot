@@ -1845,12 +1845,14 @@ export class AgentHost {
         (await this.pendingGates(sessionId)).map((gate) => ({
           callId: gate.callId,
           tool: gate.tool,
+          args: gate.args,
         })),
       helperGates: async (sessionId, author, afterCallId) => {
         const events = await this.sessionService.listEvents(sessionId);
         return gatesAskedBy(events, author, afterCallId).map((gate) => ({
           callId: gate.callId,
           tool: gate.tool,
+          args: gate.args,
         }));
       },
       ...(this.options.onDelegateEvent === undefined

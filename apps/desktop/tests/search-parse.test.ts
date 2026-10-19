@@ -5,6 +5,7 @@
 import {describe, expect, it} from 'vitest';
 
 import {
+  CHALLENGE_TEXT,
   EXTRACT_RESULTS_SCRIPT,
   normalizeExtraction,
 } from '../src/main/search/parse.js';
@@ -19,6 +20,37 @@ describe('EXTRACT_RESULTS_SCRIPT', () => {
   it('returns the shape the normalizer expects', () => {
     expect(EXTRACT_RESULTS_SCRIPT).toContain('{results:');
     expect(EXTRACT_RESULTS_SCRIPT).toContain('blocked');
+  });
+
+  it('carries the challenge check the page needs', () => {
+    // Both halves of the check, because either one alone missed the page that
+    // DuckDuckGo actually serves: the wording, and the challenge form.
+    expect(EXTRACT_RESULTS_SCRIPT).toContain('complete the following challenge');
+    expect(EXTRACT_RESULTS_SCRIPT).toContain('challenge-form');
+  });
+});
+
+/**
+ * The page DuckDuckGo serves a blocked search, copied from its own wording.
+ *
+ * This is the regression: the old pattern looked for "anomaly" and "unusual
+ * traffic", which are class names in the markup and never appear in the text a
+ * person (or `innerText`) sees, so the block read as "no results".
+ */
+describe('CHALLENGE_TEXT', () => {
+  it('recognises the challenge DuckDuckGo actually serves', () => {
+    const body =
+      'Unfortunately, bots use DuckDuckGo too. Please complete the following ' +
+      'challenge to confirm this search was made by a human. Select all squares ' +
+      'containing a duck: Submit';
+    expect(CHALLENGE_TEXT.test(body)).toBe(true);
+  });
+
+  it('leaves an ordinary results page alone', () => {
+    const body =
+      'Top fruits by global production. 1. Banana — 135 million tonnes. ' +
+      '2. Watermelon — 100 million tonnes.';
+    expect(CHALLENGE_TEXT.test(body)).toBe(false);
   });
 });
 

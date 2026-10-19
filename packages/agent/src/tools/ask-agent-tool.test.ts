@@ -586,7 +586,11 @@ describe('how it is bounded', () => {
  */
 describe('a helper that needs approval', () => {
   /** The gate the helper parks on, and the answer the user gives it. */
-  const GATE = {callId: 'gate-1', tool: 'write_file'};
+  const GATE = {
+    callId: 'gate-1',
+    tool: 'write_file',
+    args: {path: 'top-10-fruits.txt', content: 'Banana.'},
+  };
 
   /**
    * A helper that asks for a file write, and answers once it is resumed.
@@ -660,10 +664,14 @@ describe('a helper that needs approval', () => {
     const parked = await call(deps, 'write it', context({raised}));
 
     // The card is this call's own, so the conversation has nothing dangling for
-    // the provider to refuse — and the hint says which helper is waiting.
+    // the provider to refuse — and the hint names the helper and the file, not
+    // just the tool it happens to be using.
     expect(raised).toHaveLength(1);
     expect(raised[0]).toContain('Researcher');
-    expect(raised[0]).toContain('write_file');
+    expect(raised[0]).toContain('top-10-fruits.txt');
+    expect(raised[0]).toContain('overwrite');
+    expect(raised[0]).not.toContain('write_file');
+    expect(raised[0]).not.toMatch(/FunctionResponse|ToolConfirmation/u);
     expect(parked).toMatch(/Waiting for your approval/u);
     expect(messages).toHaveLength(1);
     expect(textOf(messages[0]!)).toBe('write it');

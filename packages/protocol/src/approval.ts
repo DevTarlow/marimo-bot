@@ -2,15 +2,17 @@
  * What an approval gate shows, on every surface that shows one.
  *
  * ADK's generic gate hint talks about FunctionResponse payloads, which means
- * nothing to the person deciding, so each surface builds its own summary from
- * the tool name and its arguments. That summary lives here rather than beside one
- * of them because there are now two — the window's approval card and the Discord
- * message — and "Approve" has to mean the same thing in both: the exact command,
+ * nothing to the person deciding, so the card is built from the tool name and
+ * its arguments instead. That summary lives here rather than beside a surface
+ * because there are two — the window's approval card and the companion's
+ * bubble — and "Approve" has to mean the same thing in both: the exact command,
  * the exact path, the exact bytes that were pinned for this call.
  *
  * Free of React, the DOM and Node, so it is unit-tested in plain Node and can be
  * imported by either side of the IPC boundary.
  */
+import {describeCron} from './cron.js';
+
 export interface ApprovalPreview {
   /** One line naming the action. */
   headline: string;
@@ -20,6 +22,8 @@ export interface ApprovalPreview {
   note?: string;
   /** Extra content behind the primary text (a file's new contents). */
   detail?: string;
+  /** What the collapsible `detail` holds, when it needs naming. */
+  detailLabel?: string;
 }
 
 const PREVIEW_CHARS = 2_000;
@@ -49,7 +53,9 @@ export function summarizeApproval(
       headline: 'Overwrite this existing file',
       primary: path ?? pretty(args),
       note: `${byteLength(content)} bytes of new content will replace it`,
-      ...(preview.length > 0 ? {detail: preview} : {}),
+      ...(preview.length > 0
+        ? {detail: preview, detailLabel: 'Show the new contents'}
+        : {}),
     };
   }
 
@@ -73,7 +79,81 @@ export function summarizeApproval(
     };
   }
 
-  return {headline: `Run ${tool}`, primary: pretty(args)};
+  if (tool === 'create_job') {
+    const name = stringValue(record['name']);
+    const description = stringValue(record['description']);
+    const schedules = stringValues(record['schedules']);
+    const when =
+      schedules.length > 0
+        ? schedules.map((schedule) => describeCron(schedule)).join('; ')
+        : 'at its default time';
+    return {
+      headline: 'Schedule this job',
+      primary: name ?? pretty(args),
+      note: `Runs ${when}`,
+      ...(description
+        ? {
+            detail: previewOf(description),
+            detailLabel: 'Show the instruction it runs',
+          }
+        : {}),
+    };
+  }
+
+  if (tool === 'update_job') {
+    const jobId = stringValue(record['jobId']);
+    const changes: string[] = [];
+    if (stringValue(record['name']) !== undefined) {
+      changes.push('name');
+    }
+    if (stringValue(record['description']) !== undefined) {
+      changes.push('instruction');
+    }
+    if (record['schedules'] !== undefined) {
+      changes.push('times');
+    }
+    if (typeof record['enabled'] === 'boolean') {
+      changes.push(record['enabled'] ? 'resumed' : 'paused');
+    }
+    return {
+      headline: 'Change a scheduled job',
+      primary: jobId ?? pretty(args),
+      ...(changes.length > 0 ? {note: `Changes: ${changes.join(', ')}.`} : {}),
+    };
+  }
+
+  if (tool === 'delete_job') {
+    const jobId = stringValue(record['jobId']);
+    return {
+      headline: 'Delete a scheduled job',
+      primary: jobId ?? pretty(args),
+      note: 'This removes it for good. The conversation it ran in is kept.',
+    };
+  }
+
+  if (tool === 'send_discord_message') {
+    const text = stringValue(record['text']) ?? '';
+    const channel = stringValue(record['channel']);
+    return {
+      headline: 'Post this message on Discord',
+      primary: previewOf(text) || pretty(args),
+      note: channel
+        ? `Channel: #${channel}`
+        : 'Channel: the one you already pointed the bot at',
+    };
+  }
+
+  if (tool === 'ask_agent') {
+    const agent = stringValue(record['agent']);
+    const task = stringValue(record['task']);
+    return {
+      headline: 'Hand work to another bot',
+      primary: agent ?? pretty(args),
+      ...(task ? {note: firstLine(task, 160)} : {}),
+    };
+  }
+
+  return {headline: `Use ${tool.replaceAll('_', ' ')}`, primary: pretty(args)};
 }
 
 /**
@@ -102,6 +182,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+/** The first line of a block, bounded, so a note stays a note. */
+function firstLine(text: string, max: number): string {
+  const line = text.split('\n')[0]?.trim() ?? '';
+  return line.length > max ? `${line.slice(0, max).trimEnd()}…` : line;
 }
 
 function pretty(value: unknown): string {

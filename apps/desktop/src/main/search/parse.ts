@@ -13,12 +13,27 @@ const MAX_SNIPPET_CHARS = 300;
 const MAX_TITLE_CHARS = 200;
 
 /**
+ * The words an anti-bot page uses, in one place so the page and its test agree.
+ *
+ * DuckDuckGo's current interstitial says "Please complete the following
+ * challenge" and "Select all squares containing a duck". The words "anomaly"
+ * and "unusual traffic" this used to look for appear only in the page's markup,
+ * never in its `innerText`, so a blocked search was reported as an empty one:
+ * the model was told the web had nothing, retried once, and answered from
+ * memory. A refusal has to be visible as a refusal, or it reads as an answer.
+ */
+export const CHALLENGE_TEXT =
+  /complete the following challenge|select all squares|bots use duckduckgo|unusual traffic|too many requests/i;
+
+/**
  * Evaluated in the search page. Returns `{results, blocked}`:
  *
  * - `results` are the title links with their snippets, newest layouts first
  *   (`article[data-testid="result"]`) with fallbacks for the older markup.
  * - `blocked` marks the anti-bot interstitial, so "the engine refused us" is
- *   reported as a failure rather than as "no results".
+ *   reported as a failure rather than as "no results". The text check is what a
+ *   person sees; the selector check catches a challenge whose wording has not
+ *   rendered yet when the first poll runs.
  */
 export const EXTRACT_RESULTS_SCRIPT = `(() => {
   const seen = new Set();
@@ -60,8 +75,13 @@ export const EXTRACT_RESULTS_SCRIPT = `(() => {
     }
   }
   const body = text(document.body);
+  const challengeForm = document.querySelector(
+    '#challenge-form, .anomaly-modal, form[action*="anomaly"]',
+  );
   const blocked =
-    results.length === 0 && /anomaly|unusual traffic|too many requests/i.test(body);
+    results.length === 0 &&
+    (challengeForm !== null ||
+      new RegExp(${JSON.stringify(CHALLENGE_TEXT.source)}, 'i').test(body));
   return {results: results.slice(0, 50), blocked};
 })()`;
 

@@ -12,6 +12,7 @@ import {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {DRAFT_BOT_TOOL} from '@marimo/protocol';
 import type {AgentProfile, PendingGate, TranscriptMessage} from '@marimo/protocol';
 
+import {gateCopy} from '../gate-copy.js';
 import {shouldFollow, shouldOfferJump} from '../scroll.js';
 import {participantFor} from '../participants.js';
 import {Copy, Markdown} from './Markdown.js';
@@ -164,9 +165,11 @@ function describeDuration(ms: number): string {
 /**
  * A gate, as a card.
  *
- * The hint is the server's or the tool's own description of what it is about to
- * do — it is the whole reason the card is readable, and it is shown verbatim
- * rather than paraphrased.
+ * The card leads with what will happen — "Overwrite this existing file", "Run
+ * this command in the workspace" — and then the exact thing it will happen to.
+ * The tool's own hint is used only when it is a sentence a person can decide on;
+ * ADK's boilerplate about FunctionResponse payloads is dropped, because the
+ * person reading this is choosing an action, not an API call.
  */
 function ApprovalCard({
   gate,
@@ -176,14 +179,30 @@ function ApprovalCard({
   onDecide: (callId: string, confirmed: boolean) => void;
 }): React.JSX.Element {
   const waited = describeWait(gate.askedAt);
+  const copy = gateCopy(gate);
 
   return (
-    <div className="approval" role="group" aria-label={`Approve ${gate.tool}`}>
+    <div className="approval" role="group" aria-label={`Approve: ${copy.heading}`}>
       <div className="approval-head">
-        <strong>{titleFor(gate.tool)}</strong>
-        <code className="approval-tool">{gate.tool}</code>
+        <strong>{copy.heading}</strong>
       </div>
-      <pre className="approval-hint">{gate.hint || JSON.stringify(gate.args, null, 2)}</pre>
+      <div className="approval-body">
+        {copy.hint === undefined ? null : (
+          <p className="approval-hint">{copy.hint}</p>
+        )}
+        {copy.primary === undefined ? null : (
+          <pre className="approval-primary">{copy.primary}</pre>
+        )}
+        {copy.note === undefined ? null : (
+          <p className="approval-note">{copy.note}</p>
+        )}
+        {copy.detail === undefined ? null : (
+          <details className="approval-detail">
+            <summary>{copy.detailLabel ?? 'Show the details'}</summary>
+            <pre>{copy.detail}</pre>
+          </details>
+        )}
+      </div>
       <div className="approval-foot">
         <span className="approval-waited">waiting {waited}</span>
         <button
@@ -704,17 +723,6 @@ export function Transcript({
       )}
     </div>
   );
-}
-
-/** The heading on a card, in the words of the thing being asked about. */
-function titleFor(tool: string): string {
-  if (tool === 'run_shell') {
-    return 'Run this command?';
-  }
-  if (tool === 'write_file') {
-    return 'Write this file?';
-  }
-  return `Use ${tool}?`;
 }
 
 /**

@@ -890,12 +890,22 @@
   gap: var(--space-2);
 }
 
-.approval-tool {
-  color: var(--text-faint);
-  font-size: var(--text-xs);
+.approval-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .approval-hint {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.approval-primary {
   margin: 0;
   padding: var(--space-2);
   max-height: 180px;
@@ -905,6 +915,31 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: var(--text-sm);
+  user-select: text;
+}
+
+.approval-note {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.approval-detail summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.approval-detail pre {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
   user-select: text;
 }
 

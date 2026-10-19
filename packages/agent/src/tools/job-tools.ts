@@ -4,7 +4,7 @@
  * A job outlives the turn that made it, so the shape here is deliberately narrow.
  * The model can list what exists, propose a new one, change the times or the
  * wording of an existing one, and remove one. It cannot run a job (the scheduler
- * decides when), it cannot point a job at another conversation (`AgentHost` knows
+ * decides when), it cannot point a job at another conversation (the runtime knows
  * the current session and stamps it), and it cannot choose the agent a job
  * belongs to (the caller passes the active profile).
  *

@@ -36,7 +36,6 @@ import {
   botRoleFor,
   botTemplateById,
 } from '@marimo/protocol';
-import type {AgentModel, ProviderId} from '@marimo/protocol';
 
 import {avatarFile, resolveAppPaths} from '../paths.js';
 import type {AppPaths} from '../paths.js';
@@ -128,16 +127,12 @@ describe('AgentRuntime', () => {
     return new AgentRuntime({paths, readSecret: keyPresent, ...options});
   }
 
-  it('creates and lists a conversation without building a host', async () => {
+  it('creates and lists a conversation without a turn', async () => {
     const agent = runtime();
-    const hosts = (agent as unknown as {hosts: Map<string, unknown>}).hosts;
-    expect(hosts.size).toBe(0);
-
     const session = await agent.createSession(profileId, 'A chat');
     expect(session).toBeDefined();
     const sessions = await agent.listSessions(profileId);
     expect(sessions.map((entry) => entry.id)).toContain(session?.id);
-    expect(hosts.size).toBe(0);
   });
 
   it('brings a v1 conversation forward into the canonical log', async () => {
@@ -302,45 +297,6 @@ describe('AgentRuntime', () => {
       expect(usage.limitBytes).toBe(DEFAULT_MEMORY_SOFT_LIMIT_BYTES);
     });
 
-    /*
-     * A readout is not a reason to dial an MCP server. Answering from settings
-     * and the file is the same answer by construction, and it keeps the dialog
-     * working on an install with no API key yet — which is what the second
-     * assertion pins: a turn here genuinely cannot be configured, and the size
-     * control still answers.
-     */
-    it('answers without building a host', async () => {
-      const agent = runtime({readSecret: noKey});
-      await agent.updateSettings({memorySoftLimitBytes: 4 * 1024});
-      expect(await agent.memoryUsage(profileId)).toMatchObject({
-        limitBytes: 4 * 1024,
-      });
-      expect(await agent.host(profileId)).toMatchObject({ok: false});
-    });
-  });
-
-  describe('when the agent cannot start', () => {
-    it('says so from `host` rather than throwing', async () => {
-      const result = await runtime({readSecret: noKey}).host(profileId);
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        // The sentence names the service and the screen, not "no API key":
-        // somebody who has just picked a provider needs to know which one is
-        // asking and where to answer it.
-        expect(result.problem).toContain('DeepSeek');
-        expect(result.problem).toMatch(/API key/u);
-        expect(result.problem).toContain('Settings');
-      }
-    });
-
-
-    it('says which agent when the profile does not exist', async () => {
-      const result = await runtime().host('no-such-profile');
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.problem).toContain('no-such-profile');
-      }
-    });
   });
 
   /*
@@ -1027,15 +983,6 @@ describe('reading a conversation without a working provider', () => {
     return new AgentRuntime({paths, readSecret: noKey});
   }
 
-  it('refuses the turn, because there is no key to answer with', async () => {
-    // The premise: this install genuinely cannot answer.
-    const result = await runtime().host(profileId);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.problem).toContain('DeepSeek');
-      expect(result.problem).toMatch(/API key/u);
-    }
-  });
 
   it('still reads the stored conversation', async () => {
     const {messages} = await runtime().transcript(profileId, sessionId);
@@ -1177,13 +1124,6 @@ describe('folders and filing', () => {
     return new AgentRuntime({paths, readSecret: keyPresent});
   }
 
-  /** Writes what an agent would have remembered in one folder. */
-  async function remember(folder: string, line: string): Promise<void> {
-    const memory = resolveMemoryFile(join(dir, folder), profileId);
-    await mkdir(dirname(memory), {recursive: true});
-    await writeFile(memory, `${line}\n`, 'utf8');
-  }
-
   const folderId = (
     state: {workspaces: Array<{id: string; path: string}>},
     folder: string,
@@ -1263,47 +1203,6 @@ describe('folders and filing', () => {
     expect(raw.profiles[0]?.activeWorkspaceId).toBeUndefined();
   });
 
-  it('runs a turn in the folder its conversation is filed under', async () => {
-    await remember('alpha', '- the parser lives in alpha');
-    await remember('beta', '- the renderer lives in beta');
-
-    const agent = runtime();
-    const alpha = folderId(
-      await agent.addWorkspace(join(dir, 'alpha')),
-      'alpha',
-    );
-    const session = await agent.createSession(profileId);
-    // Another folder becomes current; the conversation keeps its own.
-    await agent.addWorkspace(join(dir, 'beta'));
-
-    const filed = await agent.host(profileId, session?.id);
-    expect(filed.ok).toBe(true);
-    if (filed.ok) {
-      expect(await filed.host.memoryText()).toContain('alpha');
-    }
-
-    // Asked about no conversation in particular, the agent is on the current
-    // folder — which is what the memory readout in Settings reports.
-    const current = await agent.host(profileId);
-    if (current.ok) {
-      expect(await current.host.memoryText()).toContain('beta');
-    }
-
-    // Unfiled, it falls back to the current folder rather than to nothing.
-    await agent.setSessionWorkspace(profileId, session?.id ?? '', null);
-    const loose = await agent.host(profileId, session?.id);
-    if (loose.ok) {
-      expect(await loose.host.memoryText()).toContain('beta');
-    }
-
-    // And a folder that has been forgotten falls back the same way.
-    await agent.setSessionWorkspace(profileId, session?.id ?? '', alpha);
-    await agent.removeWorkspace(alpha);
-    const forgotten = await agent.host(profileId, session?.id);
-    if (forgotten.ok) {
-      expect(await forgotten.host.memoryText()).toContain('beta');
-    }
-  });
 
   /*
    * Where a new conversation is filed.
@@ -1543,7 +1442,6 @@ describe('folders and filing', () => {
 describe('the model a turn answers with', () => {
   let dir: string;
   let paths: AppPaths;
-  let profileId: string;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(process.cwd(), '.marimo-model-choice-'));
@@ -1557,7 +1455,6 @@ describe('the model a turn answers with', () => {
       defaultSkills: [],
     });
     await profiles.load();
-    profileId = (await profiles.activeProfile()).id;
   });
 
   afterEach(async () => {
@@ -1601,39 +1498,6 @@ describe('the model a turn answers with', () => {
     );
   });
 
-  /*
-   * A conversation's own choice, which outranks its agent's and the app's.
-   *
-   * The observable proof that the resolver honours it is which provider's key the
-   * turn asks for, and `null` is the way back — without it, a chat that once
-   * picked a model could never follow its agent again.
-   */
-  it('gives a conversation a model of its own, and takes it back with null', async () => {
-    const asked: ProviderId[] = [];
-    const agent = runtime({
-      readSecret: async (provider) => {
-        asked.push(provider);
-        return {state: 'present', value: 'test-key'};
-      },
-    });
-    const session = await agent.createSession(profileId);
-    const id = session?.id ?? '';
-    const chosen: AgentModel = {provider: 'gemini', model: 'gemini-3.1-pro'};
-
-    expect((await agent.setSessionModel(profileId, id, chosen)).model).toEqual(
-      chosen,
-    );
-    await agent.host(profileId, id);
-    expect(asked).toEqual(['gemini']);
-
-    expect(
-      (await agent.setSessionModel(profileId, id, null)).model,
-    ).toBeUndefined();
-    await agent.host(profileId, id);
-    // Back on the app's own provider. Absent means "follow the agent" rather than
-    // "nothing was chosen", which is why giving it up is an answer of its own.
-    expect(asked).toEqual(['gemini', 'deepseek']);
-  });
 });
 
 /*

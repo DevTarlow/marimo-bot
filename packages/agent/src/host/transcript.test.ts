@@ -2,7 +2,7 @@ import {createEvent} from '@google/adk';
 import {describe, expect, it} from 'vitest';
 
 import type {AdkEvent} from '../sessions/file-session-service.js';
-import {agentNameFor} from './agent-host.js';
+import {agentNameFor} from './agent-name.js';
 import {buildCompactedEvent} from './compaction.js';
 import {projectTranscript} from './transcript.js';
 

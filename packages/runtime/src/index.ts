@@ -267,7 +267,6 @@ export type {ReviewDelay, ReviewDueOptions} from '@marimo/agent';
 export {AgentRuntime} from './agent/runtime.js';
 export type {
   AgentRuntimeOptions,
-  HostResult,
   RuntimeServices,
 } from './agent/runtime.js';
 export {parseProfile, resolveAgentConfig} from './agent/resolve.js';

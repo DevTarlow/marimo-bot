@@ -120,7 +120,7 @@ function providerLabel(provider: ProviderId | undefined): string {
 
 export class OpenAiCompatLlm extends BaseLlm {
   /**
-   * Only documentation, today: `AgentHost` constructs this class directly and
+   * Only documentation, today: the ADK driver constructs this class directly and
    * never consults `LLMRegistry`, so nothing here decides which client runs.
    *
    * Empty, and that is the honest answer rather than an oversight. Model ids are

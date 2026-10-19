@@ -1,10 +1,4 @@
-export {AgentHost, pendingGatesIn} from './host/agent-host.js';
-export type {
-  AgentHostOptions,
-  ApproveParams,
-  DelegationResult,
-  DelegationSeam,
-} from './host/agent-host.js';
+export {pendingGatesIn} from './host/gates.js';
 /*
  * `PendingGate` is re-exported from the contract rather than declared here: it
  * is what the window draws a card from, so the protocol owns the shape and this
@@ -238,7 +232,7 @@ export type {
 /*
  * The v2 harness contract. It is exported beside the old core while the rewrite
  * lands, so the runtime can resolve turns against it without a second package.
- * The old `AgentConfig` and `AgentHost` exports go when the engine that uses
+ * The old `AgentConfig` exports go when the engine that uses
  * this replaces them.
  */
 export * from './harness/index.js';

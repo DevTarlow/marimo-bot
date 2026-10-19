@@ -57,7 +57,7 @@ export interface AgentConfig {
    *
    * The one caller is the desktop companion: it shares the conversation with the
    * window, so "answer briefly" cannot be a property of the conversation and has
-   * to travel with the turn that asked for it. `AgentHost.run` sets it from the
+   * to travel with the turn that asked for it. The runtime sets it from the
    * turn's own argument, so it is never carried over: a turn that asks for
    * nothing clears whatever the last one left behind.
    *

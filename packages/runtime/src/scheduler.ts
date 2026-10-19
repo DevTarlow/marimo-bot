@@ -9,7 +9,7 @@
  *
  * Three rules shape everything here:
  *
- * - **One turn at a time.** `AgentHost` answers one turn at a time, so a job that
+ * - **One turn at a time.** A conversation answers one turn at a time, so a job that
  *   comes due mid-conversation is deferred, not refused. A deferral is not a
  *   failure and is not recorded as one, and it does not consume the occurrence:
  *   the job runs as soon as the agent is free rather than waiting a whole

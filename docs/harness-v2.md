@@ -295,15 +295,8 @@ that asked the question, even after a restart.
 
 There is no engine switch. A conversation with a v1 history is migrated when it
 is read or continued; one the import cannot read reports that instead of falling
-back to a second engine. The old `AgentHost` remains only for the legacy
-configuration/helper surfaces, not for an ordinary turn.
-
-The old `AgentHost` is still present and still owns memory, skills, delegation,
-jobs and the prompt assembly those features need. It is deleted when those
-features have v2 homes, not before. That is the one place this document's phase
-plan was too optimistic: deleting the old host in Phase 1 would have taken the
-shipped product's memory and skills with it, so the cutover follows the feature
-ports rather than the engine.
+back to a second engine. The old `AgentHost` is deleted: no v1 turn path, no
+host map, no second engine to fall back to.
 
 A resolved spec is frozen all the way down, and the hash recorded on
 `turn.started` is checked again before a waiting card resumes. If the bot's
@@ -326,11 +319,8 @@ continue on v2 too. A waiting v1 card is imported as a canonical approval with
 the original call, confirmation id, tool and arguments, so it can be answered on
 v2. There is no environment escape left for an ordinary conversation.
 
-What is still old: the `AgentHost` class itself, which the app no longer
-constructs on an ordinary path. A v1 conversation is migrated, and an unreadable
-import reports a sentence. The session index is a shared runtime service, so
-creating, listing, renaming, moving, deleting and reading a chat does not build
-one either.
+The session index is a shared runtime service, so creating, listing, renaming,
+moving, deleting and reading a chat needs no turn engine at all.
 
 `ask_agent` is now a real helper: the target bot runs as an ADK agent in the
 parent's session, with the tools its profile grants but without `ask_agent`

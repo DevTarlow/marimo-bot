@@ -2,7 +2,7 @@
  * The agent, running.
  *
  * One object that owns everything a turn needs — the settings, the profiles, the
- * skills, the tools, and one `AgentHost` per profile — so that both processes can
+ * skills, the tools, and the v2 turn engine — so that both processes can
  * have an agent without either of them owning the wiring.
  *
  * That "both processes" is the point. The window hosts this in the Electron main
@@ -25,7 +25,6 @@ import {rm} from 'node:fs/promises';
 import {dirname} from 'node:path';
 
 import {
-  AgentHost,
   ASK_AGENT_TOOL,
   capabilityPresets,
   describeTools,
@@ -39,7 +38,6 @@ import {
   SKILLS,
 } from '@marimo/agent';
 import type {
-  DelegationResult,
   DeskService,
   DiscordService,
   JobService,
@@ -47,7 +45,6 @@ import type {
   McpToolsetSource,
   SessionIndexEntry,
   PendingGate,
-  Skill,
   WebSearchProvider,
 } from '@marimo/agent';
 import {
@@ -59,7 +56,6 @@ import {
   DEFAULT_AGENT_PERSONA,
   DEFAULT_AGENT_ROLE,
   DEFAULT_DREAM_KEEP_LOGS,
-  DEFAULT_DREAM_RESULT_BYTES,
   DRAFT_BOT_TOOL,
   MAIN_AGENT_NAME,
 } from '@marimo/protocol';
@@ -105,7 +101,6 @@ import {SettingsStore} from '../settings.js';
 import {SkillStore} from '../skills.js';
 import {RuntimeSkillService} from '../skill-service.js';
 import {WorkspaceStore, workspaceRootFor} from '../workspaces.js';
-import {resolveAgentConfig} from './resolve.js';
 import {HarnessRuntime} from './harness-runtime.js';
 import {HarnessVersionStore} from '../harness-versions.js';
 
@@ -188,11 +183,6 @@ export interface AgentRuntimeOptions {
   recall?: {stop: () => Promise<void>};
 }
 
-/** Either a host ready for a turn, or the sentence explaining why not. */
-export type HostResult =
-  | {ok: true; host: AgentHost; profile: AgentProfile}
-  | {ok: false; problem: string};
-
 export class AgentRuntime {
   /** The v2 turn path, built lazily so an install that never uses it pays nothing. */
   private harnessRuntime: HarnessRuntime | undefined;
@@ -226,9 +216,6 @@ export class AgentRuntime {
   private readonly proposals: MemoryProposalStore;
   /** What the user said about the agent's own answers. */
   private readonly feedbackStore: FeedbackStore;
-  private readonly hosts = new Map<string, AgentHost>();
-  /** The configuration each host was last built with, so changes are noticed. */
-  private readonly applied = new Map<string, string>();
   /**
    * The discovery trees, when the user has Dream-RSI on.
    *
@@ -248,7 +235,6 @@ export class AgentRuntime {
    * turn is running under.
    */
   private cachedDreamKeepLogs = DEFAULT_DREAM_KEEP_LOGS;
-  private cachedDreamResultBytes = DEFAULT_DREAM_RESULT_BYTES;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     this.harnessVersions = new HarnessVersionStore({
@@ -563,19 +549,7 @@ export class AgentRuntime {
    * model, so nothing a settings write can do changes what a host is built with.
    */
   async updateSettings(patch: SettingsPatch): Promise<StoredSettings> {
-    const before = await this.settingsStore.load();
-    const after = await this.settingsStore.patch(patch);
-
-    const rebuild =
-      before.maxOutputTokens !== after.maxOutputTokens ||
-      before.allowPrivateNetworkFetch !== after.allowPrivateNetworkFetch;
-
-    if (rebuild) {
-      for (const profileId of [...this.hosts.keys()]) {
-        this.dropHost(profileId);
-      }
-    }
-    return after;
+    return await this.settingsStore.patch(patch);
   }
 
   async updateProfile(
@@ -589,7 +563,6 @@ export class AgentRuntime {
      * better-tested route than pushing a new tool list into a live agent.
      */
     const updated = await this.profileStore.update(profileId, patch);
-    this.dropHost(profileId);
     return updated;
   }
 
@@ -703,7 +676,6 @@ export class AgentRuntime {
      */
     await rm(avatarFile(this.options.paths, profileId), {force: true});
 
-    this.dropHost(profileId);
     return file;
   }
   /** The suggestions waiting for this agent. */
@@ -1223,7 +1195,6 @@ export class AgentRuntime {
      * cache of "which config has this host been given", because the answer just
      * changed.
      */
-    this.applied.clear();
     return stored;
   }
 
@@ -1550,115 +1521,30 @@ export class AgentRuntime {
     return {title: entry.title, events};
   }
 
-  /**
-   * The host for a profile, working in the folder a conversation is filed under,
-   * and brought up to date with the settings on disk.
-   *
-   * The session id is optional because not every caller has a conversation: the
-   * catalogue and the memory readout are about the agent, and answer against the
-   * current folder. A turn always has one, and that is what decides where its
-   * file tools are confined — the conversation remembers its own folder, so
-   * browsing the rail cannot move a turn that is already running.
-   *
-   * Bringing it up to date on the way in — rather than requiring a caller to
-   * remember to — is what makes "a capability the user turned off is absent"
-   * true on the *next* turn rather than after a restart.
-   */
-  async host(profileId: string, sessionId?: string): Promise<HostResult> {
-    const settings = await this.settingsStore.load();
-    const profile = await this.profileFor(profileId);
-    if (!profile) {
-      return {ok: false, problem: `There is no bot called "${profileId}".`};
-    }
-
-    /*
-     * The host next, because it is what reads the conversation index — and a
-     * placeholder-config host is exactly what `transcript` and `approve`
-     * already build. Resolving the configuration first would mean reading the
-     * folder before knowing which conversation is asking.
-     */
-    const host = await this.ensureHost(profileId);
-    const filed =
-      sessionId === undefined
-        ? undefined
-        : await host.sessionWorkspaceId(sessionId);
-    const workspaceRoot = workspaceRootFor(
-      await this.workspaceStore.load(),
-      filed,
-    );
-    /*
-     * The conversation's own model, when it has one. Read here rather than in the
-     * caller because this is the one place that already has the host — which is
-     * what reads the index — and the folder it is about to resolve against.
-     */
-    const sessionModel =
-      sessionId === undefined ? undefined : await host.sessionModel(sessionId);
-
-    const resolved = await resolveAgentConfig({
-      settings,
-      profile,
-      readSecret: this.options.readSecret,
-      skills: await this.skillsFor(profile),
-      ...(workspaceRoot === undefined ? {} : {workspaceRoot}),
-      ...(sessionModel === undefined ? {} : {sessionModel}),
-    });
-    if (!resolved.ok) {
-      return resolved;
-    }
-
-    /*
-     * The two caps the recorder reads, refreshed from the same settings read that
-     * produced this turn's config. Kept here rather than in the store because
-     * this is the one place per turn that has already read the document — the
-     * store is asked for them on every flush, which is several times a turn, and
-     * a second read there would be both slower and a chance for the two answers
-     * to disagree about which settings the turn is running under.
-     */
-    this.cachedDreamKeepLogs = settings.dream.keepLogs;
-    this.cachedDreamResultBytes = settings.dream.resultBytes;
-
-    host.updateConfig(resolved.config);
-    this.applyMcpServers(host, profileId);
-    /*
-     * Recall is handed over here rather than in `ensureHost`, because whether it
-     * is on is a *setting* and this is the one place that has read it. A setting
-     * the user turned off leaves the host with nothing, which is how a capability
-     * switched off becomes absent rather than discouraged — and the tool list the
-     * model is offered is rebuilt from that on the next turn.
-     */
-    host.setRecallService(
-      settings.recall.enabled
-        ? (await this.options.services?.(profileId, workspaceRoot))
-            ?.recallService
-        : undefined,
-    );
-
-    return {ok: true, host, profile};
-  }
-
   /** Whether any agent has a turn in flight. */
   isBusy(): boolean {
     return this.harness().isRunningAny();
   }
-  /** Forgets a profile's host, so the next turn builds one from current state. */
-  private dropHost(profileId: string): void {
-    const host = this.hosts.get(profileId);
-    if (host !== undefined) {
-      host.dispose();
-      this.hosts.delete(profileId);
-      this.applied.delete(profileId);
+  /** One conversation's index entry, if this bot owns it. */
+  private async assertIndexOwned(
+    sessionId: string,
+    profileId: string,
+  ): Promise<SessionIndexEntry> {
+    const entry = await this.sessionIndex.getIndexEntry(sessionId);
+    if (entry === undefined || entry.profileId !== profileId) {
+      throw new Error(`Unknown session: ${sessionId}`);
     }
+    return entry;
   }
 
   /**
-   * Lets go of everything, including the engine if this process started one.
+   * Starts a conversation in the index, without a host.
    *
-   * Asynchronous because stopping a process is, and awaited by both callers on
-   * their way out: the app before it quits, and the runner before it exits. A
-   * child still loading weights when its parent disappears is a gigabyte of
-   * memory and a spinning fan with no window left to explain it — which is
-   * exactly the failure the pid file is the second line of defence against.
+   * A conversation is a file and a row; nothing here needs a model, a tool or a
+   * connector. The state fields are the ones the host wrote, so a session made
+   * by this path is indistinguishable from one made before it.
    */
+
   /**
    * The v2 turn path, over the same documents the v1 path reads.
    *
@@ -1699,11 +1585,6 @@ export class AgentRuntime {
 
   async dispose(): Promise<void> {
     this.harnessRuntime?.dispose();
-    for (const host of this.hosts.values()) {
-      host.dispose();
-    }
-    this.hosts.clear();
-    this.applied.clear();
     /*
      * The one engine left, and gigabytes of nobody's business if it is left
      * behind — 400 MB of weights and a fan with no window to explain them.
@@ -1719,160 +1600,7 @@ export class AgentRuntime {
     );
   }
 
-  /**
-   * The agents this install has, by trimmed case-folded name *and* by id.
-   *
-   * Both, because a person reads names and a document refers to ids, and the
-   * model is told the names. Two agents may share a name — the store only
-   * guarantees they are distinguishable in the picker — so the *first* match is
-   * the one the picker would draw first, which is the one the user meant.
-   */
-  private async profilesByName(): Promise<Map<string, AgentProfile>> {
-    const byName = new Map<string, AgentProfile>();
-    for (const profile of await this.profileStore.profiles()) {
-      const name = profile.name.trim().toLocaleLowerCase();
-      if (!byName.has(name)) {
-        byName.set(name, profile);
-      }
-      if (!byName.has(profile.id.toLocaleLowerCase())) {
-        byName.set(profile.id.toLocaleLowerCase(), profile);
-      }
-    }
-    return byName;
-  }
 
-
-  /**
-   * The agents a helper call could name, for the refusal that lists them.
-   *
-   * Ids are left out on purpose: a person asked for an agent by name and is owed
-   * the names that exist, not the identifiers their document happens to use.
-   */
-  private async existingAgentNames(): Promise<string[]> {
-    return (await this.profileStore.profiles()).map(
-      (profile) => `"${profile.name}"`,
-    );
-  }
-
-  /**
-   * Resolves a named agent — and the space it works in — into a configuration.
-   *
-   * The one place both the `ask_agent` tool and an addressed message come
-   * through, so "which agent is that" and "which folder does it work in" have a
-   * single answer. A name nobody has, and a space nobody has, are *sentences*
-   * rather than exceptions: both end up in front of the model or the user, and a
-   * thrown error would arrive as a failed turn instead of as an explanation.
-   *
-   * The model is the agent's own rather than the conversation's, which is the
-   * point of naming one: an agent configured for a bigger model is asked because
-   * of it. The space is the conversation's unless the caller named one.
-   */
-  private async resolveDelegate(request: {
-    agent: string;
-    space?: string;
-    sessionSpaceId?: string;
-  }): Promise<DelegationResult | {problem: string}> {
-    const profiles = await this.profilesByName();
-    const profile = profiles.get(request.agent.trim().toLocaleLowerCase());
-    if (profile === undefined) {
-      const known = await this.existingAgentNames();
-      return {
-        problem:
-          `There is no bot called "${request.agent.trim()}" on this computer. ` +
-          (known.length > 0
-            ? `The ones that exist are ${listOf(known)}.`
-            : 'There are no other bots yet — they are created in Settings.'),
-      };
-    }
-
-    const file = await this.workspaceStore.load();
-    /*
-     * The helper's folder, in the order the evidence is good: the Space the model
-     * named, else the agent's own default — "my Writer drafts into the website
-     * repo" — else the Space *this conversation* is filed under, and only then
-     * whatever the rail happens to be on.
-     *
-     * That third step is the one worth stating: a turn's own file tools run in
-     * the conversation's folder, and a helper that ran in whichever Space
-     * somebody was browsing would be the one place in the app where clicking the
-     * rail changes where work lands.
-     */
-    let spaceId = profile.spaceId ?? request.sessionSpaceId;
-    if (request.space !== undefined) {
-      const wanted = request.space.trim().toLocaleLowerCase();
-      const named = file.workspaces.find(
-        (entry) =>
-          entry.name.trim().toLocaleLowerCase() === wanted ||
-          entry.id.toLocaleLowerCase() === wanted,
-      );
-      if (named === undefined) {
-        return {
-          problem:
-            `There is no Space called "${request.space.trim()}" on this ` +
-            `computer. The ones that exist are ${listOf(
-              file.workspaces.map((entry) => `"${entry.name}"`),
-            )}.`,
-        };
-      }
-      spaceId = named.id;
-    }
-
-    const root = workspaceRootFor(file, spaceId);
-
-    const resolved = await resolveAgentConfig({
-      settings: await this.settingsStore.load(),
-      profile,
-      readSecret: this.options.readSecret,
-      skills: await this.skillsFor(profile),
-      ...(root === undefined ? {} : {workspaceRoot: root}),
-    });
-    return resolved.ok
-      ? {profile: resolved.profile, config: resolved.config}
-      : {problem: resolved.problem};
-  }
-
-  /**
-   * The user's skills a profile carries, in the shape the prompt wants.
-   *
-   * Filtered by `enabledSkills` rather than passing everything: a skill the user
-   * switched off must not be advertisable, and `load_skill` checks the same grant
-   * again so the prompt and the tool cannot disagree about what exists. What
-   * rides in every request is the name and one-line description; the instructions
-   * travel here too because the prompt composer needs a `Skill`, but it advertises
-   * them rather than printing them.
-   *
-   * The built-in skills are not here at all — `composeInstruction` picks those up
-   * from the profile's tools.
-   */
-  private async skillsFor(profile: AgentProfile): Promise<Skill[]> {
-    return (await this.skillService.granted(profile)).map(
-      (skill: StoredSkill) => ({
-        name: skill.name,
-        description: skill.description,
-        instructions: skill.instructions,
-      }),
-    );
-  }
-
-  /** One conversation's index entry, if this bot owns it. */
-  private async assertIndexOwned(
-    sessionId: string,
-    profileId: string,
-  ): Promise<SessionIndexEntry> {
-    const entry = await this.sessionIndex.getIndexEntry(sessionId);
-    if (entry === undefined || entry.profileId !== profileId) {
-      throw new Error(`Unknown session: ${sessionId}`);
-    }
-    return entry;
-  }
-
-  /**
-   * Starts a conversation in the index, without a host.
-   *
-   * A conversation is a file and a row; nothing here needs a model, a tool or a
-   * connector. The state fields are the ones the host wrote, so a session made
-   * by this path is indistinguishable from one made before it.
-   */
   private async createIndexedSession(
     profileId: string,
     title: string | undefined,
@@ -1911,182 +1639,6 @@ export class AgentRuntime {
     };
   }
 
-  private async ensureHost(profileId: string): Promise<AgentHost> {
-    const existing = this.hosts.get(profileId);
-    if (existing) {
-      return existing;
-    }
-
-    /*
-     * Awaited, and the folder is deliberately not passed: this is the host a
-     * caller builds before it knows which conversation is asking — reading a
-     * transcript, filing a session — and recall's tools are chosen when a turn
-     * runs, where `host()` has both.
-     */
-    const services = (await this.options.services?.(profileId)) ?? {};
-    const host = new AgentHost({
-      sessionsDir: this.options.paths.sessions,
-      sessionService: this.sessionIndex,
-      /*
-       * Where the half of memory that is about the *person* lives. Under user
-       * data rather than in a folder, because that is what makes it survive
-       * switching projects — and it is passed on every host this process builds,
-       * including the headless runner's, so both resolve one layout.
-       */
-      personMemoryDir: this.options.paths.personMemoryDir,
-      // A placeholder config: `host()` resolves the real one and calls
-      // `updateConfig` before any turn runs. Constructing with the settings
-      // shape here would mean reading them twice and risking the two reads
-      // disagreeing.
-      config: {
-        baseUrl: '',
-        model: '',
-        /*
-         * The placeholder pair, for the same reason the address is empty: host()
-         * replaces all of it before a turn runs, and a provider named here would
-         * be a second answer to which service this agent uses. DeepSeek is the
-         * catalogue's default, so a turn that somehow ran against this would be
-         * refused for a missing key rather than sent somewhere nobody chose.
-         */
-        provider: 'deepseek',
-        apiKey: '',
-        systemPrompt: '',
-        profileId,
-        workspaceRoot: this.options.paths.defaultWorkspace,
-        allowPrivateNetworkFetch: false,
-      },
-      ...(this.options.appName !== undefined
-        ? {appName: this.options.appName}
-        : {}),
-      ...(this.options.webSearch ? {webSearch: this.options.webSearch} : {}),
-      ...(services.jobService ? {jobService: services.jobService} : {}),
-      ...(services.deskService ? {deskService: services.deskService} : {}),
-      /*
-       * The skill writer and the reader, per host because both are per profile.
-       *
-       * `save` is the adapter the tool sees; it writes the file and grants the
-       * name to *this* bot, which is the one that asked. The library reads the
-       * grant again on every call rather than capturing it, so switching a skill
-       * off takes effect on the next load rather than on the next rebuild.
-       */
-      skillService: {
-        save: async (input) =>
-          await this.skillService.saveFromAgent(input, profileId),
-      },
-      skillLibrary: {
-        load: async (name) => await this.skillService.load(profileId, name),
-      },
-      ...(services.discordService
-        ? {discordService: services.discordService}
-        : {}),
-      /*
-       * How a helper is built, handed over always.
-       *
-       * Always rather than only when some setting allows it, because the fact it
-       * encodes is not a preference: this install has a profile store, so it may
-       * have more than one agent, and `ask_agent` exists exactly when one does.
-       * A host whose config names a profile that may delegate and whose seam has
-       * nobody to name is the one combination that would offer the tool and fail
-       * every call — and `resolveDelegate` answers that with a sentence listing
-       * the agents that do exist.
-       *
-       * Deliberately *not* `this.host(childProfileId)`. That would build a second
-       * live host for the helper — a second `active` flag, a second turn running
-       * at the same time as the one that asked for it — and one-turn-at-a-time is
-       * the invariant the whole app rests on. A helper is a *tool call* inside its
-       * parent's turn: it shares this host's session service, its session id and
-       * its stop button, and it is a fresh agent built from the child's own
-       * configuration rather than a second host.
-       */
-      delegate: {
-        resolve: async (request) => await this.resolveDelegate(request),
-      },
-      ...(this.options.onEvent === undefined
-        ? {}
-        : {onDelegateEvent: this.options.onEvent}),
-      /*
-       * Dream-RSI's sink, handed over unconditionally.
-       *
-       * The host decides whether anything is written, and it decides it from two
-       * facts it holds: the config, which is the user's answer, and this sink,
-       * which is the app's ability to store the result. Passing it always rather
-       * than only when the setting is on is what keeps one source of truth for
-       * "is this turn being recorded" — and the store creates no directory until
-       * something is actually written, so an install that never turns the feature
-       * on leaves no trace of it.
-       */
-      dreamSink: {
-        append: (tree) => {
-          /*
-           * Deliberately not awaited, and the promise is deliberately dropped.
-           * This is called from inside a tool callback, where waiting on a disk
-           * would put a lock file and a write between the model and its result.
-           * The store reports what it could not do through `takeProblem`.
-           */
-          void this.dreamStore.append(tree);
-        },
-      },
-      dreamResultBytes: this.cachedDreamResultBytes,
-      /*
-       * The deletion sync, resolved lazily because the folder to purge from is
-       * the one the *service* would have indexed into — and a service is built
-       * from a setting this callback must read at the moment a chat is deleted,
-       * not at the moment the host was made. The active folder is the honest
-       * guess: another folder's index is settled by its own next refresh, which
-       * drops any session that is no longer in the list.
-       */
-      onSessionsDeleted: async (sessionIds) => {
-        const root = workspaceRootFor(await this.workspaceStore.load());
-        const recall = (await this.options.services?.(profileId, root))
-          ?.recallService;
-        /*
-         * Best effort, and deliberately swallowed. The conversation is already
-         * deleted by the time this runs, and an index that cannot be rewritten —
-         * a read-only folder, a full disk — must not turn a deletion that
-         * happened into an error the window reports. The stale vectors are
-         * dropped by that index's next refresh anyway, which is the backstop the
-         * pruning in `refreshIndex` exists to be.
-         */
-        try {
-          await recall?.forgetSessions?.(sessionIds);
-        } catch (failure) {
-          console.log(
-            '[marimo] the deleted conversation could not be dropped from the recall index:',
-            failure,
-          );
-        }
-      },
-    });
-    host.init();
-    this.hosts.set(profileId, host);
-    return host;
-  }
-
-  /**
-   * Hands the host the connected servers, if that set has changed.
-   *
-   * Compared by a signature of the names rather than by array identity, so a
-   * caller that rebuilds its list on every call does not invalidate the runner
-   * on every turn. What matters is whether the *model* would see a different
-   * tool list.
-   */
-  private applyMcpServers(host: AgentHost, profileId: string): void {
-    const sources = this.options.mcpServers?.() ?? [];
-    const signature = sources
-      .map(
-        (source: McpToolsetSource) =>
-          `${source.server.name}(${source.tools
-            .map((tool) => tool.name)
-            .join(',')})`,
-      )
-      .join('|');
-
-    if (this.applied.get(profileId) === signature) {
-      return;
-    }
-    this.applied.set(profileId, signature);
-    host.setMcpServers(sources);
-  }
 }
 
 /**
@@ -2110,22 +1662,6 @@ function authorOf(
     return lead;
   }
   return names.get(message.agentId) ?? message.agentId;
-}
-
-/**
- * A list of things to read, in a sentence.
- *
- * Quoted already by the caller, because the two callers quote different things —
- * agent names and space names — and this is the only part they should share.
- */
-function listOf(items: readonly string[]): string {
-  if (items.length === 0) {
-    return 'none';
-  }
-  if (items.length === 1) {
-    return items[0]!;
-  }
-  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`;
 }
 
 /**

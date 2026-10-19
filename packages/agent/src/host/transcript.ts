@@ -19,7 +19,7 @@ import {MAIN_AGENT_NAME} from '@marimo/protocol';
 import type {TranscriptMessage, ToolCallRecord} from '@marimo/protocol';
 
 import type {AdkEvent} from '../sessions/file-session-service.js';
-import {agentIdFor} from './agent-host.js';
+import {agentIdFor} from './agent-name.js';
 import {activeEvents} from './compaction.js';
 import {pendingGatesIn} from './gates.js';
 

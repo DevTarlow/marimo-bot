@@ -456,6 +456,7 @@ export class HarnessRuntime {
     const ownVersions = versions.filter((record) => record.spec.id === profileId);
     const proposalFile = await this.proposals.load();
     const learningFile = await this.learning.load();
+    const currentLessons = await this.learning.currentLessons();
     const proposals =
       proposalFile.proposals.filter(
         (proposal) => proposal.profileId === profileId,
@@ -463,9 +464,15 @@ export class HarnessRuntime {
       learningFile.proposals.filter(
         (proposal) => proposal.profileId === profileId,
       ).length;
+    /*
+     * The current refusals, not the document's whole history. An expired
+     * lesson is kept for the audit but no longer suppresses anything, and a
+     * count that included it would tell the person the bot is quieter than it
+     * is.
+     */
     const dismissedProposals =
       proposalFile.dismissed.length +
-      learningFile.lessons.filter((lesson) => lesson.profileId === profileId)
+      currentLessons.filter((lesson) => lesson.profileId === profileId)
         .length;
     const reviewedConversations = Object.keys(proposalFile.reviewed).length;
     outcomes.corrections = (await this.feedback.forProfile(profileId)).length;

@@ -192,6 +192,7 @@ export function transcriptFromEvents(
         current = {
           id: event.id,
           role: 'assistant',
+          ...(event.agentId === undefined ? {} : {agentId: event.agentId}),
           text: event.text,
           ...(event.reasoning === undefined
             ? {}

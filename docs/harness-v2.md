@@ -327,6 +327,22 @@ Not yet in Phase 2: a harness-version ledger and rollback, a learning dashboard,
 and usage accounting. The turn already records its harness version and hash, so
 the identity of a turn is reproducible before the ledger exists.
 
+## Phase 3: participants, so far
+
+A v2 conversation can hold more than its owner. The log records a
+`participants.changed` event with the membership the window set, and a turn can
+name the profile that should answer: `run(owner, session, text, addressed)`
+resolves that bot's harness, tools, model and memory, records the reply with its
+`agentId`, and leaves the conversation owned by the original bot. Approval cards
+record the answering agent too, so a restart resumes the bot that asked rather
+than the owner.
+
+This is direct addressing, not delegation. A bot cannot hand work to another bot
+yet; the old `ask_agent` path still owns that, along with scheduled jobs, group
+sessions that predate the v2 log and the companion. The v2 participant list is
+not merged into the sidebar summaries on reload, so a v2 group may look like one
+bot until its next turn is opened. Those are the next pieces of Phase 3.
+
 ## What is not in scope
 
 - Hosted multi-tenant accounts, a server, team Spaces.

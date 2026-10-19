@@ -61,6 +61,8 @@ export const assistantMessageSchema = z.object({
   type: z.literal('assistant.message'),
   /** The agent name the reply is attributed to. */
   author: z.string().min(1),
+  /** The profile that answered, when it is not the conversation's owner. */
+  agentId: z.string().min(1).optional(),
   text: z.string().min(1),
   /** Persisted because the next request has to replay it. */
   reasoning: z.string().min(1).optional(),
@@ -73,6 +75,7 @@ export const toolCallSchema = z.object({
   tool: z.string().min(1),
   args: z.record(z.string(), z.unknown()),
   author: z.string().min(1),
+  agentId: z.string().min(1).optional(),
 });
 
 export const toolResultSchema = z.object({
@@ -82,6 +85,7 @@ export const toolResultSchema = z.object({
   tool: z.string().min(1),
   ok: z.boolean(),
   result: z.unknown(),
+  agentId: z.string().min(1).optional(),
   /**
    * True when the engine wrote the result to close a call nobody answered — an
    * aborted turn, a gate the user walked away from. The model has to see an
@@ -106,6 +110,7 @@ export const approvalRequestedSchema = z.object({
   args: z.record(z.string(), z.unknown()),
   hint: z.string().min(1).optional(),
   author: z.string().min(1),
+  agentId: z.string().min(1).optional(),
 });
 
 export const approvalDecidedSchema = z.object({
@@ -137,6 +142,15 @@ export const turnAbortedSchema = z.object({
   type: z.literal('turn.aborted'),
 });
 
+export const participantsChangedSchema = z.object({
+  ...base,
+  type: z.literal('participants.changed'),
+  /** The full list of agents in the conversation, after the change. */
+  agentIds: z.array(z.string().min(1)),
+  /** Who made the change, for a log that has to explain itself later. */
+  by: z.string().min(1),
+});
+
 export const summarySchema = z.object({
   ...base,
   type: z.literal('summary'),
@@ -158,6 +172,7 @@ export const sessionEventSchema = z.discriminatedUnion('type', [
   turnCompletedSchema,
   turnFailedSchema,
   turnAbortedSchema,
+  participantsChangedSchema,
   summarySchema,
 ]);
 
@@ -208,6 +223,24 @@ export function newestTurnId(
 }
 
 /**
+ * Everyone in the conversation: the owner plus the agents the latest
+ * participants event names. An empty list means just the owner.
+ */
+export function participantsIn(events: readonly SessionEvent[]): string[] {
+  const owner =
+    events.find((event) => event.type === 'session.created')?.profileId ??
+    events.find((event) => event.type === 'turn.started')?.profileId;
+  let listed: string[] = [];
+  for (const event of events) {
+    if (event.type === 'participants.changed') {
+      listed = event.agentIds;
+    }
+  }
+  const all = owner === undefined ? [...listed] : [owner, ...listed];
+  return [...new Set(all)];
+}
+
+/**
  * The gates the newest turn is waiting on.
  *
  * A gate is requested and not yet decided. A decided gate that has not resumed
@@ -224,6 +257,7 @@ export function pendingGatesIn(events: readonly SessionEvent[]): Array<{
   args: Record<string, unknown>;
   hint?: string;
   author: string;
+  agentId?: string;
   askedAt: string;
 }> {
   const turn = newestTurnEvents(events);
@@ -258,6 +292,7 @@ export function pendingGatesIn(events: readonly SessionEvent[]): Array<{
       args: event.args,
       ...(event.hint === undefined ? {} : {hint: event.hint}),
       author: event.author,
+      ...(event.agentId === undefined ? {} : {agentId: event.agentId}),
       askedAt: event.at,
     }));
 }

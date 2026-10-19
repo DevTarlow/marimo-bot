@@ -514,6 +514,7 @@ export class TurnEngine {
           turnId: params.turnId,
           type: 'assistant.message',
           author: params.harness.identity.name,
+          agentId: params.harness.id,
           text,
           ...(reasoning.trim().length === 0 ? {} : {reasoning}),
         };
@@ -542,6 +543,7 @@ export class TurnEngine {
           tool: event.tool,
           args: event.args,
           author: params.harness.identity.name,
+          agentId: params.harness.id,
         };
         await this.append(params.sessionId, [call]);
         yield {type: 'event', event: call};
@@ -558,6 +560,7 @@ export class TurnEngine {
           tool: event.tool,
           ok: event.ok,
           result: event.result,
+          agentId: params.harness.id,
         };
         await this.append(params.sessionId, [result]);
         yield {type: 'event', event: result};
@@ -587,6 +590,7 @@ export class TurnEngine {
           args: event.args,
           ...(event.hint === undefined ? {} : {hint: event.hint}),
           author: params.harness.identity.name,
+          agentId: params.harness.id,
         };
         await this.append(params.sessionId, [gate]);
         yield {type: 'event', event: gate};

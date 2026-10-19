@@ -247,6 +247,56 @@ describe('HarnessRuntime', () => {
     expect(await runtime.pendingGates('s1')).toEqual([]);
   });
 
+  it('lets an addressed participant answer in the same conversation', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'The reader answers.'},
+        {type: 'done'},
+      ],
+    ]);
+    const {deps, profileId} = await setup();
+    const other = await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: ['current_time'],
+    });
+    const runtime = runtimeFrom(deps, () => driver);
+    const members = await runtime.setParticipants(profileId, 's1', [
+      profileId,
+      other.id,
+    ]);
+    expect(members).toEqual([profileId, other.id]);
+
+    await collect(runtime.run(profileId, 's1', 'Reader, look.', other.id));
+    const transcript = await runtime.transcript('s1', profileId);
+    expect(
+      transcript.find((message) => message.role === 'assistant'),
+    ).toMatchObject({
+      text: 'The reader answers.',
+      agentId: other.id,
+    });
+  });
+
+  it('refuses an address for an agent that is not in the conversation', async () => {
+    const driver = new ScriptedDriver([]);
+    const {deps, profileId} = await setup();
+    const other = await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: ['current_time'],
+    });
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(runtime.run(profileId, 's1', 'Hello'));
+    const events = await collect(
+      runtime.run(profileId, 's1', 'Reader?', other.id),
+    );
+    expect(events[0]).toMatchObject({type: 'turn.failed'});
+    expect(
+      String(events[0]?.type === 'turn.failed' ? events[0].message : ''),
+    ).toContain('not in this conversation');
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

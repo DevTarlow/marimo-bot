@@ -272,6 +272,7 @@ export {
   newestTurnEvents,
   newestTurnId,
   parseSessionEvent,
+  participantsIn,
   pendingGatesIn as pendingGatesFromLog,
   roundDecided,
   turnIdOf,

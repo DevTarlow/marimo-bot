@@ -26,6 +26,8 @@ import {
   SKILLS,
   TurnBusyError,
   TurnEngine,
+  participantsIn,
+  pendingGatesFromLog,
   resolveHarness,
   runReview,
   type AgentConfig,
@@ -154,17 +156,25 @@ export class HarnessRuntime {
     profileId: string,
     sessionId: string,
     text: string,
+    addressedProfileId?: string,
   ): AsyncGenerator<AgentUiEvent> {
     let prepared: Prepared;
     try {
-      prepared = await this.prepare(profileId);
-    } catch (error) {
-      yield failed(sessionId, error);
-      return;
-    }
-
-    try {
       await this.assertOwner(sessionId, profileId);
+      const events = await this.store.read(sessionId);
+      const answering =
+        addressedProfileId !== undefined && addressedProfileId !== profileId
+          ? addressedProfileId
+          : profileId;
+      if (
+        answering !== profileId &&
+        !participantsIn(events).includes(answering)
+      ) {
+        throw new HarnessRuntimeError(
+          `"${answering}" is not in this conversation.`,
+        );
+      }
+      prepared = await this.prepare(answering);
     } catch (error) {
       yield failed(sessionId, error);
       return;
@@ -194,28 +204,22 @@ export class HarnessRuntime {
     params: {sessionId: string; callId: string; confirmed: boolean},
   ): AsyncGenerator<AgentUiEvent> {
     let prepared: Prepared;
-    try {
-      prepared = await this.prepare(profileId);
-    } catch (error) {
-      yield failed(params.sessionId, error);
-      return;
-    }
-
+    let gate: ReturnType<typeof pendingGatesFromLog>[number] | undefined;
     try {
       await this.assertOwner(params.sessionId, profileId);
+      gate = pendingGatesFromLog(await this.store.read(params.sessionId)).find(
+        (candidate) => candidate.callId === params.callId,
+      );
+      if (gate === undefined) {
+        throw new GateNotFoundError(params.callId);
+      }
+      prepared = await this.prepare(gate.agentId ?? profileId);
     } catch (error) {
       yield failed(params.sessionId, error);
       return;
     }
 
     const state = this.stateFor(params.sessionId, prepared.config);
-    const gates = await state.engine.pendingGates(params.sessionId);
-    const gate = gates.find((candidate) => candidate.callId === params.callId);
-    if (gate === undefined) {
-      yield failed(params.sessionId, new GateNotFoundError(params.callId));
-      return;
-    }
-
     state.driver.current = this.driverFor(prepared);
     try {
       yield* projectTurn(
@@ -235,6 +239,34 @@ export class HarnessRuntime {
 
   async pendingGates(sessionId: string): Promise<PendingGate[]> {
     return projectPendingGates(await this.store.read(sessionId));
+  }
+
+  async participants(profileId: string, sessionId: string): Promise<string[]> {
+    await this.assertOwner(sessionId, profileId);
+    return participantsIn(await this.store.read(sessionId));
+  }
+
+  /**
+   * Sets who is in a v2 conversation. The owner is implicit; the list is the
+   * other agents, or the whole membership the window passed.
+   */
+  async setParticipants(
+    profileId: string,
+    sessionId: string,
+    agentIds: readonly string[],
+  ): Promise<string[]> {
+    await this.assertOwner(sessionId, profileId);
+    const unique = [...new Set(agentIds)];
+    const event: import('@marimo/agent').SessionEvent = {
+      id: randomUUID(),
+      sessionId,
+      at: new Date().toISOString(),
+      type: 'participants.changed',
+      agentIds: unique,
+      by: profileId,
+    };
+    await this.store.append(sessionId, [event]);
+    return participantsIn([...(await this.store.read(sessionId))]);
   }
 
   abort(sessionId: string): boolean {

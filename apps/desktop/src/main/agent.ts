@@ -1193,6 +1193,19 @@ export class AgentService {
     sessionId: string,
     agentIds: string[],
   ): Promise<SessionSummary> {
+    if (await this.harnessHasLog(sessionId)) {
+      await this.runtime
+        .harness()
+        .setParticipants(profileId, sessionId, agentIds);
+      const summary = (await this.runtime.listSessions(profileId)).find(
+        (session) => session.id === sessionId,
+      );
+      if (summary === undefined) {
+        throw new Error(`Unknown session: ${sessionId}`);
+      }
+      const {agentIds: _previous, ...rest} = summary;
+      return agentIds.length > 1 ? {...rest, agentIds} : rest;
+    }
     return await this.runtime.setParticipants(profileId, sessionId, agentIds);
   }
 
@@ -1319,11 +1332,11 @@ export class AgentService {
     origin: 'window' | 'pet' | undefined,
     agentId: string | undefined,
   ): Promise<boolean> {
-    if (agentId !== undefined || origin === 'pet') {
-      return false;
-    }
     if (await this.harnessHasLog(sessionId)) {
       return true;
+    }
+    if (agentId !== undefined || origin === 'pet') {
+      return false;
     }
     if (process.env['MARIMO_HARNESS_V2'] !== '1') {
       return false;
@@ -1395,7 +1408,7 @@ export class AgentService {
         });
         return {accepted: false};
       }
-      this.pump(harness.run(profileId, sessionId, text));
+      this.pump(harness.run(profileId, sessionId, text, agentId));
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};
     }

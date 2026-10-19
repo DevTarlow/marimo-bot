@@ -444,6 +444,28 @@ describe('HarnessRuntime', () => {
     expect(report.paths.harnessSessions).toContain('harness');
   });
 
+  it('gives a changed harness a new chained version', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'One'}, {type: 'done'}],
+      [{type: 'step'}, {type: 'message', text: 'Two'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(runtime.run(profileId, 's1', 'First'));
+    await deps.profiles.update(profileId, {name: 'Renamed'});
+    await collect(runtime.run(profileId, 's1', 'Second'));
+
+    const report = await runtime.report(profileId);
+    expect(report.harnessVersions).toBe(2);
+    expect(report.versions.map((version) => version.harnessVersion)).toEqual([
+      2, 1,
+    ]);
+    const started = (await deps.store.read('s1')).filter(
+      (event) => event.type === 'turn.started',
+    );
+    expect(started.map((event) => event.harnessVersion)).toEqual([1, 2]);
+  });
+
   it('answers one conversation’s usage from its own log', async () => {
     const driver = new ScriptedDriver([
       [

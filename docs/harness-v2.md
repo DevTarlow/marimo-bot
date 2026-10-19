@@ -354,13 +354,16 @@ app uses a one-shot model call with no tools.
 document per distinct spec, written before the first turn that uses it. The first
 record wins; a file this build cannot read is never overwritten. It is audit
 data, not the conversation, so a ledger that cannot be written does not stop the
-turn. The turn itself still carries the version and hash, which is what names the
-record.
+turn. The version is a chain: the first is 1, an unchanged spec reuses its
+version, and a changed spec is the previous version plus one with that version as
+its parent. The reason is stored beside it. The turn carries the version and hash,
+which is what names the record.
 
 **The Harness card** in Settings reads a report on demand: v1 and v2
 conversation counts for the active bot, turns, the token totals the provider
-reported, the frozen specs, waiting memory suggestions, skills and jobs, and the
-two data paths. It reads every v2 log, so it mounts only when the card is opened
+reported, the frozen specs, waiting memory suggestions, conversations reviewed
+and refusals, the skill library and its earlier bodies, jobs, and the two data
+paths. It reads every v2 log, so it mounts only when the card is opened
 and has its own Refresh; it is not on the turn path. One conversation's own menu
 reads its turns and token total from its log; a v1 conversation says that token
 usage was not recorded rather than showing zeros.

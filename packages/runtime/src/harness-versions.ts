@@ -28,6 +28,10 @@ export interface HarnessVersionRecord {
   hash: string;
   /** The bot's own spec version, not this file's format version. */
   harnessVersion: number;
+  /** The version this one was edited from, absent on version 1. */
+  parent?: number;
+  /** Why the version exists, for the ledger list. */
+  reason?: string;
   recordedAt: string;
   spec: HarnessSpec;
 }
@@ -51,6 +55,7 @@ export class HarnessVersionStore {
    */
   async record(
     spec: HarnessSpec,
+    details?: {parent?: number; reason?: string},
   ): Promise<{record: HarnessVersionRecord; created: boolean}> {
     const hash = harnessHash(spec);
     if (!HASH.test(hash)) {
@@ -75,6 +80,8 @@ export class HarnessVersionStore {
     const record: HarnessVersionRecord = {
       hash,
       harnessVersion: spec.version,
+      ...(details?.parent === undefined ? {} : {parent: details.parent}),
+      ...(details?.reason === undefined ? {} : {reason: details.reason}),
       recordedAt: new Date().toISOString(),
       spec,
     };
@@ -83,6 +90,8 @@ export class HarnessVersionStore {
         version: FILE_FORMAT,
         hash: record.hash,
         harnessVersion: record.harnessVersion,
+        ...(record.parent === undefined ? {} : {parent: record.parent}),
+        ...(record.reason === undefined ? {} : {reason: record.reason}),
         recordedAt: record.recordedAt,
         spec: record.spec,
       },
@@ -101,6 +110,12 @@ export class HarnessVersionStore {
       return undefined;
     }
     return await this.read(this.fileFor(hash), hash);
+  }
+
+  /** The newest version recorded for one bot, or undefined. */
+  async latestFor(profileId: string): Promise<HarnessVersionRecord | undefined> {
+    const records = await this.list();
+    return records.find((record) => record.spec.id === profileId);
   }
 
   /** Every readable record, newest first. */
@@ -152,7 +167,10 @@ export class HarnessVersionStore {
     if (
       document['hash'] !== expectedHash ||
       typeof document['harnessVersion'] !== 'number' ||
-      typeof document['recordedAt'] !== 'string'
+      typeof document['recordedAt'] !== 'string' ||
+      (document['parent'] !== undefined &&
+        typeof document['parent'] !== 'number') ||
+      (document['reason'] !== undefined && typeof document['reason'] !== 'string')
     ) {
       return undefined;
     }
@@ -163,6 +181,12 @@ export class HarnessVersionStore {
     return {
       hash: expectedHash,
       harnessVersion: document['harnessVersion'],
+      ...(document['parent'] === undefined
+        ? {}
+        : {parent: document['parent']}),
+      ...(document['reason'] === undefined
+        ? {}
+        : {reason: document['reason']}),
       recordedAt: document['recordedAt'],
       spec: parsed.data,
     };

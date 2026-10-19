@@ -30,6 +30,7 @@ import {
   composeHarnessInstruction,
   participantsIn,
   pendingGatesFromLog,
+  harnessHash,
   resolveHarness,
   runReview,
   type AgentConfig,
@@ -117,6 +118,8 @@ interface Prepared {
   memory: MemoryStore;
   recall?: RecallLookup;
   jobs?: JobService;
+  /** The version this turn's harness was edited from, when it is new. */
+  parentVersion?: number;
 }
 
 interface SessionState {
@@ -218,7 +221,15 @@ export class HarnessRuntime {
      * missing record, not a turn that never starts.
      */
     await this.options.versions
-      ?.record(prepared.harness)
+      ?.record(
+        prepared.harness,
+        prepared.parentVersion === undefined
+          ? undefined
+          : {
+              parent: prepared.parentVersion,
+              reason: 'the bot or the app changed',
+            },
+      )
       .catch(() => undefined);
 
     const state = this.stateFor(sessionId, prepared.config);
@@ -870,7 +881,11 @@ export class HarnessRuntime {
         : {softLimitBytes: settings.memorySoftLimitBytes}),
     });
 
-    const harness = resolveHarness({
+    const previous =
+      this.options.versions === undefined
+        ? undefined
+        : await this.options.versions.latestFor(profile.id);
+    const resolveInput = {
       profile: {
         id: profile.id,
         name: profile.name,
@@ -887,14 +902,23 @@ export class HarnessRuntime {
         model: {provider: config.provider, model: config.model},
         allowPrivateNetworkFetch: settings.allowPrivateNetworkFetch,
         memorySoftLimitBytes: settings.memorySoftLimitBytes,
-        learning: {mode: 'propose', retainTraces: false},
+        learning: {mode: 'propose' as const, retainTraces: false},
       },
-      version: this.options.version ?? 1,
+      version: previous?.harnessVersion ?? (this.options.version ?? 1),
       workspaceRoot,
       ...(sessionModel === undefined
         ? {}
         : {conversation: {model: sessionModel}}),
-    });
+    };
+    let harness = resolveHarness(resolveInput);
+    let parentVersion: number | undefined;
+    if (previous !== undefined && harnessHash(harness) !== previous.hash) {
+      parentVersion = previous.harnessVersion;
+      harness = resolveHarness({
+        ...resolveInput,
+        version: previous.harnessVersion + 1,
+      });
+    }
 
     const recall = await this.options.recallFor?.(profile.id, workspaceRoot);
     const jobs = await this.options.jobsFor?.(profile.id, workspaceRoot);
@@ -907,6 +931,7 @@ export class HarnessRuntime {
       ...(spaceId === undefined ? {} : {spaceId}),
       ...(recall === undefined ? {} : {recall}),
       ...(jobs === undefined ? {} : {jobs}),
+      ...(parentVersion === undefined ? {} : {parentVersion}),
     };
   }
 

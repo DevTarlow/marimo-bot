@@ -235,3 +235,10 @@ export type {
   OpenAiTool,
   OpenAiToolCall,
 } from './models/openai-mapping.js';
+/*
+ * The v2 harness contract. It is exported beside the old core while the rewrite
+ * lands, so the runtime can resolve turns against it without a second package.
+ * The old `AgentConfig` and `AgentHost` exports go when the engine that uses
+ * this replaces them.
+ */
+export * from './harness/index.js';

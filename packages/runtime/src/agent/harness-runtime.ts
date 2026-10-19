@@ -99,6 +99,8 @@ export interface HarnessRuntimeOptions {
   webSearch?: WebSearchProvider;
   /** The frozen-spec ledger, when this install keeps one. */
   versions?: HarnessVersionStore;
+  /** The index's Space for a session that has no v2 log yet. */
+  sessionSpace?: (sessionId: string) => Promise<string | undefined>;
   /** Opens a conversation for a task, when this install can list one. */
   createSession?: (
     profileId: string,
@@ -995,7 +997,11 @@ export class HarnessRuntime {
     const workspaces = await this.options.workspaces.load();
     const events =
       sessionId === undefined ? [] : await this.store.read(sessionId);
-    const filed = spaceIdOf(events);
+    const filed =
+      spaceIdOf(events) ??
+      (sessionId === undefined
+        ? undefined
+        : await this.options.sessionSpace?.(sessionId));
     const sessionModel = modelOf(events);
     const spaceId = filed ?? profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
     const workspaceRoot = workspaceRootFor(workspaces, spaceId);

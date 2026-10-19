@@ -462,7 +462,7 @@ describe('AgentRuntime', () => {
         reason: 'Said so.',
       },
     ]);
-    const accepted = await agent.resolveMemoryProposal(
+    const accepted = await agent.harness().resolveMemoryProposal(
       recorded.proposals[0]?.id ?? '',
       true,
     );
@@ -1469,7 +1469,7 @@ describe('folders and filing', () => {
     ]);
     const proposal = recorded.proposals[0];
 
-    const result = await agent.resolveMemoryProposal(proposal?.id ?? '', true);
+    const result = await agent.harness().resolveMemoryProposal(proposal?.id ?? '', true);
     expect(result.ok).toBe(true);
     expect(
       await readFile(resolveMemoryFile(join(dir, 'alpha'), profileId), 'utf8'),
@@ -1508,7 +1508,7 @@ describe('folders and filing', () => {
       'utf8',
     );
 
-    const result = await agent.resolveMemoryProposal(
+    const result = await agent.harness().resolveMemoryProposal(
       recorded.proposals[0]?.id ?? '',
       true,
     );
@@ -1543,7 +1543,7 @@ describe('folders and filing', () => {
       },
     ]);
 
-    const result = await agent.resolveMemoryProposal(
+    const result = await agent.harness().resolveMemoryProposal(
       recorded.proposals[0]?.id ?? '',
       false,
     );

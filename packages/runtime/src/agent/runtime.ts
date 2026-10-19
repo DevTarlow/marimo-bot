@@ -78,7 +78,6 @@ import type {
   McpServer,
   MemoryProposal,
   MemoryProvenanceEntry,
-  MemorySupersede,
   MemoryUsage,
   TranscriptMessage,
   ProfileCatalog,
@@ -781,70 +780,6 @@ export class AgentRuntime {
     });
     return await store.provenance();
   }
-
-  /**
-   * Accepts a suggestion, writing it into the agent's memory.
-   *
-   * Removed from the queue whether it is accepted or dismissed: both are
-   * answers, and a suggestion that stayed after being refused would be asked
-   * again on every look.
-   */
-  async resolveMemoryProposal(
-    proposalId: string,
-    accept: boolean,
-  ): Promise<{ok: boolean; problem?: string; supersede?: MemorySupersede}> {
-    const file = await this.proposals.load();
-    const proposal = file.proposals.find((entry) => entry.id === proposalId);
-    if (proposal === undefined) {
-      return {ok: false, problem: 'That suggestion is no longer waiting.'};
-    }
-
-    let supersede: MemorySupersede | undefined;
-    if (accept) {
-      /*
-       * Built for the conversation that proposed it rather than for whichever
-       * one is current: the fact was learned in a project, and that is the
-       * folder whose memory has to hold it.
-       */
-      const result = await this.host(
-        proposal.profileId,
-        proposal.sessionId ?? undefined,
-      );
-      if (!result.ok) {
-        /*
-         * Kept in the queue rather than dropped. The agent cannot be built right
-         * now — no key, a bad model — and that is a reason to try again later,
-         * not a reason to throw away something the user just agreed to.
-         */
-        return {ok: false, problem: result.problem};
-      }
-      /*
-       * The outcome travels back to the window, and that is not a nicety. A
-       * proposal that carries a correction and matches no existing bullet leaves
-       * the old fact exactly where it was, so the one thing the person needs told
-       * is that the correction did not take — and nothing downstream of this call
-       * can work it out for itself.
-       */
-      supersede = await result.host.remember(
-        proposal.section,
-        proposal.text,
-        proposal.replaces,
-      );
-    }
-
-    /*
-     * A refusal is recorded with the agent it was refused in. The fact may be
-     * exactly what this same agent is told later — the user can refuse a
-     * *suggestion* and then say the thing themselves — and that is fine: the
-     * refusal only silences the reviewer, never `update_memory`.
-     */
-    await this.proposals.remove(
-      proposalId,
-      accept ? undefined : {profileId: proposal.profileId, text: proposal.text},
-    );
-    return supersede === undefined ? {ok: true} : {ok: true, supersede};
-  }
-
   /**
    * What the user has refused, newest last.
    *
@@ -1892,6 +1827,8 @@ export class AgentRuntime {
       jobsFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))?.jobService,
       versions: this.harnessVersions,
+      sessionSpace: async (sessionId) =>
+        (await this.sessionIndex.getIndexEntry(sessionId))?.workspaceId,
       createSession: async (profileId, title) => {
         const created = await this.createSession(profileId, title);
         return created === undefined

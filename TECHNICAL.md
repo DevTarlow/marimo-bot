@@ -186,12 +186,16 @@ servers' own rather than their names, because a rename must not lose a grant and
 name freed by a delete must not be inherited by a new server the agent was never
 given.
 
-**The filter sits where a runner is built, so an ungranted server is absent rather
-than refused.** `grantedMcpServers` narrows the toolsets as a model is built for
-an agent, and a model that never sees a tool cannot propose it — invariant 9 one
-layer down. It is read at that moment rather than when the servers were handed
-over, because both halves move: a server can connect after the profile was
-written, and the profile can be edited while the app runs.
+**The filter sits where the tool list is built, so an ungranted server is absent
+rather than refused.** `grantedMcpSources` narrows the live toolsets as a turn's
+harness is resolved, `buildMcpToolDefinitions` turns each granted server's tools
+into the same kind of definition the built-ins use, and the driver appends them.
+A model that never sees a tool cannot propose it — invariant 9 one layer down. It
+is read per turn rather than when the servers were handed over, because both
+halves move: a server can connect after the profile was written, and the profile
+can be edited while the app runs. A trusted server's tools are ungated; an
+untrusted one's carry `always`, which the driver merges with the profile's own
+rules rather than replacing them.
 
 **The switch is drawn from the settings document, not from live connections.** A
 grant screen has to exist _before_ the server is reachable, or a connector that

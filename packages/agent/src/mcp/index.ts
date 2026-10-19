@@ -20,7 +20,9 @@ export type {
 } from './client.js';
 
 export {
+  buildMcpToolDefinitions,
   buildMcpTools,
+  grantedMcpSources,
   MAX_TOOL_NAME_CHARS,
   McpToolNameError,
   mcpToolNameFor,

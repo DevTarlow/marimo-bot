@@ -23,7 +23,9 @@ import type {
 } from '@marimo/protocol';
 import {
   AdkDriver,
+  buildMcpToolDefinitions,
   CORE_TOOLS,
+  grantedMcpSources,
   GateNotFoundError,
   MemoryStore,
   OpenAiCompatLlm,
@@ -38,10 +40,12 @@ import {
   isAlwaysInjected,
   runReview,
   type AgentConfig,
+  type AnyToolDefinition,
   type EventStore,
   type HarnessSpec,
   type JobService,
   type LearningToolService,
+  type McpToolsetSource,
   type RecallLookup,
   type SkillToolService,
   type WebSearchProvider,
@@ -125,6 +129,14 @@ export interface HarnessRuntimeOptions {
   ) => Promise<JobService | undefined>;
   /** Search, when this install has a provider. */
   webSearch?: WebSearchProvider;
+  /**
+   * The connected connectors, read per turn.
+   *
+   * A function rather than a list because a server can drop while the app is
+   * running, and the turn that follows must not be offered a tool whose pipe is
+   * already closed. The caller owns the manager; this owns the grants.
+   */
+  mcpServers?: () => readonly McpToolsetSource[];
   /** The frozen-spec ledger, when this install keeps one. */
   versions?: HarnessVersionStore;
   /** The index's Space for a session that has no v2 log yet. */
@@ -1809,6 +1821,7 @@ export class HarnessRuntime {
     const skills = this.skillToolsFor(profileId);
     return new AdkDriver({
       resolveModel: () => this.llmFor(prepared.config),
+      mcpTools: (harness) => this.mcpToolsFor(harness),
       resolveHelper: async (agent, signal) =>
         await this.helperFor(agent, sessionId, signal),
       resumeSessions: (id) => this.helperSessions.get(id),
@@ -1849,6 +1862,44 @@ export class HarnessRuntime {
             }),
       }),
     });
+  }
+
+  /**
+   * The connector tools this harness may use.
+   *
+   * The grant is the filter, and the absent case is the answer: an ungranted
+   * server is not refused when the model calls one of its tools, it is not in
+   * the list. `all` means every connected server, which is what a profile
+   * written before the field existed carries. A server is asked for its tools
+   * only while it is connected, so a drop removes them from the next turn.
+   *
+   * A name collision cannot reach here: every connector tool is prefixed
+   * `mcp_<server>_`, and no built-in starts with `mcp_`. The reserved set is
+   * passed anyway, so the rule holds if that prefix ever changes.
+   */
+  private mcpToolsFor(harness: HarnessSpec): readonly AnyToolDefinition[] {
+    const sources = this.options.mcpServers?.() ?? [];
+    if (sources.length === 0) {
+      return [];
+    }
+    const allowed = grantedMcpSources(harness.tools.mcpServerIds, sources);
+    const reserved = new Set(CORE_TOOLS.map((tool) => tool.name));
+    const definitions: AnyToolDefinition[] = [];
+    for (const source of allowed) {
+      try {
+        definitions.push(
+          ...buildMcpToolDefinitions({...source, reserved}),
+        );
+      } catch {
+        /*
+         * The manager already reports a collision or a bad name under the
+         * server, where the person can fix it. A turn must not fail because a
+         * connector cannot offer one of its tools; the rest of the turn is
+         * still useful.
+         */
+      }
+    }
+    return definitions;
   }
 
   /** The skill service one profile's turn or helper sees. */

@@ -213,6 +213,51 @@ describe('AdkDriver', () => {
     expect(model.requests).toHaveLength(1);
   });
 
+  /*
+   * A connector's tools are part of the same offer, not a second menu. The
+   * caller that owns the connection supplies them, and the driver's only job is
+   * to put them beside the built-ins and answer a call to one.
+   */
+  it('offers a connector tool beside the built-ins and runs it', async () => {
+    const model = new ScriptedLlm([
+      [call('mcp_notes_search', {q: 'x'})],
+      [text('Found it.')],
+    ]);
+    const calls: unknown[] = [];
+    const driver = new AdkDriver({
+      resolveModel: () => model,
+      mcpTools: () => [
+        {
+          name: 'mcp_notes_search',
+          description: 'Search the notes connector.',
+          parameters: {} as never,
+          gate: 'never',
+          execute: async (args) => {
+            calls.push(args);
+            return {ok: true, result: 'a note'};
+          },
+        },
+      ],
+    });
+    const updates = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Search the notes.',
+        harness: harness(),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(model.requests[0]?.toolsDict).toHaveProperty('mcp_notes_search');
+    expect(calls).toEqual([{q: 'x'}]);
+    expect(
+      updates.find((update) => update.type === 'tool.result'),
+    ).toMatchObject({ok: true});
+  });
+
   it('runs a non-gated tool and feeds its result back to the model', async () => {
     const model = new ScriptedLlm([
       [call('current_time', {})],

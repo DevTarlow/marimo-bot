@@ -10,7 +10,9 @@ export type {PendingGate} from '@marimo/protocol';
  * MCP servers: one connection each, and the tools they offer.
  */
 export {
+  buildMcpToolDefinitions,
   buildMcpTools,
+  grantedMcpSources,
   MAX_TOOL_NAME_CHARS,
   McpError,
   McpServerConnection,

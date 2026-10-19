@@ -1536,6 +1536,15 @@ export class AgentRuntime {
       ...(this.options.webSearch === undefined
         ? {}
         : {webSearch: this.options.webSearch}),
+      /*
+       * The same live list the old host used. A connector is dialled by the
+       * manager the app owns, and the facade must ask it per turn rather than
+       * be handed a snapshot: a server that dropped while the window was open
+       * is a tool the next turn must not be offered.
+       */
+      ...(this.options.mcpServers === undefined
+        ? {}
+        : {mcpServers: this.options.mcpServers}),
     });
     return this.harnessRuntime;
   }

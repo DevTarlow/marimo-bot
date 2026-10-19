@@ -76,9 +76,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
    secret is _set_, never its value — and there is a test that walks the payload
    rather than trusting one call site.
 9. **A capability the user turned off is absent, not discouraged.** A connector
-   an agent was not granted is the same rule one layer down: the host filters the
-   toolsets it was handed, so an ungranted server is missing from the tool menu
-   rather than refused when the model proposes it.
+   an agent was not granted is the same rule one layer down: `grantedMcpSources`
+   filters the live servers as a turn's harness is resolved, so an ungranted
+   server is missing from the tool list rather than refused when the model
+   proposes it.
 10. **One turn at a time holds across processes.** The app and the runner are
     serialised by a lock, not by hope.
 11. **Unattended means unapproved stays unapproved.** A headless run never

@@ -14,7 +14,9 @@ import type {McpServer} from '@marimo/protocol';
 import {McpError} from './client.js';
 import type {McpServerConnection, McpToolInfo} from './client.js';
 import {
+  buildMcpToolDefinitions,
   buildMcpTools,
+  grantedMcpSources,
   MAX_TOOL_NAME_CHARS,
   McpToolNameError,
   mcpToolNameFor,
@@ -304,5 +306,97 @@ describe('running a tool', () => {
       toolContext: context(),
     });
     expect(String(result)).toContain('socket closed');
+  });
+});
+
+/*
+ * The same tools as engine definitions, for the v2 turn path. The properties are
+ * the same three, and they are tested here because the v1 builder and the v2
+ * builder share the naming plan but not the wrapper: a gate or a failure answer
+ * that one path got right and the other did not would be visible only in one
+ * kind of conversation.
+ */
+describe('buildMcpToolDefinitions', () => {
+  it('gates an untrusted server and not a trusted one', () => {
+    const trusted = buildMcpToolDefinitions({
+      server: server({trusted: true}),
+      connection: connection(async () => 'ok'),
+      tools: [tool('search')],
+    });
+    expect(trusted[0]?.gate).toBe('never');
+
+    const untrusted = buildMcpToolDefinitions({
+      server: server({trusted: false}),
+      connection: connection(async () => 'ok'),
+      tools: [tool('search')],
+    });
+    expect(untrusted[0]?.gate).toBe('always');
+  });
+
+  it('calls the server by its own name and returns its words', async () => {
+    const calls: Array<[string, unknown]> = [];
+    const definitions = buildMcpToolDefinitions({
+      server: server(),
+      connection: connection(async (name, args) => {
+        calls.push([name, args]);
+        return 'found it';
+      }),
+      tools: [tool('search')],
+    });
+    const result = await definitions[0]?.execute({q: 'notes'}, {} as never);
+    expect(result).toEqual({ok: true, result: 'found it'});
+    expect(calls).toEqual([['search', {q: 'notes'}]]);
+  });
+
+  it('answers a dropped server as a failed result rather than throwing', async () => {
+    const definitions = buildMcpToolDefinitions({
+      server: server(),
+      connection: connection(async () => {
+        throw new McpError('the pipe closed', 'error');
+      }),
+      tools: [tool('search')],
+    });
+    const result = await definitions[0]?.execute({}, {} as never);
+    expect(result?.ok).toBe(false);
+    expect(String(result?.result)).toContain('could not run');
+    expect(String(result?.result)).toContain('the pipe closed');
+  });
+
+  it('refuses a tool whose name a built-in already owns', () => {
+    expect(() =>
+      buildMcpToolDefinitions({
+        server: server(),
+        connection: connection(async () => 'ok'),
+        tools: [tool('search')],
+        reserved: new Set(['mcp_notes_search']),
+      }),
+    ).toThrow(McpToolNameError);
+  });
+});
+
+/*
+ * The grant is the filter, and the two ways it goes wrong are opposite: `all`
+ * that quietly means none, and an empty list that quietly means everything.
+ */
+describe('grantedMcpSources', () => {
+  const sources = [
+    {server: {id: 'mcp:notes', name: 'notes'}},
+    {server: {id: 'mcp:db', name: 'db'}},
+  ];
+
+  it('takes every connected server for "all"', () => {
+    expect(grantedMcpSources('all', sources)).toEqual(sources);
+  });
+
+  it('takes only the connectors the bot was granted', () => {
+    expect(grantedMcpSources(['mcp:db'], sources)).toEqual([sources[1]]);
+  });
+
+  it('takes none for an empty grant', () => {
+    expect(grantedMcpSources([], sources)).toEqual([]);
+  });
+
+  it('is empty when nothing is connected', () => {
+    expect(grantedMcpSources('all', [])).toEqual([]);
   });
 });

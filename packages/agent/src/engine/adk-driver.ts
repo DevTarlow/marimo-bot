@@ -76,6 +76,16 @@ export interface AdkDriverOptions {
   resolveModel: (harness: HarnessSpec) => BaseLlm;
   /** Injected for tests; the app uses the v2 core tool set. */
   toolDefinitions?: (harness: HarnessSpec) => readonly AnyToolDefinition[];
+  /**
+   * A connector's tools for this harness, read fresh for each turn.
+   *
+   * Separate from `toolDefinitions` because they are not the app's own tools:
+   * they come and go with a server connection, and the caller that owns the
+   * manager is the one that knows which are up. They are appended after the
+   * built-ins so a built-in name always wins, and the reserved-name check in
+   * the manager is what keeps the two lists from meeting.
+   */
+  mcpTools?: (harness: HarnessSpec) => readonly AnyToolDefinition[];
   /** The turn's memory and skill index, read fresh for each request. */
   promptContext?: (
     harness: HarnessSpec,
@@ -703,18 +713,19 @@ ${task}`});
     sessionId: string,
     omitTools?: ReadonlySet<string>,
   ): FunctionTool<never>[] {
-    const definitions = (
-      this.options.toolDefinitions?.(harness) ??
-      toolsFor(harness, {
-        memory: context.memory !== undefined,
-        skills: context.skills !== undefined,
-        delegate: context.delegate !== undefined,
-        task: context.delegateTask !== undefined,
-        jobs: context.jobs !== undefined,
-        webSearch: context.webSearch !== undefined,
-        learning: context.learning !== undefined,
-      })
-    ).filter((definition) => omitTools?.has(definition.name) !== true);
+    const definitions = [
+      ...(this.options.toolDefinitions?.(harness) ??
+        toolsFor(harness, {
+          memory: context.memory !== undefined,
+          skills: context.skills !== undefined,
+          delegate: context.delegate !== undefined,
+          task: context.delegateTask !== undefined,
+          jobs: context.jobs !== undefined,
+          webSearch: context.webSearch !== undefined,
+          learning: context.learning !== undefined,
+        })),
+      ...(this.options.mcpTools?.(harness) ?? []),
+    ].filter((definition) => omitTools?.has(definition.name) !== true);
     return definitions.map((definition) => {
       const rule = strongerGate(
         definition.gate ?? 'never',

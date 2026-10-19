@@ -26,6 +26,8 @@ import type {McpServer} from '@marimo/protocol';
 
 import type {McpServerConnection, McpToolInfo} from './client.js';
 import {McpError} from './client.js';
+import {outcome} from '../engine/tool-contract.js';
+import type {AnyToolDefinition} from '../engine/tool-contract.js';
 
 /**
  * The longest tool name the model's API accepts.
@@ -35,6 +37,23 @@ import {McpError} from './client.js';
  * a complaint about the tool list rather than about the server that caused it.
  */
 export const MAX_TOOL_NAME_CHARS = 64;
+
+/**
+ * The connectors a harness may use.
+ *
+ * `all` is every connected server, which is what a profile written before the
+ * field existed carries. An array is the grant, and an empty array is a real
+ * answer: this bot may use none of them. The filter is here rather than in the
+ * runtime so the rule can be tested without a turn.
+ */
+export function grantedMcpSources<Source extends {server: {id: string}}>(
+  granted: readonly string[] | 'all',
+  sources: readonly Source[],
+): Source[] {
+  return granted === 'all'
+    ? [...sources]
+    : sources.filter((source) => granted.includes(source.server.id));
+}
 
 export interface McpToolBuildOptions {
   server: McpServer;
@@ -68,11 +87,47 @@ export class McpToolNameError extends Error {
 }
 
 export function buildMcpTools(options: McpToolBuildOptions): FunctionTool[] {
-  const {server, connection, tools} = options;
-  const reserved = options.reserved ?? new Set<string>();
+  return planMcpTools(options).map((planned) =>
+    createTool({
+      server: options.server,
+      connection: options.connection,
+      tool: planned.tool,
+      name: planned.name,
+    }),
+  );
+}
 
+/**
+ * The same tools as engine definitions, for the v2 turn path.
+ *
+ * The two builders share the naming and collision rules rather than restating
+ * them: a name that one path refuses must be refused by the other, or a
+ * connector would work in an old conversation and fail in a new one.
+ */
+export function buildMcpToolDefinitions(
+  options: McpToolBuildOptions,
+): AnyToolDefinition[] {
+  return planMcpTools(options).map((planned) =>
+    createDefinition({
+      server: options.server,
+      connection: options.connection,
+      tool: planned.tool,
+      name: planned.name,
+    }),
+  );
+}
+
+interface PlannedMcpTool {
+  tool: McpToolInfo;
+  name: string;
+}
+
+/** Every tool with the name it will be offered under, or a collision error. */
+function planMcpTools(options: McpToolBuildOptions): PlannedMcpTool[] {
+  const {server, tools} = options;
+  const reserved = options.reserved ?? new Set<string>();
   const taken = new Map<string, string>();
-  const built: FunctionTool[] = [];
+  const planned: PlannedMcpTool[] = [];
 
   for (const tool of tools) {
     const name = mcpToolNameFor(server.name, tool.name);
@@ -94,11 +149,10 @@ export function buildMcpTools(options: McpToolBuildOptions): FunctionTool[] {
       );
     }
     taken.set(name, tool.name);
-
-    built.push(createTool({server, connection, tool, name}));
+    planned.push({tool, name});
   }
 
-  return built;
+  return planned;
 }
 
 /**
@@ -154,6 +208,69 @@ function shortHash(value: string): string {
   return hash.toString(36).padStart(4, '0').slice(-4);
 }
 
+/**
+ * The words the model sees for a connector's tool.
+ *
+ * The server's own description is followed by a note about who is offering it.
+ * Without it the model cannot tell that this tool is not part of the app, which
+ * matters when explaining to the user where an answer came from — and matters
+ * more when the user is deciding whether to trust it.
+ */
+function describeMcpTool(server: McpServer, tool: McpToolInfo): string {
+  return [
+    tool.description.trim().length > 0
+      ? tool.description.trim()
+      : `The tool "${tool.name}" from the MCP server "${server.name}".`,
+    `Offered by the MCP server "${server.name}"${server.trusted ? '' : ', which you have not been told to trust: every call needs the user\'s approval'}.`,
+  ].join('\n\n');
+}
+
+function createDefinition(options: {
+  server: McpServer;
+  connection: McpServerConnection;
+  tool: McpToolInfo;
+  name: string;
+}): AnyToolDefinition {
+  const {server, connection, tool, name} = options;
+  return {
+    name,
+    description: describeMcpTool(server, tool),
+    /*
+     * The adapter hands a non-Zod object to the declaration unchanged, the same
+     * way the v1 builder does. A connector's schema arrives as JSON because that
+     * is the protocol's language; converting it to Zod would be a second parser
+     * for a shape the server already described.
+     */
+    parameters: tool.inputSchema as never,
+    /*
+     * The gate is the definition's, and the harness policy may only strengthen
+     * it. An untrusted server's every call is a card; a trusted one's is not,
+     * unless the person has added a stronger rule for that tool.
+     */
+    gate: server.trusted ? 'never' : 'always',
+    execute: async (args) => {
+      try {
+        return outcome(true, await connection.callTool(tool.name, args));
+      } catch (error) {
+        const detail =
+          error instanceof McpError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : String(error);
+        /*
+         * In-band: a dropped connector is something to report and carry on
+         * from, not something to end the turn over.
+         */
+        return outcome(
+          false,
+          `The MCP server "${server.name}" could not run "${tool.name}": ${detail}`,
+        );
+      }
+    },
+  };
+}
+
 function createTool(options: {
   server: McpServer;
   connection: McpServerConnection;
@@ -162,18 +279,7 @@ function createTool(options: {
 }): FunctionTool {
   const {server, connection, tool, name} = options;
 
-  /*
-   * The server's own description is followed by a note about who is offering it.
-   * Without it the model cannot tell that this tool is not part of the app, which
-   * matters when explaining to the user where an answer came from — and matters
-   * more when the user is deciding whether to trust it.
-   */
-  const description = [
-    tool.description.trim().length > 0
-      ? tool.description.trim()
-      : `The tool "${tool.name}" from the MCP server "${server.name}".`,
-    `Offered by the MCP server "${server.name}"${server.trusted ? '' : ', which you have not been told to trust: every call needs the user\'s approval'}.`,
-  ].join('\n\n');
+  const description = describeMcpTool(server, tool);
 
   return new FunctionTool({
     name,

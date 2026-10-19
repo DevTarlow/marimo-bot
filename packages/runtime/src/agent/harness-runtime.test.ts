@@ -836,6 +836,93 @@ describe('HarnessRuntime', () => {
     expect((await runtime.learningProposals()).proposals).toEqual([]);
   });
 
+  /*
+   * The connector branch. A connector's grant is a list of server ids, and the
+   * two states around it are different answers: `[]` is "none", while an absent
+   * field is "all of them". Adding an id to the first narrows nothing; adding
+   * one to the second would narrow the grant, which is the opposite of what the
+   * person approved.
+   */
+  it('adds a connector id to a grant that names specific connectors', async () => {
+    const {deps, profileId} = await setup();
+    await deps.settings.patch({
+      mcpServers: [
+        {
+          id: 'mcp:notes',
+          name: 'notes',
+          transport: 'http',
+          url: 'http://127.0.0.1:9',
+          enabled: true,
+          trusted: false,
+          secretStorage: 'keychain',
+        },
+      ],
+    });
+    await deps.profiles.update(profileId, {mcpServerIds: []});
+    const store = new LearningProposalStore({
+      file: deps.paths.learningProposals,
+    });
+    const recorded = await store.record({
+      kind: 'grant',
+      target: 'connector',
+      name: 'mcp:notes',
+      profileId,
+      sessionId: null,
+      reason: 'The notes server has what I need.',
+      evidence: [],
+    });
+    const id = recorded.proposals[0]?.id ?? '';
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+
+    const answer = await runtime.resolveLearningProposal(id, true);
+    expect(answer.ok).toBe(true);
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.mcpServerIds).toEqual(['mcp:notes']);
+  });
+
+  it('leaves an all-connector grant alone when a specific one is approved', async () => {
+    const {deps, profileId} = await setup();
+    await deps.settings.patch({
+      mcpServers: [
+        {
+          id: 'mcp:notes',
+          name: 'notes',
+          transport: 'http',
+          url: 'http://127.0.0.1:9',
+          enabled: true,
+          trusted: false,
+          secretStorage: 'keychain',
+        },
+      ],
+    });
+    const store = new LearningProposalStore({
+      file: deps.paths.learningProposals,
+    });
+    const recorded = await store.record({
+      kind: 'grant',
+      target: 'connector',
+      name: 'notes',
+      profileId,
+      sessionId: null,
+      reason: 'The notes server has what I need.',
+      evidence: [],
+    });
+    const id = recorded.proposals[0]?.id ?? '';
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+
+    const answer = await runtime.resolveLearningProposal(id, true);
+    expect(answer.ok).toBe(true);
+    expect(answer.applied).toContain('every connector');
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.mcpServerIds).toBeUndefined();
+  });
+
   it('turns a declined grant into a lesson, and keeps the profile alone', async () => {
     const {deps, profileId} = await setup();
     const store = new LearningProposalStore({

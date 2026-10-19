@@ -50,7 +50,19 @@ export function resolveBotDraft(
       persona.length > 0
         ? (draft.persona ?? '')
         : (template?.persona ?? DEFAULT_BOT_PERSONA),
-    tools: [...(draft.tools ?? template?.tools ?? [])],
+    /*
+     * An empty list from the model is not a decision to grant nothing. A small
+     * model that omits the field and one that sends `[]` mean the same thing
+     * here — "use the role's abilities" — and a Writer card that showed no
+     * ability would make the person grant by hand what the role already knew it
+     * needed. A list the person clears in the card is different: the card sends
+     * that empty list on Create, and the runtime honours it.
+     */
+    tools: [
+      ...(draft.tools !== undefined && draft.tools.length > 0
+        ? draft.tools
+        : (template?.tools ?? [])),
+    ],
     ...(avatar === undefined ? {} : {avatar}),
   };
 }

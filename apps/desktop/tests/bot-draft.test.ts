@@ -51,6 +51,20 @@ describe('resolveBotDraft', () => {
     expect(resolved.tools).toEqual([]);
   });
 
+  /*
+   * A model that sends `[]` instead of omitting the field must not make a bot
+   * with no abilities. The role already knows what the job needs, and a Writer
+   * card with an empty ability list would ask the person to grant by hand what
+   * the starter role was for.
+   */
+  it('fills the starter role’s abilities when the model sent an empty list', () => {
+    const resolved = resolveBotDraft(
+      {name: 'Writer', templateId: 'writer', tools: []},
+      BOT_TEMPLATES,
+    );
+    expect(resolved.tools).toEqual(WRITER.tools);
+  });
+
   it('suggests the starter name when the draft has none', () => {
     const resolved = resolveBotDraft({templateId: 'writer'}, BOT_TEMPLATES);
     expect(resolved.name).toBe(WRITER.suggestedName);

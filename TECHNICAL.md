@@ -63,29 +63,29 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 
 ## What is built
 
-| State       | Feature                                                                                                                                                                                                                                 |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Done        | Five providers to answer with — DeepSeek, Google Gemini, OpenCode Go, OpenRouter, and a llama.cpp server of your own — each with its own address, model and key. The catalogue is data, the transport is one OpenAI-compatible client, and a key is encrypted unless you say otherwise |
-| Removed     | The model the app used to carry and run itself: Qwen3.5-4B on a llama.cpp engine it downloaded and supervised. Two tiers chosen from what the GPU reported, no account and no key — and 2.7 GB before the first answer |
-| Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                           |
-| Done        | Spaces: a folder that holds its own chats, its agents and its documents — the markdown files in it, listed in a library and editable in the window, with a revision on every write so a stale tab cannot clobber what an agent wrote    |
-| Done        | A chat with more than one agent: the lead answers, `@` addresses a member, and the lead can hand work to a named agent with `ask_agent` — which runs inside the same conversation, so its approval card lands where you are reading, and which is bounded and cannot delegate further |
-| Done        | One settings screen, and bots at the top of the sidebar with their own icons — five shipped presets and an uploaded image, changed in Settings                                                                                          |
-| Done        | The agent core: `AgentHost` over Google ADK, one OpenAI-compatible streaming client that serves every provider, ~28 built-in tools of which the app offers the ones its services can carry out, skills, `memory.md`, JSONL conversations |
-| Done        | Approvals that survive a restart, because a pending call is derived from the stored conversation rather than held in memory                                                                                                             |
-| Done        | MCP connectors: add one from either settings screen, test it from the same form, and choose whether to trust it — untrusted servers ask before every call. An agent uses the ones it was granted, and a scheduled job dials them too    |
-| Done        | Per-agent capabilities: every tool is a switch, and a tool that is off is not offered to the model at all                                                                                                                               |
-| Done        | The stores: jobs, profiles, settings, skills, memory proposals — with format versioning that refuses to overwrite a document it cannot read                                                                                             |
-| Done        | Secrets: one file per provider key and per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear |
-| Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                 |
-| Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats  |
-| Done        | A first run in five steps: load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and choose the service that answers — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back |
-| Done        | A memory review: after a conversation goes quiet the agent proposes what is worth remembering and asks before writing it — reading a long session in stretches rather than only once it ends, and remembering the facts you turned down |
-| Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated |
-| Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it |
-| Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool |
-| Done        | Dream-RSI: off by default, a turn's search recorded as a tree of what was offered, proposed and run, and a command that re-decides those turns under other settings without a model |
-| In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                       |
+| State       | Feature                                                                                                                                                                                                                                                                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Done        | Five providers to answer with — DeepSeek, Google Gemini, OpenCode Go, OpenRouter, and a llama.cpp server of your own — each with its own address, model and key. The catalogue is data, the transport is one OpenAI-compatible client, and a key is encrypted unless you say otherwise                                                                  |
+| Removed     | The model the app used to carry and run itself: Qwen3.5-4B on a llama.cpp engine it downloaded and supervised. Two tiers chosen from what the GPU reported, no account and no key — and 2.7 GB before the first answer                                                                                                                                  |
+| Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                           |
+| Done        | Spaces: a folder that holds its own chats, its agents and its documents — the markdown files in it, listed in a library and editable in the window, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                    |
+| Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations |
+| Done        | One settings screen, and bots at the top of the sidebar with their own icons — five shipped presets and an uploaded image, changed in Settings                                                                                                                                                                                                          |
+| Done        | The agent core: new conversations run on the v2 harness — a canonical append-only JSONL log, a frozen versioned spec, one ADK adapter behind a boundary test, and a tool set whose availability follows the grant. `AgentHost` remains for v1 history and the same-conversation helper gate, not for new work. See `docs/harness-v2.md`                 |
+| Done        | Approvals that survive a restart, because a pending call is derived from the stored conversation rather than held in memory                                                                                                                                                                                                                             |
+| Done        | MCP connectors: add one from either settings screen, test it from the same form, and choose whether to trust it — untrusted servers ask before every call. An agent uses the ones it was granted, and a scheduled job dials them too                                                                                                                    |
+| Done        | Per-agent capabilities: every tool is a switch, and a tool that is off is not offered to the model at all                                                                                                                                                                                                                                               |
+| Done        | The stores: jobs, profiles, settings, skills, memory proposals — with format versioning that refuses to overwrite a document it cannot read                                                                                                                                                                                                             |
+| Done        | Secrets: one file per provider key and per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear                                                                                     |
+| Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                 |
+| Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                  |
+| Done        | A first run in five steps: load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and choose the service that answers — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                       |
+| Done        | A memory review: after a conversation goes quiet the agent proposes what is worth remembering and asks before writing it — reading a long session in stretches rather than only once it ends, and remembering the facts you turned down                                                                                                                 |
+| Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                   |
+| Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                      |
+| Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool                                                                                                                 |
+| Done        | Dream-RSI: off by default, a turn's search recorded as a tree of what was offered, proposed and run, and a command that re-decides those turns under other settings without a model                                                                                                                                                                     |
+| In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                                                                                                                                       |
 
 ## Why it is built this way
 
@@ -121,7 +121,7 @@ For most of its life it downloaded a llama.cpp engine and a quantized Qwen, star
 it on loopback and answered from it — no account, no key, nothing typed into the
 chat leaving the machine. What that cost was 2.7 GB on a first run, a graphics
 card as a hard requirement, and a model whose ceiling was the machine it ran on.
-It now talks to a *provider*, and the honest consequence is on the first screen
+It now talks to a _provider_, and the honest consequence is on the first screen
 rather than hidden: a fresh install cannot answer until somebody picks one.
 
 **Five of them, and one keeps the old promise.** DeepSeek, Google Gemini, OpenCode
@@ -130,13 +130,13 @@ you run yourself is reached at an address you type and is the entry that needs n
 account and sends nothing off the machine. The catalogue lives in
 `packages/protocol/src/providers.ts`, and it is plain data: label, blurb, default
 address, placeholder models, whether a key is required, and four facts about the
-*endpoint* — whether thinking arrives as `reasoning_content`, whether
+_endpoint_ — whether thinking arrives as `reasoning_content`, whether
 `stream_options.include_usage` may be sent, which header a gateway wants a
 conversation named in, and whether a key is needed at all.
 
 **One transport serves all five, which is why the flags matter.** Every one of
 these speaks the OpenAI chat-completions dialect, so switching provider is an
-address, a key and a model id. What is *not* uniform is which fields may be sent:
+address, a key and a model id. What is _not_ uniform is which fields may be sent:
 Gemini's compatibility layer answers an unsupported `stream_options` with an error
 rather than ignoring it, so a transport that always asked for usage would fail
 every turn there, and one that never asked would leave the token counts blank
@@ -155,7 +155,7 @@ sentence rather than a 401.
 **A model is a pair.** `{provider, model}` is the only shape stored or sent,
 because an id means nothing apart from the endpoint that serves it — and the
 resolution order is one function, `modelChoiceFor`: the conversation's choice,
-then its agent's, then the app's. Each level contributes its provider *and* its
+then its agent's, then the app's. Each level contributes its provider _and_ its
 model id, because taking one from each is how a window comes to name a model the
 turn is not using.
 
@@ -194,7 +194,7 @@ over, because both halves move: a server can connect after the profile was
 written, and the profile can be edited while the app runs.
 
 **The switch is drawn from the settings document, not from live connections.** A
-grant screen has to exist *before* the server is reachable, or a connector that
+grant screen has to exist _before_ the server is reachable, or a connector that
 cannot be dialled yet — a wrong command, a secret this process cannot read — is
 one nobody can decide about. Adding, testing and trusting a server is on the one
 settings screen, because that is a capability the user has; the grant itself is
@@ -205,7 +205,7 @@ consent has to travel with the write.** `secretStorage` is per connector and
 defaults to `keychain`; a scheduled job runs in a process with no keychain, so a
 connector that job is meant to use has to be readable by one, and only the user
 can say so. The trap here is ordering rather than storage: the consent is a field
-of the same unsaved form as the value, so reading it back off the *saved*
+of the same unsaved form as the value, so reading it back off the _saved_
 connector leaks in one direction — untick it, type a new value, save the secret
 without saving the connector, and the file is written readable while the screen
 says encrypted. `mcp.setSecret` takes the consent instead, and a test pins both
@@ -284,15 +284,15 @@ worse answer.
 ### Memory is two files, and the layer decides which
 
 Memory is markdown, and there are two of them. `memory/<profile>/memory.md` under
-user data holds the facts about the *person* — who they are, how they want to be
+user data holds the facts about the _person_ — who they are, how they want to be
 talked to, what they have asked never to happen. `<folder>/.marimo/<profile>/`
-holds the facts about *this workspace* — its conventions, its paths, one pointer
+holds the facts about _this workspace_ — its conventions, its paths, one pointer
 per project to wherever it keeps its state.
 
 The split is by **layer**, and the vocabulary already knew which was which: the
 canonical sections in `sections.ts` carry a `scope`, separate from the `always`
 flag. It had to be separate. `Environment and conventions` rides along whole in
-every prompt *and* is a fact about one repository, so collapsing the two axes
+every prompt _and_ is a fact about one repository, so collapsing the two axes
 would have put one project's rules in every other project's prompt.
 
 Both files are read as one document, so everything above this — the prompt block,
@@ -327,7 +327,7 @@ difference between a store of facts and something that improves.
 There is now a quiet **Not quite** under an answer, in the window and on the moss,
 which records an optional line about what was right instead. Nothing is written to
 memory and nothing is said back: the conversation log is left as it was, because a
-correction is a note *about* a turn rather than a turn in it. What reads it is the
+correction is a note _about_ a turn rather than a turn in it. What reads it is the
 next memory review, which gets the corrections as a block of their own — the
 strongest evidence it ever receives, because the person has already done the work
 of stating what is true. It is deliberately not the same as a refusal: a refusal
@@ -379,7 +379,7 @@ the one that crashed.
 `SearchPolicy`: UCB1 over an action's visit count and mean reward, an explicit
 exploration weight, and a pruning threshold. It takes history as an argument
 rather than reading it from anywhere, which is what lets the live turn and the
-offline replay call the *same function* — so a setting measured offline is the
+offline replay call the _same function_ — so a setting measured offline is the
 setting that runs live, by construction rather than by two implementations kept in
 step. Every temptation to make the score cleverer had to survive that constraint,
 which is why the reward is an arithmetic function of the recorded result rather
@@ -392,7 +392,7 @@ proposals whether or not they ran, and drives the loop breaker inherited from
 `RepeatedToolCallPlugin`. Confusing them is a real bug rather than a tidiness
 question — `read_file` three times on three different files is a model doing its
 job, and one counter cannot tell that from a loop. A withheld call is counted as an
-attempt and *not* as a visit, because counting a refusal as a zero-reward visit
+attempt and _not_ as a visit, because counting a refusal as a zero-reward visit
 would make pruning self-reinforcing: the evidence for pruning an action would be
 the pruning itself.
 
@@ -409,7 +409,7 @@ choice between actions is real, which is what makes the threshold worth measurin
 rather than decorative.
 
 **The log records the world, not what one policy approved of.** The `offered` set
-on a step node is the *unfiltered* tool set. Recording the narrowed set would be
+on a step node is the _unfiltered_ tool set. Recording the narrowed set would be
 the obvious thing and it would quietly make the replay useless: a pruned tool would
 be absent from its own history, so no candidate threshold could ever be evaluated
 against it. Off-policy evaluation needs the whole action space the turn had.
@@ -419,7 +419,7 @@ outcome.** `pnpm --filter @marimo/desktop replay:dream` reads the logs, re-decid
 every recorded step under a grid of weights and thresholds, and prints a table —
 with no model call and no tool call, because every number comes from a log that
 already exists. Withheld actions, and how many of those the model actually reached
-for, are counts in that log. What would have happened *next* is not: the model
+for, are counts in that log. What would have happened _next_ is not: the model
 chose each step from the result of the one before it, so withholding a step changes
 the conversation, and the recorded continuation is the one that happened under the
 old settings. The output says so in its own words rather than leaving a reader to
@@ -446,7 +446,7 @@ switch made the bot's identity and the individual tool switches reachable only b
 leaving "the everyday settings", which made the same app look like two products
 and hid the controls from the people most likely to need them. The setup flow
 still offers three capability cards at the moment a bot is made, because that is
-where a person is choosing what it is *for*; Settings offers every tool as its own
+where a person is choosing what it is _for_; Settings offers every tool as its own
 switch. Both write `enabledTools`, the card that is lit is worked out by comparing
 that grant against the lists, and the profile remains the one source of truth for
 what an agent may do.
@@ -482,7 +482,7 @@ granted skill's name and description under `# Available skills`, and the
 `load_skill` tool reads the body when a task matches. That is what makes a
 28 KB procedure like humanizer worth having: the prompt pays one line for it, not
 a context window. The cap on instructions exists for the loaded request, and the
-much smaller cap on the description exists because that one *is* carried every
+much smaller cap on the description exists because that one _is_ carried every
 turn.
 
 The grant is per bot and it is the switch: `enabledSkills` names the skills the
@@ -631,7 +631,7 @@ strictly so it can exit non-zero, which is the only signal a timer gets. And the
 write path refuses a file from a newer build, or moves a corrupt one aside,
 rather than storing an empty document over it.
 
-Everything above is about a file the app *owns*, and the word is doing work. A
+Everything above is about a file the app _owns_, and the word is doing work. A
 Space's documents are the other kind — the user's files, whose format this app has
 no say in — so they carry no version and are never migrated; what guards a write
 to one is the revision rule in the sections below, where a mismatch is a refusal
@@ -676,14 +676,14 @@ their only Space would be moved away from it again. The upgrade also applies to 
 moment for that install.
 
 **Which Space a new conversation lands in has three answers and one function.**
-`AgentRuntime.spaceFor` takes the space the *caller* named — the rail's "new chat
+`AgentRuntime.spaceFor` takes the space the _caller_ named — the rail's "new chat
 in this space" — else the agent's own, else wherever the rail is. The middle one
 is what makes "my Writer drafts into the website repo" need no sentence in a
 prompt: it is `spaceId` on the profile, said once in Settings, with `null` as the
 way back to following the rail. It has to be optional, and that is not tidiness:
 `ProfileStore.parseFile` skips a profile that fails its schema, so a required
 field would quarantine every existing agent on upgrade. And a candidate naming a
-space the document no longer holds is *skipped* rather than stamped on, because
+space the document no longer holds is _skipped_ rather than stamped on, because
 that id files the chat under "Other chats" — the rule a conversation whose folder
 was removed already follows, and the reason it falls back rather than vanishing.
 
@@ -737,7 +737,7 @@ in words, never a throw, because a throw ends the parent's turn and turns "no su
 helper" into "your request failed" — and the host builds the helper from that
 profile, so it runs with its own identity, tools, skills, model and Space. Depth
 is one by construction rather than by a number compared at runtime: the host
-builds the helper *without* this tool, so recursion is not something a model can
+builds the helper _without_ this tool, so recursion is not something a model can
 talk its way into. The bounds are 60 model turns, five minutes, 8,000 characters
 with the cut stated, and three helpers per turn, because a helper is the one part
 of a turn the user cannot watch closely, which makes it the part that most needs a
@@ -749,18 +749,18 @@ blocked inside the tool call, so its own generator cannot carry them.
 **A helper's approval is the tool's own gate, and that is the discovery this
 change is built on.** The obvious design, where the tool waits while the helper's
 card is answered, cannot work. ADK ends the invocation at a gate, so the helper's
-runner stops *inside* the parent's tool call and the parent's call would sit there
+runner stops _inside_ the parent's tool call and the parent's call would sit there
 with no result — an assistant message with an unanswered call, which every
 provider refuses on the next request and not only that turn (invariant 3). So
 `ask_agent` raises a card of its own through `requestConfirmation`, and the click
-resumes *this* tool. That is the one place the two sides can be joined: the card
+resumes _this_ tool. That is the one place the two sides can be joined: the card
 the user answered belongs to this call, and the work that has to carry on belongs
 to the helper.
 
 The click then answers the helper's own gate rather than telling it the news. The
 host reads the helper's unanswered gate out of the session — `gatesAskedBy`, which
 is deliberately not the newest-invocation rule in `pendingGatesIn` — and sends ADK
-the confirmation response for *that* call; ADK binds it to the original call and
+the confirmation response for _that_ call; ADK binds it to the original call and
 executes it. That is what makes the approved `write_file` actually run. A sentence
 carrying only "the user approved" left the helper with no task and no pending
 call, so it re-planned, re-proposed the write and the loop never converged; the
@@ -794,7 +794,7 @@ license a claim that a tool ran or a capability the profile does not have. It is
 never reset automatically; Settings offers the starter text as a replacement and
 asks first. `preferences` — the old "How to talk to me" — is adopted into it on
 read, under a heading if both exist, so an upgrade loses neither half. That is the
-one layout decision in this section that is a *move* rather than a rename: the two
+one layout decision in this section that is a _move_ rather than a rename: the two
 fields had different owners, and one user-authored text is the simpler model the
 person asked for.
 
@@ -831,7 +831,7 @@ version the app never shipped, and look like the button working.
 over a root — the space's own folder, resolved from an id by the runtime — and its
 library is the `.md` and `.markdown` files under it, so an agent's `write_file`
 appears the moment the listing is re-read and what a person types in the editor is
-what the agent reads next. Every call names a *space* rather than a path, so a
+what the agent reads next. Every call names a _space_ rather than a path, so a
 window can only reach inside the folders the user loaded. Dot-directories are
 skipped because one of them is the app's own `.marimo/<profile>/memory.md`, and
 the rest of the skip list is the agent walk's own `SKIPPED_DIRECTORIES`: a second
@@ -844,7 +844,7 @@ absolute path and a symlink that leaves the space are one refusal.
 **A revision guards every write, and the revision is size and modification time.**
 The question a write has to answer is "has this changed since I read it", and both
 are facts the filesystem already keeps; a hash would mean reading the whole file
-in order to *write* it, which is a strange price for a check that only has to be
+in order to _write_ it, which is a strange price for a check that only has to be
 right about a file somebody held open for a few seconds. The read returns the text
 and its revision through one handle, because a stat followed by a read can be
 separated by another writer's rename, and a revision from a file the caller never
@@ -891,10 +891,10 @@ bookmarklet-sized bubble cannot hold a survey.
 
 So "answer briefly" travels with the turn instead of living on the conversation.
 The renderer says which surface asked, the runtime turns the settings into a
-sentence, and `AgentHost` appends it to the system instruction for that turn
-only — cleared on the way into the next one, so a question asked at the pet does
-not make the window terse as well. It is prompt text, like a skill, which is why
-changing it never aborts a turn in flight.
+sentence, and the v2 turn stores it on `turn.started` and appends it to the
+per-request prompt for that turn only — cleared on the way into the next one, so
+a question asked at the pet does not make the window terse as well. It is prompt
+text, like a skill, which is why changing it never aborts a turn in flight.
 
 ## Layout
 
@@ -961,7 +961,7 @@ The other half of memory is the project's, and it is not here: it is
 own remembered conventions with it and none of your personal facts.
 
 A Space's documents are not in there either, and that is the point rather than an
-omission. A document *is* the markdown file in the folder the user loaded, so the
+omission. A document _is_ the markdown file in the folder the user loaded, so the
 library and the editor are two views of their own directory: nothing is copied
 into user data, and the only thing the app keeps about a file is the revision a
 caller read — size and modification time — long enough to refuse a write based on

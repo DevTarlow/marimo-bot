@@ -372,7 +372,10 @@ alone, because they are not the harness. It asks for a second click and reloads
 the bot. The next turn records a new version, so the restore is itself
 reversible.
 
-Not yet in Phase 2: a learning dashboard beyond these counts.
+The same card carries the learning totals: memory suggestions waiting, reviews
+run and refusals remembered, plus the number of skill bodies kept in history.
+There is no separate timeline surface; the Memory and Skills cards are where the
+individual items are read and acted on.
 
 ## Phase 3: participants, so far
 

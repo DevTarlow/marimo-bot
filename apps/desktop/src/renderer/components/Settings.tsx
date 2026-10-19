@@ -2058,12 +2058,19 @@ function HarnessCard({
           <dd>{number(report.harnessVersions)}</dd>
         </div>
         <div>
-          <dt>Memory suggestions</dt>
-          <dd>{number(report.pendingProposals)} waiting</dd>
+          <dt>Memory</dt>
+          <dd>
+            {number(report.pendingProposals)} waiting ·{' '}
+            {number(report.reviewedConversations)} reviewed ·{' '}
+            {number(report.dismissedProposals)} refused
+          </dd>
         </div>
         <div>
-          <dt>Skills on disk</dt>
-          <dd>{number(report.skills)}</dd>
+          <dt>Skills</dt>
+          <dd>
+            {number(report.skills)} on disk · {number(report.skillVersions)}{' '}
+            earlier versions
+          </dd>
         </div>
         <div>
           <dt>Scheduled jobs</dt>

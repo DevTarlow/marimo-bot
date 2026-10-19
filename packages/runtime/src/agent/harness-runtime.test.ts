@@ -437,6 +437,9 @@ describe('HarnessRuntime', () => {
     expect(report.versions).toHaveLength(1);
     expect(report.versions[0]?.hash).toBeTruthy();
     expect(report.pendingProposals).toBe(0);
+    expect(report.dismissedProposals).toBe(0);
+    expect(report.reviewedConversations).toBe(0);
+    expect(report.skillVersions).toBe(0);
     expect(report.unreadableLogs).toBe(0);
     expect(report.paths.harnessSessions).toContain('harness');
   });

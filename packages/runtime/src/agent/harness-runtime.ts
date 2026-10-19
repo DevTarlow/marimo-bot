@@ -303,7 +303,10 @@ export class HarnessRuntime {
     harnessVersions: number;
     versions: Array<{hash: string; harnessVersion: number; recordedAt: string}>;
     pendingProposals: number;
+    dismissedProposals: number;
+    reviewedConversations: number;
     skills: number;
+    skillVersions: number;
     paths: {harnessSessions: string; harnessVersions: string};
   }> {
     let v2 = 0;
@@ -343,10 +346,17 @@ export class HarnessRuntime {
         ? []
         : await this.options.versions.list().catch(() => []);
     const ownVersions = versions.filter((record) => record.spec.id === profileId);
-    const proposals = (await this.proposals.load()).proposals.filter(
+    const proposalFile = await this.proposals.load();
+    const proposals = proposalFile.proposals.filter(
       (proposal) => proposal.profileId === profileId,
     ).length;
-    const skills = (await this.skillStore.load()).length;
+    const dismissedProposals = proposalFile.dismissed.length;
+    const reviewedConversations = Object.keys(proposalFile.reviewed).length;
+    const skillList = await this.skillStore.load();
+    let skillVersions = 0;
+    for (const skill of skillList) {
+      skillVersions += (await this.skillStore.history(skill.id)).length;
+    }
     return {
       conversations: {v2},
       turns,
@@ -359,7 +369,10 @@ export class HarnessRuntime {
         recordedAt: record.recordedAt,
       })),
       pendingProposals: proposals,
-      skills,
+      dismissedProposals,
+      reviewedConversations,
+      skills: skillList.length,
+      skillVersions,
       paths: {
         harnessSessions: this.options.paths.harnessSessions,
         harnessVersions: this.options.paths.harnessVersions,

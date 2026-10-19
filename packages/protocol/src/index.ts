@@ -1946,7 +1946,11 @@ export interface HarnessReport {
     recordedAt: string;
   }>;
   pendingProposals: number;
+  dismissedProposals: number;
+  reviewedConversations: number;
   skills: number;
+  /** Earlier skill bodies kept in history, across every skill. */
+  skillVersions: number;
   jobs: number;
   paths: {harnessSessions: string; harnessVersions: string};
 }

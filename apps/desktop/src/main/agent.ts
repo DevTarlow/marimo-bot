@@ -1104,7 +1104,10 @@ export class AgentService {
       harnessVersions: report.harnessVersions,
       versions: report.versions,
       pendingProposals: report.pendingProposals,
+      dismissedProposals: report.dismissedProposals,
+      reviewedConversations: report.reviewedConversations,
       skills: report.skills,
+      skillVersions: report.skillVersions,
       jobs,
       paths: report.paths,
     };

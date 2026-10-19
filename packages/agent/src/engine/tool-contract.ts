@@ -62,6 +62,8 @@ export interface ToolContext {
   skills?: SkillToolService;
   /** Present only when this runtime can reach another bot. */
   delegate?: (request: DelegationRequest) => Promise<DelegationResult>;
+  /** Present only when this runtime can start a task in its own chat. */
+  delegateTask?: (request: DelegationRequest) => Promise<DelegationResult>;
   /** Present only when recall is switched on and has a corpus. */
   recall?: RecallLookup;
   /** Present only when this runtime can schedule jobs. */
@@ -90,6 +92,8 @@ export interface ToolDefinition<Args = unknown> {
   requiresSkills?: boolean;
   /** A tool that needs another bot is absent when delegation is unavailable. */
   requiresDelegate?: boolean;
+  /** A tool that needs a task conversation is absent when tasks are unavailable. */
+  requiresTask?: boolean;
   /** A tool that needs recall is absent when the index is not available. */
   requiresRecall?: boolean;
   /** A tool that needs scheduling is absent when no job service is present. */

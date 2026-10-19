@@ -1957,6 +1957,15 @@ export class AgentRuntime {
       jobsFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))?.jobService,
       versions: this.harnessVersions,
+      createSession: async (profileId, title) => {
+        const created = await this.createSession(profileId, title);
+        return created === undefined
+          ? undefined
+          : {
+              id: created.id,
+              ...(created.title === undefined ? {} : {title: created.title}),
+            };
+      },
       ...(this.options.webSearch === undefined
         ? {}
         : {webSearch: this.options.webSearch}),

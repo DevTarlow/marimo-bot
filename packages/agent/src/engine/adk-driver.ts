@@ -396,6 +396,7 @@ export class AdkDriver implements TurnDriver {
         memory: context.memory !== undefined,
         skills: context.skills !== undefined,
         delegate: context.delegate !== undefined,
+        task: context.delegateTask !== undefined,
         jobs: context.jobs !== undefined,
         webSearch: context.webSearch !== undefined,
       });

@@ -380,18 +380,27 @@ than the owner.
 There is also an `ask_agent` tool. It asks another bot for its answer with that
 bot's own Role, Persona and memory, in a single model call with no tools and no
 session. That is a conversation, not a delegation of work: the asking bot gets
-an opinion or a specialty, not a file written or a command run. The old
-`ask_agent` path still owns tool-using delegation, scheduled jobs, group sessions
-that predate the v2 log and the companion.
+an opinion or a specialty, not a file written or a command run.
+
+For work, there is `start_task`. It opens a conversation for the other bot and
+runs a real v2 turn there — its own tools, memory, log and approval cards — and
+returns immediately. The parent is told where the work is; a task that stops for
+approval waits in its own chat, not in the thread that started it. The tool is
+absent from a task's own tool set, so a task cannot start another task.
+
+The old `ask_agent` path still serves v1 conversations and its same-conversation
+helper gate. The v2 task is deliberately a different shape: own writer, own
+conversation, no shared invocation.
 
 The sidebar merges a v2 session's own title, message count and membership over
 the v1 index entry, so a reloaded group does not look like one bot and a chat
 does not look empty. Those reads are per v2 session; a large install pays for
 them only on the sessions that have a v2 log.
 
-Not yet in Phase 3: a delegated bot that can use tools and raise its own
-approval cards, asynchronous tasks, and merging delegated work into the parent
-transcript.
+Not yet in Phase 3: posting a task's result back into the parent thread (today
+the task's conversation is where the result lives), and a same-conversation
+helper that can raise a gate the parent resumes — the old host still owns that
+shape.
 
 ## Phase 4: recall
 

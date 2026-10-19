@@ -17,6 +17,7 @@ import {z} from 'zod';
 
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
 import {draftBotTool} from './bot-tools.js';
+import {startTaskTool} from './task-tools.js';
 import {askAgentTool} from './delegation-tools.js';
 import {MEMORY_TOOLS} from './memory-tools.js';
 import {JOB_TOOLS} from './job-tools.js';
@@ -305,6 +306,7 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   ...MEMORY_TOOLS,
   ...SKILL_TOOLS,
   askAgentTool,
+  startTaskTool,
   recallTool,
   draftBotTool,
   ...JOB_TOOLS,
@@ -323,6 +325,7 @@ export interface ToolAvailability {
   memory?: boolean;
   skills?: boolean;
   delegate?: boolean;
+  task?: boolean;
   recall?: boolean;
   jobs?: boolean;
   webSearch?: boolean;
@@ -341,6 +344,7 @@ export function toolsFor(
       (tool.requiresMemory !== true || available.memory === true) &&
       (tool.requiresSkills !== true || available.skills === true) &&
       (tool.requiresDelegate !== true || available.delegate === true) &&
+      (tool.requiresTask !== true || available.task === true) &&
       (tool.requiresRecall !== true || available.recall === true) &&
       (tool.requiresJobs !== true || available.jobs === true) &&
       (tool.requiresWebSearch !== true || available.webSearch === true),

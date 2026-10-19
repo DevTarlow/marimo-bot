@@ -299,6 +299,31 @@ describe('memory and skill tools', () => {
     expect(String(bad.result)).toContain('starter role');
   });
 
+  it('starts a task only when a task conversation is available', async () => {
+    const spec = resolveHarness({
+      profile: {...profile(), enabledTools: ['start_task']},
+      app,
+      version: 1,
+    });
+    expect(toolsFor(spec, {task: false})).toEqual([]);
+    expect(toolsFor(spec, {task: true}).map((entry) => entry.name)).toEqual([
+      'start_task',
+    ]);
+    const result = await tool('start_task').execute(
+      {agent: 'Reader', task: 'Check the folder.'},
+      {
+        workspaceRoot: '/tmp',
+        signal: new AbortController().signal,
+        delegateTask: async ({agent, task}) => ({
+          ok: true,
+          result: `${agent}: ${task}`,
+        }),
+      },
+    );
+    expect(result).toMatchObject({ok: true});
+    expect(String(result.result)).toContain('Reader: Check the folder.');
+  });
+
   it('puts memory and the skill index in the prompt, not the skill body', () => {
     const spec = resolveHarness({profile: profile(), app, version: 1});
     const prompt = composeHarnessInstruction(spec, {

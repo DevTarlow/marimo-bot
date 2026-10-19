@@ -456,6 +456,47 @@ describe('HarnessRuntime', () => {
     });
   });
 
+  it('starts a task in its own conversation and returns immediately', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'The task is done.'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const other = await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: ['current_time'],
+    });
+    let openedFor = '';
+    const runtime = new HarnessRuntime({
+      ...deps,
+      driverFactory: () => driver,
+      createSession: async (targetId, title) => {
+        openedFor = targetId;
+        return {id: 'task-1', title};
+      },
+    });
+    const started = await runtime.startTask(
+      profileId,
+      'Reader',
+      'Read the folder.',
+    );
+    expect(started.ok).toBe(true);
+    expect(started.result).toContain('Read the folder.');
+    expect(openedFor).toBe(other.id);
+
+    let answer = '';
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const transcript = await runtime.transcript('task-1', other.id);
+      answer =
+        transcript.find((message) => message.role === 'assistant')?.text ?? '';
+      if (answer.length > 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(answer).toBe('The task is done.');
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

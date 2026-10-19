@@ -97,6 +97,11 @@ export interface HarnessRuntimeOptions {
   webSearch?: WebSearchProvider;
   /** The frozen-spec ledger, when this install keeps one. */
   versions?: HarnessVersionStore;
+  /** Opens a conversation for a task, when this install can list one. */
+  createSession?: (
+    profileId: string,
+    title: string,
+  ) => Promise<{id: string; title?: string} | undefined>;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -154,6 +159,8 @@ export class HarnessRuntime {
   private readonly proposals: MemoryProposalStore;
   private readonly feedback: FeedbackStore;
   private readonly states = new Map<string, SessionState>();
+  /** Task conversations opened by start_task; they may not start another. */
+  private readonly taskSessions = new Set<string>();
 
   constructor(options: HarnessRuntimeOptions) {
     this.options = options;
@@ -814,8 +821,14 @@ export class HarnessRuntime {
         ...(this.options.webSearch === undefined
           ? {}
           : {webSearch: this.options.webSearch}),
-        delegate: async ({agent, task}) =>
-          await this.askAgent(profileId, agent, task),
+        ...(this.taskSessions.has(sessionId)
+          ? {}
+          : {
+              delegate: async ({agent, task}) =>
+                await this.askAgent(profileId, agent, task),
+              delegateTask: async ({agent, task}) =>
+                await this.startTask(profileId, agent, task),
+            }),
       }),
     });
   }
@@ -828,6 +841,79 @@ export class HarnessRuntime {
    * writer in the conversation, and it is honest about what the answer is — an
    * opinion, not work done.
    */
+  /**
+   * Starts a task in its own conversation and returns before it finishes.
+   *
+   * The child is a normal v2 turn in a new session: its tools are the target
+   * bot's, its approvals wait in that conversation, and the parent's tool result
+   * is only a pointer. The background loop consumes the events so the turn is
+   * driven to completion; the task's own log is where the result lives.
+   */
+  async startTask(
+    ownerProfileId: string,
+    agent: string,
+    task: string,
+  ): Promise<{ok: boolean; result: string}> {
+    if (this.options.createSession === undefined) {
+      return {ok: false, result: 'Tasks are not available in this turn.'};
+    }
+    try {
+      const profiles = await this.options.profiles.profiles();
+      const wanted = agent.trim().toLowerCase();
+      const target = profiles.find(
+        (profile) =>
+          profile.id !== ownerProfileId &&
+          (profile.id === agent ||
+            profile.name.trim().toLowerCase() === wanted),
+      );
+      if (target === undefined) {
+        return {
+          ok: false,
+          result: `There is no bot called "${agent}". The roster has: ${profiles
+            .filter((profile) => profile.id !== ownerProfileId)
+            .map((profile) => profile.name)
+            .join(', ')}.`,
+        };
+      }
+      const created = await this.options.createSession(target.id, task);
+      if (created === undefined) {
+        return {
+          ok: false,
+          result: `Could not open a task conversation for "${target.name}".`,
+        };
+      }
+      this.taskSessions.add(created.id);
+      void this.drainTask(target.id, created.id, task);
+      const title = created.title ?? task;
+      return {
+        ok: true,
+        result:
+          `Started "${title}" for ${target.name} in its own conversation. ` +
+          'Open it to watch the work or answer an approval; this thread will not wait.',
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        result: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async drainTask(
+    profileId: string,
+    sessionId: string,
+    task: string,
+  ): Promise<void> {
+    try {
+      for await (const _event of this.run(profileId, sessionId, task)) {
+        // The task's own log and the window's listener carry the events.
+      }
+    } catch {
+      // A task that fails leaves its failure in its own conversation; the parent
+      // has already moved on and has nowhere to put it.
+    }
+  }
+
   async askAgent(
     ownerProfileId: string,
     agent: string,

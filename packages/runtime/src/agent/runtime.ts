@@ -885,10 +885,6 @@ export class AgentRuntime {
     profileId?: string,
   ): Promise<MemoryProvenanceEntry[]> {
     const id = profileId ?? (await this.profileStore.activeProfile()).id;
-    const host = this.hosts.get(id);
-    if (host) {
-      return await host.memoryProvenance();
-    }
     const profile = await this.profileFor(id);
     const workspace =
       workspaceRootFor(await this.workspaceStore.load()) ??

@@ -1408,6 +1408,7 @@ export class AgentService {
           ...(info.title === undefined ? {} : {title: info.title}),
           messageCount: info.messageCount,
           ...(info.agentIds.length > 1 ? {agentIds: info.agentIds} : {}),
+          ...(info.purpose === undefined ? {} : {purpose: info.purpose}),
         };
       }),
     );
@@ -1552,7 +1553,12 @@ export class AgentService {
         });
         return {accepted: false};
       }
-      const purpose = await this.runtime.sessionPurpose(profileId, sessionId);
+      const v2Info = (await harness.hasLog(sessionId))
+        ? await harness.sessionInfo(sessionId)
+        : undefined;
+      const purpose =
+        v2Info?.purpose ??
+        (await this.runtime.sessionPurpose(profileId, sessionId));
       const instruction =
         origin === 'pet'
           ? turnInstruction(
@@ -1562,7 +1568,9 @@ export class AgentService {
           : purpose === 'bot-builder'
             ? BOT_BUILDER_INSTRUCTION
             : undefined;
-      this.pump(harness.run(profileId, sessionId, text, agentId, instruction));
+      this.pump(
+        harness.run(profileId, sessionId, text, agentId, instruction, purpose),
+      );
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};
     }

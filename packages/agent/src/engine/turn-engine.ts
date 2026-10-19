@@ -40,7 +40,7 @@ export interface RunParams {
   /** Prompt text that belongs to this turn, not to the bot. */
   instruction?: string;
   /** Session metadata, when this turn is the first in a new conversation. */
-  session?: {title: string; spaceId?: string};
+  session?: {title: string; spaceId?: string; purpose?: 'bot-builder'};
 }
 
 export interface ApproveParams {
@@ -180,6 +180,9 @@ export class TurnEngine {
           ...(params.session?.spaceId === undefined
             ? {}
             : {spaceId: params.session.spaceId}),
+          ...(params.session?.purpose === undefined
+            ? {}
+            : {purpose: params.session.purpose}),
         });
       }
       opening.push(

@@ -648,6 +648,27 @@ describe('HarnessRuntime', () => {
     expect(conversation.events[1]?.content.parts[0]?.text).toBe('Hi there.');
   });
 
+  it('keeps a builder session’s purpose in its own log', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'What should it do?'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(
+      runtime.run(
+        profileId,
+        'builder-1',
+        'Make me a bot.',
+        undefined,
+        'Builder instruction.',
+        'bot-builder',
+      ),
+    );
+    expect(await runtime.sessionInfo('builder-1')).toMatchObject({
+      purpose: 'bot-builder',
+    });
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

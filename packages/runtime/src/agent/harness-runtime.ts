@@ -193,6 +193,7 @@ export class HarnessRuntime {
     text: string,
     addressedProfileId?: string,
     instruction?: string,
+    purpose?: 'bot-builder',
   ): AsyncGenerator<AgentUiEvent> {
     let prepared: Prepared;
     try {
@@ -247,6 +248,7 @@ export class HarnessRuntime {
             ...(prepared.spaceId === undefined
               ? {}
               : {spaceId: prepared.spaceId}),
+            ...(purpose === undefined ? {} : {purpose}),
           },
         }),
         sessionId,
@@ -671,6 +673,7 @@ export class HarnessRuntime {
     title?: string;
     messageCount: number;
     agentIds: string[];
+    purpose?: 'bot-builder';
   }> {
     const events = await this.store.read(sessionId);
     const title = events
@@ -682,10 +685,14 @@ export class HarnessRuntime {
     const messageCount = events.filter(
       (event) => event.type === 'user.message',
     ).length;
+    const created = events.find((event) => event.type === 'session.created');
     return {
       ...(title === undefined ? {} : {title}),
       messageCount,
       agentIds: participantsIn(events),
+      ...(created?.type === 'session.created' && created.purpose !== undefined
+        ? {purpose: created.purpose}
+        : {}),
     };
   }
 

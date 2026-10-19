@@ -39,6 +39,8 @@ export const sessionCreatedSchema = z.object({
   profileId: z.string().min(1),
   title: z.string().min(1),
   spaceId: z.string().min(1).optional(),
+  /** Why the conversation exists, when it is not an ordinary chat. */
+  purpose: z.enum(['bot-builder']).optional(),
 });
 
 export const userMessageSchema = z.object({

@@ -449,13 +449,13 @@ back where it was asked for.
 
 The bot builder is v2 too: `draft_bot` is the same proposal-shaped tool, the
 builder session's instruction is passed as the turn instruction, and the existing
-card draws the draft from the tool call's arguments. The tool still creates
-nothing; the person's Create click is the only path to a profile.
+card draws the draft from the tool call's arguments. The purpose is written on
+`session.created`, so an existing v2 builder reads it from its own log rather than
+from the old index. The tool still creates nothing; the person's Create click is
+the only path to a profile.
 
 Documents remain on the runtime's own service, which the agent does not need to
 replace: the file tools and the editor are two doors to the same Space files.
-Jobs in particular cannot move yet: a v2-created job would point at a conversation
-the old scheduler runs, so the job tools stay off in v2 until the runner does.
 
 ## Updates
 

@@ -227,6 +227,25 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     guided path grants `draft_bot` before the conversation starts, and
     `startBuilderSession` refuses in code if it is missing.
 
+23. **A skill is advertised, not carried, and its grant is the switch.**
+    `userData/skills/<name>/SKILL.md` is the user's file: frontmatter with a name
+    and one line, then the procedure. The prompt prints the name and the line and
+    nothing else; `load_skill` reads the body when a task matches. That is the
+    whole reason the instruction cap can be 200 KB while the description cap is
+    600 characters — one is loaded once, the other is paid on every turn. Do not "fix"
+    `composeInstruction` to render the body again: a humanizer-sized procedure
+    would then be in every request whether or not anybody asked for it.
+    `enabledSkills` is the one grant and three things read it — the prompt, the
+    library behind `load_skill`, and the Settings switches. `save_skill` is now a
+    granted tool rather than a command's private mechanism, because it writes text
+    that changes how the agent works later; `/learn` is hidden without the grant
+    for the same reason. A grant change is **not** a reason to drop a host: it
+    changes the prompt on the next turn and the library reads it again on every
+    load, while dropping the host would drop it during the turn that just saved
+    the skill. The editor does not grant on save; the agent does. And a folder
+    this build could not parse is refused on write rather than overwritten — it is
+    the user's markdown, and a lenient read plus a write is how it would vanish.
+
 ## Documents
 
 Every file the app owns carries a `version` and is read through

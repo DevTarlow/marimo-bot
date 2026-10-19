@@ -619,6 +619,17 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
       return await profileState(service);
     },
 
+    /*
+     * The user's skills. `save_skill` writes the same files from inside a turn;
+     * these are the two ways a person edits one without asking the model.
+     */
+    'skills.list': async () => ({skills: await agent().skills()}),
+    'skills.save': async (params) =>
+      await agent().saveSkill(params.draft, params.id),
+    'skills.remove': async (params) => ({
+      skills: await agent().removeSkill(params.id),
+    }),
+
     'settings.get': async () => ({settings: await publicSettings()}),
 
     /* The folders every agent works in. */

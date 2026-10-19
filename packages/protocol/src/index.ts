@@ -104,21 +104,27 @@ export type {
 } from './providers.js';
 
 /**
- * The things the window can do to a conversation itself, as opposed to things
- * said *in* it.
+ * The things the window can do to a conversation, as opposed to things said
+ * *in* it.
  *
- * A command is not a message: it never reaches the model as the user's words, it
- * acts on the conversation, and the answer is a result rather than a turn. The
- * catalogue is one declaration here for the reason the model id is: the Settings
- * switch, the `+` menu and the call that runs it are all keyed off it, so adding
- * a command is one entry and one handler rather than a string typed out in three
- * places.
+ * Most commands act on the conversation rather than sending anything: the answer
+ * is a result, not a turn. `learn` is the exception, and the exception is the
+ * point — it sends one fixed instruction asking the model to write down the
+ * repeatable part of the conversation as a skill. What to write down is the
+ * model's judgement about a conversation it just had, so a handler that invented
+ * the wording would be choosing the skill's text for the person who has to
+ * review it.
+ *
+ * The catalogue is one declaration here for the reason the model id is: the
+ * Settings switch, the `+` menu and the call that runs it are all keyed off it,
+ * so adding a command is one entry and one handler rather than a string typed out
+ * in three places.
  *
  * `compact` is the first because it is the one that makes long conversations
  * usable: it replaces the older messages with a summary the model writes, so the
  * request stops growing while the file keeps everything.
  */
-export const COMMAND_IDS = ['compact'] as const;
+export const COMMAND_IDS = ['compact', 'learn'] as const;
 export const commandIdSchema = z.enum(COMMAND_IDS);
 export type CommandId = z.infer<typeof commandIdSchema>;
 
@@ -130,6 +136,14 @@ export interface CommandDescriptor {
    * same division as a tool's `blurb` and its `description`.
    */
   blurb: string;
+  /**
+   * The message a command sends, for the one command that sends one.
+   *
+   * Written here rather than in the window so the instruction is reviewed with
+   * the command it belongs to, and there is no second copy for the two to
+   * disagree about.
+   */
+  instruction?: string;
 }
 
 export const COMMANDS: Record<CommandId, CommandDescriptor> = {
@@ -139,6 +153,20 @@ export const COMMANDS: Record<CommandId, CommandDescriptor> = {
       'Replaces the older part of a conversation with a summary the model ' +
       'writes, so a long chat still fits. Every message stays in the ' +
       'conversation file; the transcript shows one card where they were.',
+  },
+  learn: {
+    label: 'Learn a skill',
+    blurb:
+      'Asks the bot to turn the repeatable part of this conversation into a ' +
+      'skill it can load next time. It has to write the skill with its ' +
+      'save_skill tool, so that tool has to be switched on for this bot.',
+    instruction:
+      'Look back over this conversation and save the repeatable part of it as ' +
+      'a skill with `save_skill`. Write the method rather than this one case: ' +
+      'the steps, the tools or files they use, and what to check before ' +
+      'finishing. Give it a short kebab-case name and a one-line description ' +
+      'that says when to use it. If there is nothing repeatable yet, say so ' +
+      'instead of saving one.',
   },
 };
 
@@ -1493,7 +1521,14 @@ export const storedSkillSchema = z.object({
 export type StoredSkill = z.infer<typeof storedSkillSchema>;
 
 /**
- * The longest set of instructions worth carrying in every request.
+ * The longest set of instructions a skill file may hold.
+ *
+ * Much larger than the 8,000 this used to be, because the instructions no longer
+ * ride in every request. A skill is advertised by its name and description and
+ * its text is loaded on demand, so its size costs nothing until a task matches.
+ * The limit stays because a file large enough to blow a context window when
+ * loaded is one the model cannot use either, and a refusal with a number is a
+ * better answer than a truncated procedure.
  *
  * Here rather than in the agent package because two sides need it and only one
  * of them may import that package: `save_skill` refuses an over-long skill, and
@@ -1501,17 +1536,35 @@ export type StoredSkill = z.infer<typeof storedSkillSchema>;
  * limit enforced on one path and not the other would mean the window could write
  * a skill the tool would have refused.
  */
-export const SKILL_INSTRUCTIONS_MAX = 8_000;
+export const SKILL_INSTRUCTIONS_MAX = 200_000;
 
-/** What a skill is written from, on either path into `skills.json`. */
-export const skillDraftSchema = storedSkillSchema.pick({
-  name: true,
-  description: true,
-  instructions: true,
-});
+/**
+ * The longest description, which *is* carried in every request.
+ *
+ * One line beside the skill's name in the prompt's available-skills list, so it
+ * is what a user pays for on every turn. A description long enough to explain
+ * the whole procedure is the procedure, and it would be advertised whether or
+ * not the task ever called for it.
+ */
+export const SKILL_DESCRIPTION_MAX = 600;
+
+/** What a skill is written from: the editor, and `save_skill`. */
+export const skillDraftSchema = storedSkillSchema
+  .pick({name: true, description: true, instructions: true})
+  .extend({
+    description: z.string().trim().min(1).max(SKILL_DESCRIPTION_MAX),
+  });
 
 export type SkillDraft = z.infer<typeof skillDraftSchema>;
 
+/**
+ * The file an older build stored user skills in.
+ *
+ * Read once and imported into `skills/<name>/SKILL.md`, then renamed aside; never
+ * written again. It stays declared because the import has to recognise a file it
+ * did not create, and a schema is how it tells "one of ours" from "something
+ * else is at that path".
+ */
 export const skillsFileSchema = z.object({
   version: z.literal(1),
   skills: z.array(storedSkillSchema),
@@ -3377,6 +3430,26 @@ export const agentCallSchemas = {
     profileId: z.string().min(1),
     patch: profilePatchSchema,
   }),
+
+  /*
+   * The user's skills, as `skills/<name>/SKILL.md` files.
+   *
+   * `list` is the folder as written, for the editor; `id` on `save` is the
+   * folder being edited, which is how a rename knows which file to move. The
+   * editor does not grant, so no profile is named here — a rename carries the
+   * grants of every bot that had the old name, and a new skill is switched on by
+   * the person ticking its box.
+   *
+   * These are the two ways a person writes a skill without asking the model.
+   * `save_skill` writes the same files from inside a turn, so there is one store
+   * and one set of rules rather than a UI path and a tool path that can drift.
+   */
+  'skills.list': z.object({}),
+  'skills.save': z.object({
+    id: z.string().min(1).optional(),
+    draft: skillDraftSchema,
+  }),
+  'skills.remove': z.object({id: z.string().min(1)}),
   /*
    * Makes a bot, from a draft the person has seen.
    *
@@ -3529,6 +3602,14 @@ export interface AgentCallResults {
     changed: boolean;
   };
   'profiles.remove': {profiles: AgentProfile[]; activeProfileId: string};
+  /*
+   * The whole list after a write, so the window never merges one entry into a
+   * copy of its own. A rename also moves the profile grants; the Settings reload
+   * that follows every write is what picks those up.
+   */
+  'skills.list': {skills: StoredSkill[]};
+  'skills.save': {skills: StoredSkill[]; saved: StoredSkill};
+  'skills.remove': {skills: StoredSkill[]};
   'settings.get': {settings: PublicSettings};
   'settings.set': {settings: PublicSettings};
 }

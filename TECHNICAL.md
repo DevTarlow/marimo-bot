@@ -451,6 +451,39 @@ malformed icon falls back to the default or the name's initial, which is the sam
 rule the profile schema follows everywhere: an optional field that a newer build
 wrote must not make `ProfileStore.parseFile` skip the profile.
 
+### A skill is a file, and the prompt only advertises it
+
+A user's skill is one folder under `userData/skills/`, holding a `SKILL.md`:
+frontmatter with a `name` and a one-line `description`, then the instructions.
+The shape is the one the agent ecosystem already uses, which is the point — a
+skill written for another harness can be dropped in, edited in any text editor,
+and copied between machines as a folder. It is plain markdown rather than a
+versioned document, for the reason `memory.md` is: the user owns it and may edit
+it by hand, so a version field would be a lie. What the write path guarantees
+instead is that a folder this build could not parse is refused rather than
+overwritten, and a replaced folder is moved aside before it is removed.
+
+**The instructions do not ride in every request.** `composeInstruction` lists each
+granted skill's name and description under `# Available skills`, and the
+`load_skill` tool reads the body when a task matches. That is what makes a
+28 KB procedure like humanizer worth having: the prompt pays one line for it, not
+a context window. The cap on instructions exists for the loaded request, and the
+much smaller cap on the description exists because that one *is* carried every
+turn.
+
+The grant is per bot and it is the switch: `enabledSkills` names the skills the
+profile may use, the prompt is built from that list, and the library `load_skill`
+reads refuses every name outside it — one fact, three readers. `save_skill` is an
+ordinary tool grant now, gated by a confirmation per call, and the Settings editor
+writes the same store through the same service. The agent's save writes the file
+and then grants the name; the editor does not grant, because a list of switches is
+where the person makes that decision. A rename carries every bot that had the old
+name, and a removal drops the grant with the file.
+
+An older build kept skills in `skills.json`. It is imported into folders once and
+renamed to `skills.json.imported`, not deleted: the file is still the user's, and
+a failed import must not be the only copy.
+
 ### A conversation that stays bounded without being rewritten
 
 Automatic compaction is the manual `sessions.compact` brought forward to the
@@ -894,7 +927,7 @@ workspaces.json         the folders every agent can work in, and the current one
                         moved to the app's starting folder
 jobs.json               scheduled jobs and how their last run went
 settings.json           preferences and connectors
-skills.json             skills you wrote
+skills/<name>/SKILL.md  a procedure you wrote or copied in
 memory-proposals.json   what the agent would remember, waiting for an answer
 feedback.json           answers the user said were wrong, which the next review reads
 trees/<session>.json    what the agent tried on each turn — only while the
@@ -979,10 +1012,6 @@ Known gaps, stated plainly:
   the schemas are there and the settings schema still carries the fields, but
   nothing in the window configures them, so they are unreachable. They are
   scheduled for nothing — somebody should either wire them or remove them.
-- **Skills are carried but no longer authored.** `skills.json`, its schema and the
-  per-profile grant all work, and the agent loads any skill it is granted, but the
-  `save_skill` tool and the `/learn` command that wrote them are not wired into the
-  window — so a skill today is added by editing the file by hand.
 - **Vulkan is the only GPU backend pinned, and the recall engine barely uses it.**
   macOS's Metal needs no choice. CUDA and ROCm exist upstream and are not pinned:
   Vulkan is 32 MB and covers NVIDIA, AMD and Intel from one asset per platform,

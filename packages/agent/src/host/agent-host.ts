@@ -77,7 +77,7 @@ import type {
   McpToolsetSource,
 } from '../tools/index.js';
 import type {DeskService} from '../tools/desk-tools.js';
-import type {SkillService} from '../tools/skill-tools.js';
+import type {SkillLibrary, SkillService} from '../tools/skill-tools.js';
 import type {DiscordService} from '../tools/discord-tools.js';
 import type {JobService} from '../tools/job-tools.js';
 import type {WebSearchProvider} from '../tools/web-search-tool.js';
@@ -133,6 +133,15 @@ export interface AgentHostOptions {
    * `/learn` has nothing to write with.
    */
   skillService?: SkillService;
+  /**
+   * The skills this profile carries, read through its grant.
+   *
+   * Supplied only when at least one is switched on, so `load_skill` is absent
+   * rather than offered over an empty library. It is separate from
+   * `skillService` because saving and loading are different permissions: a bot
+   * may read the procedures it was given without being allowed to write new ones.
+   */
+  skillLibrary?: SkillLibrary;
   /**
    * The MCP servers that are currently connected.
    *
@@ -387,6 +396,7 @@ export class AgentHost {
   private readonly discordService?: DiscordService;
   private readonly deskService?: DeskService;
   private readonly skillService?: SkillService;
+  private readonly skillLibrary?: SkillLibrary;
   /**
    * The MCP servers in play, replaced wholesale when one connects or drops.
    *
@@ -550,6 +560,7 @@ export class AgentHost {
     this.discordService = options.discordService;
     this.deskService = options.deskService;
     this.skillService = options.skillService;
+    this.skillLibrary = options.skillLibrary;
     this.mcpServers = options.mcpServers ?? [];
     this.recallService = options.recallService;
     this.onSessionsDeleted = options.onSessionsDeleted;
@@ -1748,6 +1759,7 @@ export class AgentHost {
         ...(this.discordService ? {discordService: this.discordService} : {}),
         ...(this.deskService ? {deskService: this.deskService} : {}),
         ...(this.skillService ? {skillService: this.skillService} : {}),
+        ...(this.skillLibrary ? {skillLibrary: this.skillLibrary} : {}),
         ...(mcpServers.length > 0 ? {mcpServers} : {}),
         /*
          * The helper tool, built here so a helper cannot have one: `buildAgent`

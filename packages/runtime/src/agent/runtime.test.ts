@@ -549,12 +549,15 @@ describe('the catalogue', () => {
      * This runtime wires no desk, and the desk is not part of the app yet, so
      * the eight to-do and note tools are not built here — and the widest card
      * must not offer them. The scheduling tools deliberately stay: this
-     * catalogue does list them, because the app has jobs.
+     * catalogue does list them, because the app has jobs. `save_skill` is the
+     * same rule from the other side: the runtime always wires the store, so the
+     * switch exists and the widest card may offer it.
      */
     const capable = catalog.presets.find((preset) => preset.id === 'capable');
     expect(capable?.tools).toContain('create_job');
     expect(capable?.tools).not.toContain('list_todos');
-    expect(capable?.tools).not.toContain('save_skill');
+    expect(capable?.tools).toContain('save_skill');
+    expect(names.has('save_skill')).toBe(true);
   });
 
   /*

@@ -389,8 +389,13 @@ export type {
 export {
   DuplicateSkillNameError,
   normaliseName,
+  parseSkillMarkdown,
+  renderSkillMarkdown,
   ReservedSkillNameError,
+  SkillDescriptionTooLongError,
   SkillStore,
   SkillTooLongError,
 } from './skills.js';
 export type {SkillDraft, SkillStoreOptions} from './skills.js';
+export {RuntimeSkillService} from './skill-service.js';
+export type {RuntimeSkillServiceOptions} from './skill-service.js';

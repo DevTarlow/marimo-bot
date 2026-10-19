@@ -36,6 +36,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 
 - [What it can do](#what-it-can-do)
 - [Bots](#bots)
+- [Skills](#skills)
 - [Memory](#memory)
 - [Recall](#recall-find-by-meaning)
 - [Dream-RSI](#dream-rsi)
@@ -93,6 +94,16 @@ The icon can be one of five shipped pictures, or one you upload.
 Several bots can share a chat, so type `@` to put a question to one of them. If you let it, Marimo Bot can hand work to a bot. The answer comes back in the same chat under the bot's name, and any approval is asked there.
 
 Removing a bot asks first, and it takes the bot's chats, jobs and memory with it. Files it wrote in your Spaces stay, and the last bot stays too, because something has to answer.
+
+### Skills
+
+A skill is a procedure a bot can pick up and follow: how you like an inbox sorted, how a report should be laid out, how to edit AI-sounding prose.
+
+A skill lives in its own folder as `SKILL.md`, a short note saying what it is for and the steps underneath. The bot sees the name and that one-line note in every conversation, and reads the steps only when a task matches them, so a long procedure does not make every answer slower.
+
+Settings has a **Skills** card. Write one there, or copy a folder into the skills folder in your user-data directory. The switch beside each skill decides which bots may use it.
+
+A bot can also write one. Turn on **save_skill** under what the bot can do, then ask it to remember a way of working, or run **Learn a skill** from the `+` menu after a conversation. It writes the skill, shows you what it is about to save, and switches it on for that bot when you approve.
 
 ### Long conversations
 
@@ -259,14 +270,13 @@ Only where you ask it to: an online model receives the conversation you send it,
 
 ### What is not finished?
 
-See the next section for the short answer: Windows and macOS installers, auto update, Discord, notes and to-do tools, and a skills editor.
+See the next section for the short answer: Windows and macOS installers, auto update, and Discord and the notes and to-do tools.
 
 ## What is not finished
 
 - The Windows and macOS installers are written but not built. Only the Linux AppImage has been run.
 - There is no auto update. A new version is a file you download again.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
-- Skills are small saved instructions. They live in a file, and there is no editor for them in the window yet, so you edit that file by hand.
 - The app checks the Recall download against a fingerprint, but there is no signature to prove where it came from. No other model is downloaded.
 
 ## Requirements

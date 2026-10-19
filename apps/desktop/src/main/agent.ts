@@ -56,6 +56,8 @@ import type {
   RecallQueryResult,
   RecallScopeName,
   SessionSummary,
+  SkillDraft,
+  StoredSkill,
   TranscriptMessage,
   Workspace,
   WorkspaceState,
@@ -968,6 +970,27 @@ export class AgentService {
   /** The tools and skills a pick-list can offer, as this install builds them. */
   async catalog(): Promise<ProfileCatalog> {
     return await this.runtime.catalog();
+  }
+
+  /**
+   * The user's skills, for the Settings card.
+   *
+   * The editor and `save_skill` share the runtime's service, so a name saved one
+   * way is a name the other can see and switch on.
+   */
+  async skills(): Promise<StoredSkill[]> {
+    return await this.runtime.skills();
+  }
+
+  async saveSkill(
+    draft: SkillDraft,
+    id?: string,
+  ): Promise<{skills: StoredSkill[]; saved: StoredSkill}> {
+    return await this.runtime.saveSkill(draft, id);
+  }
+
+  async removeSkill(id: string): Promise<StoredSkill[]> {
+    return await this.runtime.removeSkill(id);
   }
 
   async selectProfile(profileId: string): Promise<void> {

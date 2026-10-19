@@ -82,7 +82,8 @@ export interface ComposeInstructionOptions {
    */
   tools?: readonly string[];
   /**
-   * Names of the user's own skills to carry, from `/learn`.
+   * Names of the user's own skills this profile may use, from `/learn` or the
+   * editor.
    *
    * Absent means all of them, which is what a caller with no profile concept
    * wants; an empty array means this profile carries none of them. The built-in
@@ -93,8 +94,9 @@ export interface ComposeInstructionOptions {
    * The user's skills themselves, for `userSkillNames` to select from.
    *
    * Absent means the app has none, which is what a test with no skill store
-   * wants. These are definitions, not a selection: which of them are carried is
-   * `userSkillNames`.
+   * wants. These are definitions, not a selection: which of them are available is
+   * `userSkillNames`. Their bodies are advertised, not printed — `load_skill`
+   * reads one when a task matches it.
    */
   userSkills?: readonly Skill[];
 }
@@ -112,6 +114,28 @@ export function renderSkills(skills: readonly Skill[]): string {
     .join('\n\n');
 }
 
+/**
+ * The user's skills, as a list of names with the line that says when to use
+ * them.
+ *
+ * Deliberately not `renderSkills`: a user's procedure is loaded by `load_skill`
+ * when a task matches, so its body is not paid for on every request. What this
+ * list pays for is the sentence that lets the model recognise the match — which
+ * is why the description cap exists and why it says *available* rather than
+ * *these are your instructions*.
+ */
+export function renderAvailableSkills(skills: readonly Skill[]): string {
+  const lines = skills.map(
+    (skill) => `- ${skill.name}: ${skill.description}`,
+  );
+  return [
+    'These are available, not loaded. Before doing a task one of them covers,',
+    'call `load_skill` with its name and follow the procedure it returns.',
+    '',
+    ...lines,
+  ].join('\n');
+}
+
 export function composeInstruction({
   base,
   persona,
@@ -126,10 +150,16 @@ export function composeInstruction({
     (skill) => skill.name === reasoningSkill.name,
   );
   const memory = reachable.find((skill) => skill.name === memorySkill.name);
-  const capabilitySkills = [
-    ...reachable.filter((skill) => skill.name !== reasoningSkill.name),
-    ...userSkillsFor(userSkillNames, userSkills ?? []),
-  ];
+  /*
+   * The built-in skills are the app's method rules and ride whole, because they
+   * are what makes any answer follow the protocol. A user's skill is a procedure
+   * for a task, so only its name and description are advertised here; the body
+   * arrives through `load_skill` when the task actually calls for it.
+   */
+  const capabilitySkills = reachable.filter(
+    (skill) => skill.name !== reasoningSkill.name,
+  );
+  const availableSkills = userSkillsFor(userSkillNames, userSkills ?? []);
   const memoryBody =
     memoryText.trim().length > 0 ? memoryText.trim() : EMPTY_MEMORY;
   const personaBody = persona?.trim() ?? '';
@@ -140,6 +170,9 @@ export function composeInstruction({
     reasoning ? `# Operating protocol\n\n${reasoning.instructions}` : '',
     capabilitySkills.length > 0
       ? `# Skills\n\n${renderSkills(capabilitySkills)}`
+      : '',
+    availableSkills.length > 0
+      ? `# Available skills\n\n${renderAvailableSkills(availableSkills)}`
       : '',
     // Only an agent that can act on memory is given it: the block is otherwise a
     // set of facts from a system this profile was told to ignore, and an
@@ -183,9 +216,10 @@ function canCarry(skill: Skill, tools?: readonly string[]): boolean {
 /**
  * The user's skills this profile carries, in the order they were written.
  *
- * Filtered by `userSkillNames` rather than passing everything: a skill is prompt
- * text carried on every single request, so one the user switched off is a cost
- * they have already declined to pay.
+ * Filtered by `userSkillNames` rather than passing everything: a skill the user
+ * switched off must not be advertised at all, or the model would call
+ * `load_skill` for a name the library refuses. Even a carried skill costs only
+ * its name and description here; the body is read on demand.
  */
 function userSkillsFor(
   names: string[] | undefined,

@@ -98,8 +98,22 @@ export interface AppPaths {
    * every MCP server and ticking, once a minute, beside an app doing the same.
    */
   appLock: string;
-  /** Skills the user wrote, which ride in every request. */
+  /**
+   * The user's skills: one folder per skill, each holding a `SKILL.md`.
+   *
+   * A directory rather than a file, unlike the documents beside it, because a
+   * skill is a procedure the user may write by hand and copy between machines.
+   * The agent's own instructions are advertised from here and loaded on demand.
+   */
   skills: string;
+  /**
+   * Where skills lived before they were folders.
+   *
+   * Read once, imported into `skills/`, and renamed to `skills.json.imported`.
+   * Kept as a path so the upgrade lives in one place and the runtime does not
+   * spell out a filename the store could get wrong.
+   */
+  legacySkills: string;
   /**
    * The discovery trees: one document per conversation, holding the turns'
    * parent-child records of what the agent tried.
@@ -190,7 +204,8 @@ export function resolveAppPaths(
     personMemoryDir: join(userData, 'memory'),
     feedback: join(userData, 'feedback.json'),
     appLock: join(userData, 'app.lock'),
-    skills: join(userData, 'skills.json'),
+    skills: join(userData, 'skills'),
+    legacySkills: join(userData, 'skills.json'),
     dreamDir: join(userData, 'trees'),
     defaultWorkspace: join(home, DEFAULT_SPACE_FOLDER),
     formerDefaultWorkspace: home,

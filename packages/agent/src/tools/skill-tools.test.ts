@@ -1,14 +1,19 @@
 /**
- * `save_skill`, the one tool that writes prompt text.
+ * The two skill tools: the writer and the reader.
  *
- * What matters is that the gate is there at all, that the text is not silently
- * truncated, and that a refusal comes back as a sentence the model can act on
- * rather than as a failed turn.
+ * What matters for `save_skill` is that the gate is there at all, that the text is
+ * not silently truncated, and that a refusal comes back as a sentence the model
+ * can act on rather than as a failed turn. `load_skill` is the other half — it
+ * returns the body only for a granted name, and says what exists when it does not.
  */
 import type {BaseTool, Context} from '@google/adk';
 import {describe, expect, it} from 'vitest';
 
-import {SKILL_INSTRUCTIONS_MAX, createSaveSkillTool} from './skill-tools.js';
+import {
+  SKILL_INSTRUCTIONS_MAX,
+  createLoadSkillTool,
+  createSaveSkillTool,
+} from './skill-tools.js';
 import type {SkillService} from './skill-tools.js';
 
 interface Saved {
@@ -118,5 +123,73 @@ describe('save_skill', () => {
 
     expect(result).toContain('Could not save the skill');
     expect(result).toContain('read-only');
+  });
+});
+
+describe('load_skill', () => {
+  const triage = {
+    name: 'weekly-inbox-triage',
+    description: 'Sort the inbox every Monday.',
+    instructions: '1. Read the unread mail.\n2. Group it by sender.',
+  };
+
+  function library(
+    found: typeof triage | null = triage,
+    names = [triage.name],
+  ) {
+    return {
+      load: async () => ({
+        ...(found === null ? {} : {skill: found}),
+        names,
+      }),
+    };
+  }
+
+  it('returns the whole procedure for one available skill', async () => {
+    const result = await run(createLoadSkillTool({library: library()}), {
+      name: 'weekly-inbox-triage',
+    });
+    expect(result).toContain('# weekly-inbox-triage');
+    expect(result).toContain('1. Read the unread mail.');
+    expect(result).toContain('2. Group it by sender.');
+  });
+
+  it('names what exists when the model asked for a name that does not', async () => {
+    const result = await run(
+      createLoadSkillTool({library: library(null)}),
+      {name: 'inbox'},
+    );
+    expect(result).toContain('no available skill called "inbox"');
+    expect(result).toContain('"weekly-inbox-triage"');
+  });
+
+  it('says so when this bot has nothing switched on', async () => {
+    const result = await run(
+      createLoadSkillTool({library: library(null, [])}),
+      {name: 'inbox'},
+    );
+    expect(result).toContain('no skills available');
+  });
+
+  it('does not need an approval: reading a granted skill is the grant', async () => {
+    const tool = createLoadSkillTool({library: library()});
+    await expect(tool.checkRequireConfirmation({name: 'x'})).resolves.toBe(
+      false,
+    );
+  });
+
+  it('turns a read failure into a sentence', async () => {
+    const result = await run(
+      createLoadSkillTool({
+        library: {
+          load: async () => {
+            throw new Error('the folder is gone');
+          },
+        },
+      }),
+      {name: 'x'},
+    );
+    expect(result).toContain('Could not load that skill');
+    expect(result).toContain('the folder is gone');
   });
 });

@@ -48,6 +48,8 @@ import type {
   ProfileCatalog,
   PublicSettings,
   SettingsPatch,
+  SkillDraft,
+  StoredSkill,
 } from '@marimo/protocol';
 
 import {
@@ -58,6 +60,8 @@ import {
   defaultBotAvatarFor,
   PROVIDER_IDS,
   PROVIDERS,
+  SKILL_DESCRIPTION_MAX,
+  SKILL_INSTRUCTIONS_MAX,
 } from '@marimo/protocol';
 
 import {describe} from '../describe.js';
@@ -93,6 +97,15 @@ const ANSWER_LENGTH_LABELS: Record<CompanionAnswerLength, string> = {
 interface Loaded {
   settings: PublicSettings;
   catalog: ProfileCatalog;
+  /**
+   * The skills on disk, as files.
+   *
+   * Read here rather than through `catalog.skills`, which carries only the name
+   * and description the prompt advertises: the card edits the instructions and
+   * needs the folder id, and a second read of the same folder would be a second
+   * answer to what is in it.
+   */
+  skills: StoredSkill[];
   profile: AgentProfile | undefined;
   statuses: Record<string, McpStatus>;
   /** Whether the floating companion is on screen. */
@@ -224,6 +237,7 @@ export function Settings({
         (entry) => entry.id === settings.activeProfileId,
       );
       const catalog = await window.marimo.call('profiles.catalog', {});
+      const {skills} = await window.marimo.call('skills.list', {});
       const statuses = await window.marimo.call('mcp.statuses', {});
       const companion = await window.marimo.call('companion.status', {});
       const {workspaces, activeWorkspaceId} = await window.marimo.call(
@@ -234,6 +248,7 @@ export function Settings({
         settings,
         catalog,
         profile,
+        skills,
         statuses,
         companionVisible: companion.visible,
         activeSpaceName: workspaces.find(
@@ -280,15 +295,23 @@ export function Settings({
     setConfirmingPersona(false);
   }, [loaded?.profile?.id]);
 
-  /** Runs a change, and says so when it fails rather than pretending. */
-  const change = async (work: () => Promise<unknown>): Promise<void> => {
+  /**
+   * Runs a change, and says so when it fails rather than pretending.
+   *
+   * Answers whether it landed, because the skills editor has a draft to keep:
+   * closing it on a refused save would throw away what the person wrote and
+   * leave only the sentence at the top of the screen.
+   */
+  const change = async (work: () => Promise<unknown>): Promise<boolean> => {
     setSaving(true);
     setProblem(null);
     try {
       await work();
       await load();
+      return true;
     } catch (failure) {
       setProblem(describe(failure));
+      return false;
     } finally {
       setSaving(false);
     }
@@ -386,6 +409,31 @@ export function Settings({
       await window.marimo.call('profiles.update', {
         profileId,
         patch: {enabledTools},
+      });
+    });
+  };
+
+  /**
+   * Switches one skill on or off for the active bot.
+   *
+   * The grant is the skill's name, so the switch and the prompt are the same
+   * fact: a skill that is off is neither advertised nor loadable.
+   */
+  const toggleSkill = (name: string, on: boolean): void => {
+    const profile = loaded?.profile;
+    if (profile === undefined) {
+      return;
+    }
+    const enabled = new Set(profile.enabledSkills);
+    if (on) {
+      enabled.add(name);
+    } else {
+      enabled.delete(name);
+    }
+    void change(async () => {
+      await window.marimo.call('profiles.update', {
+        profileId: profile.id,
+        patch: {enabledSkills: [...enabled]},
       });
     });
   };
@@ -994,6 +1042,39 @@ export function Settings({
               ))}
             </>
           )}
+        </SettingsSection>
+
+        {/*
+          The procedures this bot can load.
+
+          Separate from the tool list because a skill is not a tool: it is prompt
+          text the model reads when a task matches, and the grant is per name.
+          The editor is here so a person can write one without asking the model,
+          and the save tool above is the other way in.
+        */}
+        <SettingsSection title="Skills" opened={opened} onToggle={fold}>
+          <SkillsCard
+            skills={loaded.skills}
+            granted={new Set(loaded.profile?.enabledSkills ?? [])}
+            canWrite={
+              loaded.profile?.enabledTools.includes('save_skill') ?? false
+            }
+            disabled={saving}
+            onGrant={toggleSkill}
+            onSave={async (draft, id) =>
+              await change(async () => {
+                await window.marimo.call('skills.save', {
+                  ...(id === undefined ? {} : {id}),
+                  draft,
+                });
+              })
+            }
+            onRemove={async (id) =>
+              await change(async () => {
+                await window.marimo.call('skills.remove', {id});
+              })
+            }
+          />
         </SettingsSection>
 
         <SettingsSection
@@ -1837,6 +1918,291 @@ function ProviderSection({
         {problem !== null && <p className="settings-problem">{problem}</p>}
       </div>
     </SettingsSection>
+  );
+}
+
+/**
+ * The skills card: what this bot may load, and the editor for the files.
+ *
+ * Two decisions live here and they are deliberately separate. The switch grants a
+ * skill to the active bot, which is what makes it appear in the prompt and
+ * loadable. The editor writes the file, which every bot can then be granted — a
+ * skill is the person's, not one bot's.
+ *
+ * The authoring path is not the only one: `save_skill` writes the same files from
+ * inside a turn, and the note above the list says whether this bot has that
+ * tool. The card does not tick the switch when it saves, for the reason the
+ * agent's save does: a list of switches is where a person makes that decision
+ * deliberately.
+ */
+function SkillsCard({
+  skills,
+  granted,
+  canWrite,
+  disabled,
+  onGrant,
+  onSave,
+  onRemove,
+}: {
+  skills: StoredSkill[];
+  granted: Set<string>;
+  canWrite: boolean;
+  disabled: boolean;
+  onGrant: (name: string, on: boolean) => void;
+  onSave: (draft: SkillDraft, id?: string) => Promise<boolean>;
+  onRemove: (id: string) => Promise<boolean>;
+}): React.JSX.Element {
+  const [editing, setEditing] = useState<{
+    id?: string;
+    draft: SkillDraft;
+  } | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [writing, setWriting] = useState(false);
+
+  const blank = (): SkillDraft => ({
+    name: '',
+    description: '',
+    instructions: '',
+  });
+  const draft = editing?.draft;
+  const ready =
+    draft !== undefined &&
+    draft.name.trim().length > 0 &&
+    draft.description.trim().length > 0 &&
+    draft.instructions.trim().length > 0 &&
+    draft.description.length <= SKILL_DESCRIPTION_MAX &&
+    draft.instructions.length <= SKILL_INSTRUCTIONS_MAX;
+  const busy = disabled || writing;
+
+  const save = async (): Promise<void> => {
+    if (editing === null || !ready) {
+      return;
+    }
+    setWriting(true);
+    const saved = await onSave(
+      {
+        name: editing.draft.name.trim(),
+        description: editing.draft.description.trim(),
+        instructions: editing.draft.instructions.trim(),
+      },
+      editing.id,
+    );
+    setWriting(false);
+    // On a refusal the draft stays open: the sentence at the top of Settings is
+    // the explanation, and the text is the thing the person would otherwise have
+    // to write again.
+    if (saved) {
+      setEditing(null);
+    }
+  };
+
+  return (
+    <div className="skills-card">
+      <p className="settings-muted">
+        A skill is instructions this bot loads when a task matches one. It sees
+        each skill&rsquo;s name and one-line description in every conversation,
+        and reads the procedure only when it needs it.
+      </p>
+      <p className="settings-why">
+        {canWrite
+          ? 'This bot may also write a skill itself: ask it to remember a way of working, or run /learn after a conversation.'
+          : 'This bot cannot write a skill itself. Switch on “save_skill” above if you want it to, or write one here.'}
+      </p>
+
+      {editing === null ? (
+        <div className="settings-row">
+          <button
+            type="button"
+            className="button"
+            disabled={disabled}
+            onClick={() => {
+              setEditing({draft: blank()});
+            }}
+          >
+            New skill
+          </button>
+        </div>
+      ) : (
+        <div className="skills-editor">
+          <label className="settings-field">
+            <span>Name</span>
+            <input
+              className="settings-input"
+              value={editing.draft.name}
+              disabled={busy}
+              placeholder="weekly-inbox-triage"
+              onChange={(event) => {
+                setEditing({
+                  ...editing,
+                  draft: {...editing.draft, name: event.target.value},
+                });
+              }}
+            />
+            <em className="settings-why">
+              Short and kebab-case. It becomes the folder name and the name the
+              bot loads.
+            </em>
+          </label>
+
+          <label className="settings-field">
+            <span>Description</span>
+            <input
+              className="settings-input"
+              value={editing.draft.description}
+              disabled={busy}
+              maxLength={SKILL_DESCRIPTION_MAX}
+              placeholder="Sort the inbox every Monday morning."
+              onChange={(event) => {
+                setEditing({
+                  ...editing,
+                  draft: {...editing.draft, description: event.target.value},
+                });
+              }}
+            />
+            <em className="settings-why">
+              One line saying when to use it. This is what the bot sees on every
+              turn, so keep it to the trigger.
+            </em>
+          </label>
+
+          <label className="settings-field">
+            <span>Instructions</span>
+            <textarea
+              className="settings-input skills-instructions"
+              value={editing.draft.instructions}
+              disabled={busy}
+              maxLength={SKILL_INSTRUCTIONS_MAX}
+              rows={12}
+              placeholder={'1. Read the unread mail.\n2. Group it by sender.\n3. …'}
+              onChange={(event) => {
+                setEditing({
+                  ...editing,
+                  draft: {...editing.draft, instructions: event.target.value},
+                });
+              }}
+            />
+            <em className="settings-why">
+              The procedure, in the imperative. This text is loaded only when the
+              skill is used.
+            </em>
+          </label>
+
+          <p className="settings-muted">
+            {editing.draft.instructions.length.toLocaleString()} /{' '}
+            {SKILL_INSTRUCTIONS_MAX.toLocaleString()} characters
+          </p>
+
+          <div className="settings-row">
+            <button
+              type="button"
+              className="button"
+              disabled={!ready || busy}
+              onClick={() => {
+                void save();
+              }}
+            >
+              {editing.id === undefined ? 'Save skill' : 'Save changes'}
+            </button>
+            <button
+              type="button"
+              className="button button-quiet"
+              disabled={busy}
+              onClick={() => {
+                setEditing(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {skills.length === 0 ? (
+        <p className="settings-muted">
+          No skills yet. Write one above, or ask the bot to remember a way of
+          working after a conversation.
+        </p>
+      ) : (
+        <div className="skills-list">
+          {skills.map((skill) => (
+            <div className="skills-row" key={skill.id}>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={granted.has(skill.name)}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    onGrant(skill.name, event.target.checked);
+                  }}
+                />
+                <span>
+                  <code className="settings-tool">{skill.name}</code>
+                  <em className="settings-why">{skill.description}</em>
+                </span>
+              </label>
+              <div className="skills-actions">
+                <button
+                  type="button"
+                  className="button button-quiet"
+                  disabled={disabled}
+                  onClick={() => {
+                    setEditing({
+                      id: skill.id,
+                      draft: {
+                        name: skill.name,
+                        description: skill.description,
+                        instructions: skill.instructions,
+                      },
+                    });
+                  }}
+                >
+                  Edit
+                </button>
+                {removing === skill.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="button button-quiet"
+                      disabled={disabled}
+                      onClick={() => {
+                        void onRemove(skill.id).then((removed) => {
+                          if (removed) {
+                            setRemoving(null);
+                          }
+                        });
+                      }}
+                    >
+                      Remove it
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-quiet"
+                      disabled={disabled}
+                      onClick={() => {
+                        setRemoving(null);
+                      }}
+                    >
+                      Keep
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    disabled={disabled}
+                    onClick={() => {
+                      setRemoving(skill.id);
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

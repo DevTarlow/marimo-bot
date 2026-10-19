@@ -6,8 +6,12 @@
  * order the model sees; it is asserted by a test so a new tool has to be placed
  * deliberately rather than dropped in.
  *
- * `save_skill` is the one tool that is not part of a profile's selection; the
- * comment beside it says why.
+ * `save_skill` is a granted capability like every other tool that can act: a
+ * skill is prompt text that changes how the agent works on later turns, so the
+ * person decides whether this bot may write one. `load_skill` is the other half
+ * and follows the grant rather than a switch of its own — it is offered whenever
+ * the app can read skills, and the library it reads refuses every name outside
+ * the profile's grant.
  *
  * Gating is declared by the tools themselves: `run_shell` always, and
  * `write_file` only when it would replace an existing file. `web_search` appears
@@ -52,8 +56,8 @@ import {
 import {createRecallTool} from './recall-tools.js';
 import type {RecallLookup} from './recall-tools.js';
 import {createShellTool} from './shell-tool.js';
-import {createSaveSkillTool} from './skill-tools.js';
-import type {SkillService} from './skill-tools.js';
+import {createLoadSkillTool, createSaveSkillTool} from './skill-tools.js';
+import type {SkillLibrary, SkillService} from './skill-tools.js';
 import {createHttpFetchTool} from './web-tools.js';
 import {createWebSearchTool} from './web-search-tool.js';
 import type {WebSearchProvider} from './web-search-tool.js';
@@ -404,6 +408,16 @@ export interface ToolDependencies {
    */
   skillService?: SkillService;
   /**
+   * Present when the app can read the user's skills at all.
+   *
+   * The library answers from the *granted* set, so the tool and the prompt's
+   * available-skills list are the same set of names; with nothing granted it
+   * answers with the empty list rather than a stale name. It is not made absent
+   * per grant, because a grant saved *during* a turn would then need a host
+   * rebuilt in the middle of the turn that asked for it.
+   */
+  skillLibrary?: SkillLibrary;
+  /**
    * Present only when recall is switched on and something is indexed; without it
    * there is nothing to find by meaning, so the tool is absent rather than
    * offered and empty.
@@ -550,20 +564,30 @@ function baseTools(config: AgentConfig, deps: ToolDependencies): BaseTool[] {
    */
   tools.push(createDraftBotTool());
 
+  /*
+   * The skill writer, before the profile's selection like the rest: writing a
+   * skill is a capability the person grants, not a command that arrives with the
+   * install. A bot whose profile never listed it cannot save one, which is what
+   * makes `/learn` a switch somebody chose rather than a side effect of owning
+   * the app.
+   */
+  if (deps.skillService) {
+    tools.push(createSaveSkillTool({skills: deps.skillService}));
+  }
+
   const granted = filterTools(tools, config.enabledTools);
 
   /*
-   * `save_skill` is added after the profile's selection rather than inside it.
+   * The skill reader is added after the profile's selection, and deliberately.
    *
-   * Every other tool is a capability the user grants, so a profile that should
-   * not be able to run a shell simply does not list it. This one is the mechanism
-   * behind `/learn` — a command the user types — so a profile that predates the
-   * command, or one whose checkboxes were saved before it existed, must still be
-   * able to run it. It is left out of `profiles.catalog` for the same reason:
-   * there is no checkbox, because there is nothing to switch off.
+   * There is no checkbox for it: the grant is the *skill*, and a person who
+   * switched three procedures on did not also decide to let the model read them.
+   * The library refuses every name not in `enabledSkills`, so the tool and the
+   * prompt's available-skills list describe one set — and with none granted the
+   * prompt advertises nothing, so there is nothing for the tool to be called on.
    */
-  if (deps.skillService) {
-    granted.push(createSaveSkillTool({skills: deps.skillService}));
+  if (deps.skillLibrary) {
+    granted.push(createLoadSkillTool({library: deps.skillLibrary}));
   }
 
   /*
@@ -584,15 +608,18 @@ function baseTools(config: AgentConfig, deps: ToolDependencies): BaseTool[] {
    */
   /*
    * Every built-in name this build can produce — computed from the tools that
-   * were *built*, before the profile filter, and including `save_skill`, which is
-   * added after it.
+   * were *built*, before the profile filter, plus the one added after it.
    *
-   * `tools` covers everything pushed above. `save_skill` is not in it, because
-   * that one is pushed into `granted` below. Both have to be here: a name the
-   * profile has switched off still belongs to the built-in that owns it, because
-   * the profile can change between turns.
+   * `tools` covers everything pushed above, including `save_skill` when the app
+   * has a store. `load_skill` is pushed into `granted` below, so both skill
+   * names are stated: a name the profile has switched off still belongs to the
+   * built-in that owns it, because the profile can change between turns.
    */
-  const reserved = new Set([...tools.map((tool) => tool.name), 'save_skill']);
+  const reserved = new Set([
+    ...tools.map((tool) => tool.name),
+    'save_skill',
+    'load_skill',
+  ]);
   for (const source of deps.mcpServers ?? []) {
     granted.push(
       ...buildMcpTools({

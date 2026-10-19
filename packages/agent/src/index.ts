@@ -101,10 +101,15 @@ export type {
   DeskToolContext,
 } from './tools/desk-tools.js';
 export {
+  createLoadSkillTool,
   createSaveSkillTool,
   SKILL_INSTRUCTIONS_MAX,
 } from './tools/skill-tools.js';
-export type {SkillService, SkillToolContext} from './tools/skill-tools.js';
+export type {
+  SkillLibrary,
+  SkillService,
+  SkillToolContext,
+} from './tools/skill-tools.js';
 export type {
   WebSearchProvider,
   WebSearchRequest,
@@ -165,7 +170,12 @@ export type {
  */
 export {SAME_FACT_SCORE} from './tools/memory-tools.js';
 export type {NearDuplicate} from './tools/memory-tools.js';
-export {SKILLS, composeInstruction} from './skills/index.js';
+export {
+  SKILLS,
+  composeInstruction,
+  renderAvailableSkills,
+  renderSkills,
+} from './skills/index.js';
 /*
  * Document versioning lives here rather than in `@marimo/runtime` because the
  * conversation index needs it too, and the dependency runs one way: `runtime`

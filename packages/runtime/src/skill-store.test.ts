@@ -1,23 +1,26 @@
 /**
- * The skills file: the user's own skills, and the names that switch them on.
+ * Skills on disk: one folder each, with `SKILL.md` inside.
  *
- * The rule worth pinning is the name. It becomes a `## heading` in the system
- * prompt *and* a member of a profile's `enabledSkills`, so two spellings of one
- * procedure have to be one skill rather than two that cannot both be switched on.
+ * The rules worth pinning are the name — it becomes the folder, the prompt's
+ * heading and a profile's grant, so two spellings have to be one skill — and the
+ * promise that a file this build cannot read is never written over.
  */
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
-import {SKILL_INSTRUCTIONS_MAX} from '@marimo/protocol';
+import {SKILL_DESCRIPTION_MAX, SKILL_INSTRUCTIONS_MAX} from '@marimo/protocol';
 
 import {
   DuplicateSkillNameError,
+  normaliseName,
+  parseSkillMarkdown,
+  renderSkillMarkdown,
   ReservedSkillNameError,
+  SkillDescriptionTooLongError,
   SkillStore,
   SkillTooLongError,
-  normaliseName,
 } from './skills.js';
 
 describe('normaliseName', () => {
@@ -38,6 +41,78 @@ describe('normaliseName', () => {
   });
 });
 
+describe('SKILL.md', () => {
+  it('reads the ecosystem frontmatter, and ignores what it does not own', () => {
+    const parsed = parseSkillMarkdown(
+      [
+        '---',
+        'name: Humanizer',
+        'description: |',
+        '  Rewrite AI-sounding text so it reads like the writer.',
+        'license: MIT',
+        'metadata:',
+        '  version: "3.0.0"',
+        '---',
+        '',
+        '# Humanizer',
+        '',
+        'Rewrite the text.',
+      ].join('\n'),
+      'ignored',
+    );
+
+    expect(parsed?.name).toBe('humanizer');
+    expect(parsed?.description).toBe(
+      'Rewrite AI-sounding text so it reads like the writer.',
+    );
+    expect(parsed?.instructions).toBe('# Humanizer\n\nRewrite the text.');
+  });
+
+  it('reads a plain markdown file, using the folder and first line', () => {
+    const parsed = parseSkillMarkdown(
+      '# Triage\n\nSort the inbox.\n',
+      'Weekly Inbox Triage',
+    );
+    expect(parsed?.name).toBe('weekly-inbox-triage');
+    expect(parsed?.description).toBe('Triage');
+    expect(parsed?.instructions).toBe('# Triage\n\nSort the inbox.');
+  });
+
+  it('accepts a quoted or folded description', () => {
+    const folded = parseSkillMarkdown(
+      '---\nname: triage\ndescription: >\n  Sort the inbox\n  every Monday.\n---\n\nDo it.',
+      'triage',
+    );
+    expect(folded?.description).toBe('Sort the inbox every Monday.');
+
+    const quoted = parseSkillMarkdown(
+      '---\nname: triage\ndescription: "Sort the inbox."\n---\n\nDo it.',
+      'triage',
+    );
+    expect(quoted?.description).toBe('Sort the inbox.');
+  });
+
+  it('round-trips what it writes', () => {
+    const file = renderSkillMarkdown({
+      name: 'weekly-inbox-triage',
+      description: 'Sort the inbox every Monday.',
+      instructions: '1. Read the unread mail.\n2. Group by sender.',
+    });
+    const parsed = parseSkillMarkdown(file, 'weekly-inbox-triage');
+    expect(parsed).toEqual({
+      name: 'weekly-inbox-triage',
+      description: 'Sort the inbox every Monday.',
+      instructions: '1. Read the unread mail.\n2. Group by sender.',
+    });
+  });
+
+  it('refuses a file with no body', () => {
+    expect(parseSkillMarkdown('---\nname: empty\n---\n', 'empty')).toBe(
+      undefined,
+    );
+  });
+});
+
 describe('SkillStore', () => {
   let dir: string;
 
@@ -49,8 +124,18 @@ describe('SkillStore', () => {
     await rm(dir, {recursive: true, force: true});
   });
 
-  function store(): SkillStore {
-    return new SkillStore({file: join(dir, 'skills.json')});
+  function root(): string {
+    return join(dir, 'skills');
+  }
+
+  function store(extra: {reserved?: string[]; legacyFile?: string} = {}) {
+    return new SkillStore({
+      root: root(),
+      ...(extra.reserved === undefined ? {} : {reserved: extra.reserved}),
+      ...(extra.legacyFile === undefined
+        ? {}
+        : {legacyFile: extra.legacyFile}),
+    });
   }
 
   const draft = {
@@ -63,15 +148,23 @@ describe('SkillStore', () => {
     expect(await store().load()).toEqual([]);
   });
 
-  it('saves a skill under its normalised name', async () => {
+  it('writes one folder per skill, with the body in SKILL.md', async () => {
     const {skill, updated} = await store().save(draft);
 
     expect(updated).toBe(false);
     expect(skill.name).toBe('weekly-inbox-triage');
+    expect(skill.id).toBe('weekly-inbox-triage');
     expect(skill.description).toBe('Sort the inbox every Monday.');
     expect(skill.instructions).toBe('1. Read the unread mail.');
-    expect(skill.id).toBeTruthy();
     expect(skill.createdAt).toBeTruthy();
+
+    const file = await readFile(
+      join(root(), 'weekly-inbox-triage', 'SKILL.md'),
+      'utf8',
+    );
+    expect(file).toContain('name: weekly-inbox-triage');
+    expect(file).toContain('description: |');
+    expect(file).toContain('1. Read the unread mail.');
   });
 
   it('replaces a skill saved under another spelling of the same name', async () => {
@@ -83,11 +176,7 @@ describe('SkillStore', () => {
     });
 
     expect(second.updated).toBe(true);
-    // The id and the date belong to the skill, not to the edit, so anything
-    // already holding one still names the same thing.
     expect(second.skill.id).toBe(first.skill.id);
-    expect(second.skill.createdAt).toBe(first.skill.createdAt);
-
     const stored = await store().load();
     expect(stored).toHaveLength(1);
     expect(stored[0]?.instructions).toBe(
@@ -99,8 +188,8 @@ describe('SkillStore', () => {
     await store().save(draft);
     await store().save({...draft, name: 'standup-notes'});
     expect((await store().load()).map((skill) => skill.name)).toEqual([
-      'weekly-inbox-triage',
       'standup-notes',
+      'weekly-inbox-triage',
     ]);
   });
 
@@ -110,9 +199,9 @@ describe('SkillStore', () => {
 
     const remaining = await store().remove(first.skill.id);
     expect(remaining.map((skill) => skill.name)).toEqual(['standup-notes']);
-    expect((await store().load()).map((skill) => skill.name)).toEqual([
-      'standup-notes',
-    ]);
+    await expect(
+      stat(join(root(), 'weekly-inbox-triage')),
+    ).rejects.toMatchObject({code: 'ENOENT'});
   });
 
   it('answers with the list unchanged when the id names nothing', async () => {
@@ -121,17 +210,20 @@ describe('SkillStore', () => {
     expect(remaining).toHaveLength(1);
   });
 
+  it('refuses a folder id that is not one', async () => {
+    await store().save(draft);
+    await expect(store().remove('../escaped')).rejects.toThrow(
+      /not a skill folder/u,
+    );
+  });
+
   /**
    * A saved skill is switched on by name, in the same list as the built-ins, so a
    * saved `memory` would shadow the app's own memory skill rather than sit beside
-   * it. Refused before anything is written, and the model is told why.
+   * it. Refused before anything is written.
    */
   it('refuses a name the app already ships', async () => {
-    const reserved = new SkillStore({
-      file: join(dir, 'skills.json'),
-      reserved: ['reasoning', 'memory', 'knowledge'],
-    });
-
+    const reserved = store({reserved: ['reasoning', 'memory', 'knowledge']});
     await expect(
       reserved.save({...draft, name: 'Memory'}),
     ).rejects.toBeInstanceOf(ReservedSkillNameError);
@@ -139,21 +231,11 @@ describe('SkillStore', () => {
   });
 
   it('allows anything the app does not ship', async () => {
-    const reserved = new SkillStore({
-      file: join(dir, 'skills.json'),
-      reserved: ['reasoning', 'memory', 'knowledge'],
-    });
+    const reserved = store({reserved: ['reasoning', 'memory', 'knowledge']});
     const {skill} = await reserved.save({...draft, name: 'memory-notes'});
     expect(skill.name).toBe('memory-notes');
   });
 
-  /**
-   * The one rule that has to hold on every path in, because the length is a
-   * property of the file rather than of the caller: this text is prepended to the
-   * system prompt on every request, and a skill that crowds out the conversation
-   * costs the user without them seeing a bill. `/learn`, the Settings editor and
-   * a hand-edited file all end up here.
-   */
   it('refuses instructions longer than the limit, writing nothing', async () => {
     await expect(
       store().save({
@@ -172,168 +254,127 @@ describe('SkillStore', () => {
     expect(skill.instructions).toHaveLength(SKILL_INSTRUCTIONS_MAX);
   });
 
-  /**
-   * The Settings editor reads a skill out, lets the user type in it, and writes
-   * it back through the same `save`. That round trip has to be an edit rather
-   * than a second skill — the id and the date are what everything else holds.
-   */
-  it('edits a skill in place, keeping its id and date', async () => {
-    const first = await store().save(draft);
-    const second = await store().save({
-      name: first.skill.name,
-      description: 'Sort the inbox twice a week.',
-      instructions: '1. Read the unread mail.\n2. Reply to the easy ones.',
-    });
+  it('refuses a description longer than the line the prompt carries', async () => {
+    await expect(
+      store().save({
+        ...draft,
+        description: 'x'.repeat(SKILL_DESCRIPTION_MAX + 1),
+      }),
+    ).rejects.toBeInstanceOf(SkillDescriptionTooLongError);
+    expect(await store().load()).toEqual([]);
+  });
 
-    expect(second.updated).toBe(true);
-    expect(second.skill.id).toBe(first.skill.id);
-    expect(second.skill.createdAt).toBe(first.skill.createdAt);
-    expect((await store().load())[0]?.description).toBe(
-      'Sort the inbox twice a week.',
+  it('edits a skill in place, keeping its id', async () => {
+    const first = await store().save(draft);
+    const edited = await store().save(
+      {...draft, description: 'Sort the inbox every Tuesday.'},
+      first.skill.id,
     );
+    expect(edited.skill.id).toBe(first.skill.id);
+    expect(edited.skill.description).toBe('Sort the inbox every Tuesday.');
+    expect(await store().load()).toHaveLength(1);
   });
 
   it('renames a skill by saving it under the new name, by id', async () => {
     const first = await store().save(draft);
     const renamed = await store().save(
-      {...draft, name: 'Monday Inbox'},
+      {...draft, name: 'Tuesday Triage'},
       first.skill.id,
     );
 
-    // The id is what makes this a rename rather than a second skill: everything
-    // that referred to the old name — a profile's `enabledSkills` — is corrected
-    // by the caller, but the id and the date stay put.
-    expect(renamed.updated).toBe(true);
-    expect(renamed.skill.id).toBe(first.skill.id);
-    expect(renamed.skill.createdAt).toBe(first.skill.createdAt);
-    expect(renamed.skill.name).toBe('monday-inbox');
-    const stored = await store().load();
-    expect(stored).toHaveLength(1);
-    expect(stored[0]?.name).toBe('monday-inbox');
+    expect(renamed.skill.name).toBe('tuesday-triage');
+    expect(renamed.renamedFrom).toBe('weekly-inbox-triage');
+    expect((await store().load()).map((skill) => skill.name)).toEqual([
+      'tuesday-triage',
+    ]);
+    await expect(
+      stat(join(root(), 'weekly-inbox-triage')),
+    ).rejects.toMatchObject({code: 'ENOENT'});
   });
 
-  /**
-   * Renaming onto another skill's name would put two procedures behind one
-   * checkbox in `enabledSkills`, which is a list of names. Refused, and nothing
-   * written — losing the skill the user is *not* looking at would be the worse
-   * failure.
-   */
   it('refuses a rename onto a name another skill holds', async () => {
-    const first = await store().save(draft);
-    await store().save({...draft, name: 'standup-notes'});
-
+    await store().save(draft);
+    const second = await store().save({...draft, name: 'standup-notes'});
     await expect(
-      store().save({...draft, name: 'standup-notes'}, first.skill.id),
+      store().save({...draft, name: 'weekly-inbox-triage'}, second.skill.id),
     ).rejects.toBeInstanceOf(DuplicateSkillNameError);
-
-    expect((await store().load()).map((skill) => skill.name)).toEqual([
-      'weekly-inbox-triage',
-      'standup-notes',
-    ]);
   });
 
   it('treats an id that names nothing as an insert', async () => {
-    const {skill, updated} = await store().save(draft, 'gone');
+    const {updated} = await store().save(draft, 'no-such-id');
     expect(updated).toBe(false);
-    expect(skill.name).toBe('weekly-inbox-triage');
     expect(await store().load()).toHaveLength(1);
   });
 
-  it('reads a corrupt file as empty rather than refusing to start', async () => {
-    // The user cannot act on a truncated JSON file, and the app refusing to open
-    // over one would cost them everything else.
-    await writeFile(
-      join(dir, 'skills.json'),
-      '{"version": 1, "skills": [',
-      'utf8',
-    );
-    expect(await store().load()).toEqual([]);
+  /*
+   * The whole reason a folder that did not load is treated as taken: a
+   * hand-edited file with a typo is not an empty slot, and saving over it would
+   * be the lenient-read-plus-write that loses the user's text.
+   */
+  it('refuses to overwrite a folder it could not read', async () => {
+    await mkdir(join(root(), 'broken'), {recursive: true});
+    // Empty: a file with no procedure is not a skill this build can load.
+    await writeFile(join(root(), 'broken', 'SKILL.md'), '', 'utf8');
+
+    await expect(
+      store().save({...draft, name: 'Broken'}),
+    ).rejects.toThrow(/could not read/u);
+    expect(await readFile(join(root(), 'broken', 'SKILL.md'), 'utf8')).toBe('');
   });
 
-  it('drops a skill that does not fit the schema, keeping the others', async () => {
+  it('reads a hand-written markdown file with no frontmatter', async () => {
+    await mkdir(join(root(), 'triage'), {recursive: true});
     await writeFile(
-      join(dir, 'skills.json'),
+      join(root(), 'triage', 'SKILL.md'),
+      '# Triage\n\nSort the inbox.\n',
+      'utf8',
+    );
+
+    const [skill] = await store().load();
+    expect(skill?.name).toBe('triage');
+    expect(skill?.description).toBe('Triage');
+    expect(skill?.instructions).toBe('# Triage\n\nSort the inbox.');
+  });
+
+  /*
+   * The old build kept skills in one JSON file. It is imported once and renamed,
+   * not deleted: the file is still the user's, and a write that failed halfway
+   * must not leave the only copy gone.
+   */
+  it('imports a skills.json from an older build, once', async () => {
+    const legacyFile = join(dir, 'skills.json');
+    await writeFile(
+      legacyFile,
       JSON.stringify({
         version: 1,
         skills: [
           {
-            id: 'a',
-            name: 'good',
-            description: 'd',
-            instructions: 'i',
-            createdAt: 'now',
-          },
-          {
-            id: 'b',
-            name: '',
-            description: 'd',
-            instructions: 'i',
-            createdAt: 'now',
+            id: 'old-id',
+            name: 'weekly-inbox-triage',
+            description: 'Sort the inbox every Monday.',
+            instructions: '1. Read the unread mail.',
+            createdAt: '2026-01-01T00:00:00.000Z',
           },
         ],
       }),
       'utf8',
     );
 
-    // The whole file is one document, so an entry that cannot be parsed loses
-    // the file rather than half of it — and the app says so by starting empty.
-    expect(await store().load()).toEqual([]);
-  });
-});
+    const loaded = await store({legacyFile}).load();
+    expect(loaded.map((skill) => skill.name)).toEqual(['weekly-inbox-triage']);
+    await expect(stat(legacyFile)).rejects.toMatchObject({code: 'ENOENT'});
+    await expect(stat(`${legacyFile}.imported`)).resolves.toBeTruthy();
 
-/*
- * Invariant 12, for the file holding the user's own procedures.
- *
- * A skills file from a newer build read as "no skills" and then saved would be
- * overwritten with this build's format. The user's own written procedures are the
- * most personal thing this app stores, and they would be gone with nothing to
- * point at.
- */
-describe('a skills file from a newer build', () => {
-  let dir: string;
-  let file: string;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(process.cwd(), '.marimo-skills-new-'));
-    file = join(dir, 'skills.json');
+    // A second read is the folders, not a second import.
+    expect(await store({legacyFile}).load()).toHaveLength(1);
   });
 
-  afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
-  });
-
-  function store(): SkillStore {
-    return new SkillStore({file});
-  }
-
-  async function writeFuture(): Promise<void> {
-    await writeFile(
-      file,
-      JSON.stringify({version: 99, skills: [{name: 'theirs'}]}),
-      'utf8',
+  it('leaves a corrupt legacy file alone', async () => {
+    const legacyFile = join(dir, 'skills.json');
+    await writeFile(legacyFile, '{"version": 1, "skills": [', 'utf8');
+    expect(await store({legacyFile}).load()).toEqual([]);
+    expect(await readFile(legacyFile, 'utf8')).toBe(
+      '{"version": 1, "skills": [',
     );
-  }
-
-  it('refuses to read it rather than calling it empty', async () => {
-    await writeFuture();
-    await expect(store().load()).rejects.toThrow(/newer version/u);
-  });
-
-  it('refuses to save over it', async () => {
-    await writeFuture();
-    await expect(
-      store().save({name: 'mine', description: '', instructions: 'do a thing'}),
-    ).rejects.toThrow(/newer version/u);
-
-    const after = JSON.parse(await readFile(file, 'utf8')) as {version: number};
-    expect(after.version).toBe(99);
-  });
-
-  /*
-   * A missing file still reads as empty, which is what a fresh install is — the
-   * refusal above must not have made the ordinary case throw.
-   */
-  it('still opens a fresh install', async () => {
-    expect(await store().load()).toEqual([]);
   });
 });

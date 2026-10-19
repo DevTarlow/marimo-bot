@@ -579,10 +579,17 @@ export function App(): React.JSX.Element {
    * The commands the `+` menu offers: the catalogue filtered by what the user
    * has switched off. Drawn from the protocol constant rather than from a list
    * here, so the menu and the Settings switches cannot describe different sets.
+   *
+   * `/learn` is also filtered by the active bot's grant: it asks the model to
+   * call `save_skill`, and a bot without that tool can only refuse. The command
+   * would be an offer it cannot keep — invariant 9 in a menu.
    */
   const disabledCommands = settings?.disabledCommands ?? [];
+  const canWriteSkills =
+    agent.profile?.enabledTools.includes('save_skill') ?? false;
   const commands = COMMAND_IDS.filter(
-    (id) => !disabledCommands.includes(id),
+    (id) =>
+      !disabledCommands.includes(id) && (id !== 'learn' || canWriteSkills),
   ).map((id) => ({id, ...COMMANDS[id]}));
 
   /*
@@ -1053,6 +1060,23 @@ export function App(): React.JSX.Element {
                    */
                   await agent.refresh();
                   return result.compacted ? null : (result.reason ?? null);
+                }
+                case 'learn': {
+                  /*
+                   * An instruction, not an operation: the model is the one that
+                   * knows what was repeatable in the conversation, and
+                   * `save_skill` is the tool that writes it. Sending it as a
+                   * user message is also what makes the request visible in the
+                   * transcript, so a skill that appears in Settings has a turn
+                   * behind it.
+                   */
+                  const sent = await agent.send(
+                    COMMANDS.learn.instruction ?? '',
+                    'window',
+                  );
+                  return sent
+                    ? null
+                    : 'That conversation would not accept the request.';
                 }
               }
             }}

@@ -191,50 +191,86 @@ describe('createTools', () => {
   });
 
   /**
-   * `save_skill` is the mechanism behind `/learn`, not a capability a profile
-   * grants, so it is appended *after* the profile's selection. The point of this
-   * test is that a profile which has narrowed its tools — including one that
-   * allows none at all — can still run the command the user typed.
+   * Writing a skill is a grant like any other now.
+   *
+   * It used to be appended after the profile's selection because it was the
+   * mechanism behind `/learn`: a profile that predated the command still had to
+   * be able to run it. The cost of that was a bot writing text that changes its
+   * own future prompts without the person ever ticking a box. The tool is in the
+   * catalogue and filtered like the rest, and the command is offered only when
+   * the grant is there — one fact in both places.
    */
-  it('offers save_skill whatever the profile selected', () => {
+  it('offers save_skill only when the profile grants it', () => {
     const skills = {
       save: async () => ({name: 'a-skill', updated: false}),
     };
-    const narrowed = {
-      ...config(),
-      enabledTools: ['read_file'],
+    const deps = {
+      memory: memory(),
+      model: 'deepseek-chat',
+      provider: 'deepseek' as const,
+      skillService: skills,
     };
 
     expect(
       names(
-        createTools(narrowed, {
-          memory: memory(),
-          model: 'deepseek-chat',
-          provider: 'deepseek',
-          skillService: skills,
-        }),
+        createTools({...config(), enabledTools: ['read_file', 'save_skill']}, deps),
       ),
     ).toEqual(['read_file', 'save_skill']);
 
-    // Even a profile that deliberately allows nothing gets it.
     expect(
-      names(
-        createTools(
-          {...config(), enabledTools: []},
-          {
-            memory: memory(),
-            model: 'deepseek-chat',
-            provider: 'deepseek',
-            skillService: skills,
-          },
-        ),
-      ),
-    ).toEqual(['save_skill']);
+      names(createTools({...config(), enabledTools: ['read_file']}, deps)),
+    ).toEqual(['read_file']);
+
+    // A profile that deliberately allows nothing gets nothing.
+    expect(names(createTools({...config(), enabledTools: []}, deps))).toEqual(
+      [],
+    );
 
     // And with no skill service there is nothing to write with, so no tool.
     expect(
-      names(createTools(config(), {memory: memory(), model: 'deepseek-chat', provider: 'deepseek'})),
+      names(
+        createTools(config(), {
+          memory: memory(),
+          model: 'deepseek-chat',
+          provider: 'deepseek',
+        }),
+      ),
     ).not.toContain('save_skill');
+  });
+
+  /**
+   * The reader is implied by the grant rather than switched separately: a person
+   * who turned three procedures on did not also decide to let the model read
+   * them. It is added after the filter, so it survives a profile that narrowed
+   * its tool list, and it is absent when no library was handed over.
+   */
+  it('offers load_skill when the app can read skills', () => {
+    const library = {
+      load: async (name: string) => ({
+        skill: {name, description: 'd', instructions: 'i'},
+        names: [name],
+      }),
+    };
+    const deps = {
+      memory: memory(),
+      model: 'deepseek-chat',
+      provider: 'deepseek' as const,
+      skillLibrary: library,
+    };
+
+    expect(
+      names(createTools({...config(), enabledTools: ['read_file']}, deps)),
+    ).toEqual(['read_file', 'load_skill']);
+
+    expect(
+      names(
+        createTools(config(), {
+          memory: memory(),
+          model: 'deepseek-chat',
+          provider: 'deepseek',
+        }),
+      ),
+    ).not.toContain('load_skill');
   });
 
   it('never attaches the Gemini built-in to a DeepSeek model', () => {

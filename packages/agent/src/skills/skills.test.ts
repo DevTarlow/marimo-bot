@@ -271,8 +271,16 @@ describe('composeInstruction', () => {
       });
 
       expect(text).toContain('# Operating protocol');
-      expect(text).toContain('## weekly-inbox-triage');
-      expect(text).toContain('Group it by sender');
+      expect(text).toContain('# Available skills');
+      expect(text).toContain(
+        '- weekly-inbox-triage: Sort the inbox every Monday.',
+      );
+      /*
+       * The body is the point of the change: a skill is advertised by name and
+       * description and read through `load_skill`, so a 28 KB procedure does not
+       * ride in every request whether or not the task calls for it.
+       */
+      expect(text).not.toContain('Group it by sender');
     });
 
     it('leaves a saved skill out when the profile does not carry it', () => {
@@ -294,7 +302,9 @@ describe('composeInstruction', () => {
         memory: '',
         userSkills: [triage],
       });
-      expect(text).toContain('## weekly-inbox-triage');
+      expect(text).toContain(
+        '- weekly-inbox-triage: Sort the inbox every Monday.',
+      );
     });
 
     it('comes after the built-ins', () => {
@@ -305,7 +315,7 @@ describe('composeInstruction', () => {
       });
       const memory = text.indexOf('## memory');
       const knowledge = text.indexOf('## knowledge');
-      const mine = text.indexOf('## weekly-inbox-triage');
+      const mine = text.indexOf('# Available skills');
       expect(memory).toBeLessThan(knowledge);
       expect(knowledge).toBeLessThan(mine);
     });
@@ -346,7 +356,7 @@ describe('composeInstruction', () => {
       expect(off).not.toContain('## memory');
     });
 
-    it('never emits two of the user\'s skills under one name', () => {
+    it('never advertises two of the user\'s skills under one name', () => {
       const first = {...triage, instructions: 'the first one'};
       const second = {...triage, instructions: 'the second one'};
       const text = composeInstruction({
@@ -354,7 +364,8 @@ describe('composeInstruction', () => {
         memory: '',
         userSkills: [first, second],
       });
-      expect(text).toContain('the first one');
+      expect(text.match(/weekly-inbox-triage/gu)).toHaveLength(1);
+      expect(text).not.toContain('the first one');
       expect(text).not.toContain('the second one');
     });
   });

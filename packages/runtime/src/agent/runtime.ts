@@ -33,6 +33,7 @@ import {
   resolvePersonMemoryFile,
   runReview,
   SAFE_DEFAULT_TOOLS,
+  SKILLS,
 } from '@marimo/agent';
 import type {
   AdkEvent,
@@ -45,7 +46,6 @@ import type {
   McpToolsetSource,
   PendingGate,
   Skill,
-  SkillService,
   WebSearchProvider,
 } from '@marimo/agent';
 import {
@@ -82,6 +82,7 @@ import type {
   ProfilePatch,
   SessionSummary,
   SettingsPatch,
+  SkillDraft,
   StoredSettings,
   StoredSkill,
   Workspace,
@@ -100,6 +101,7 @@ import {MemoryProposalStore} from '../memory-proposals.js';
 import type {SecretRead} from '../secrets.js';
 import {SettingsStore} from '../settings.js';
 import {SkillStore} from '../skills.js';
+import {RuntimeSkillService} from '../skill-service.js';
 import {WorkspaceStore, workspaceRootFor} from '../workspaces.js';
 import {resolveAgentConfig} from './resolve.js';
 import {BOT_BUILDER_INSTRUCTION} from './bot-builder.js';
@@ -110,7 +112,6 @@ import {turnContext} from './turn-context.js';
 export interface RuntimeServices {
   jobService?: JobService;
   deskService?: DeskService;
-  skillService?: SkillService;
   discordService?: DiscordService;
   /**
    * Recall, when this install has it switched on.
@@ -204,6 +205,16 @@ export class AgentRuntime {
    */
   private readonly workspaceStore: WorkspaceStore;
   private readonly skillStore: SkillStore;
+  /**
+   * The user's skills, and the grants that switch them on.
+   *
+   * A field rather than a service handed in by the app, because a skill is always
+   * possible: the folder exists, the store reads it, and the only question is
+   * which profile carries which name. That is the lesson `save_skill` taught on
+   * another branch — a capability with a slot an app can forget to fill is a
+   * capability every unit test has and no install does.
+   */
+  private readonly skillService: RuntimeSkillService;
   /** The agent's suggestions, waiting for an answer. */
   private readonly proposals: MemoryProposalStore;
   /** What the user said about the agent's own answers. */
@@ -318,7 +329,28 @@ export class AgentRuntime {
         await this.profileStore.clearLegacy();
       },
     });
-    this.skillStore = new SkillStore({file: options.paths.skills});
+    this.skillStore = new SkillStore({
+      root: options.paths.skills,
+      legacyFile: options.paths.legacySkills,
+      /*
+       * The names the app ships. A user skill may not take one, because the name
+       * is a heading in the same prompt and `composeInstruction` would give it to
+       * the built-in — a saved `memory` would be carried but never sent. Passed
+       * in rather than imported by the store, so the store stays about the folder.
+       */
+      reserved: SKILLS.map((skill) => skill.name),
+    });
+    /*
+     * No host is dropped when a *grant* changes. `enabledSkills` is not part of
+     * the tool list a host is built with: the prompt's available-skills list is
+     * recomputed from it on every turn, and the library reads it again on every
+     * load. Dropping the host here would be dropping it during the very turn
+     * that asked to save a skill.
+     */
+    this.skillService = new RuntimeSkillService({
+      skills: this.skillStore,
+      profiles: this.profileStore,
+    });
     this.proposals = new MemoryProposalStore({
       file: options.paths.memoryProposals,
     });
@@ -405,6 +437,14 @@ export class AgentRuntime {
        * beside this file compares them.
        */
       jobs: true,
+      /*
+       * And the skill writer, which this install always has. Its off-by-default
+       * switch is the grant in the profile, not the existence of the service:
+       * `save_skill` changes prompt text on every later request, so a bot that
+       * may write one is a decision the person makes rather than one the install
+       * makes for them.
+       */
+      skills: true,
     });
 
     return {
@@ -1026,6 +1066,28 @@ export class AgentRuntime {
 
   async activeProfile(): Promise<AgentProfile> {
     return await this.profileStore.activeProfile();
+  }
+
+  /**
+   * The user's skills, for the Settings card and for the prompt's catalogue.
+   *
+   * The editor's write path and the agent's `save_skill` share `skillService`, so
+   * there is one set of name rules, one length cap and one folder layout rather
+   * than a UI path and a tool path that can drift.
+   */
+  async skills(): Promise<StoredSkill[]> {
+    return await this.skillService.list();
+  }
+
+  async saveSkill(
+    draft: SkillDraft,
+    id?: string,
+  ): Promise<{skills: StoredSkill[]; saved: StoredSkill}> {
+    return await this.skillService.saveFromEditor(draft, id);
+  }
+
+  async removeSkill(id: string): Promise<StoredSkill[]> {
+    return await this.skillService.remove(id);
   }
 
   /**
@@ -1924,24 +1986,24 @@ export class AgentRuntime {
   /**
    * The user's skills a profile carries, in the shape the prompt wants.
    *
-   * Filtered by `enabledSkills` rather than passing everything: a skill is
-   * prompt text carried on every single request, so one the user switched off is
-   * a cost they have already declined to pay. The built-in skills are not here
-   * at all — `composeInstruction` picks those up from the profile's tools.
+   * Filtered by `enabledSkills` rather than passing everything: a skill the user
+   * switched off must not be advertisable, and `load_skill` checks the same grant
+   * again so the prompt and the tool cannot disagree about what exists. What
+   * rides in every request is the name and one-line description; the instructions
+   * travel here too because the prompt composer needs a `Skill`, but it advertises
+   * them rather than printing them.
+   *
+   * The built-in skills are not here at all — `composeInstruction` picks those up
+   * from the profile's tools.
    */
   private async skillsFor(profile: AgentProfile): Promise<Skill[]> {
-    if (profile.enabledSkills.length === 0) {
-      return [];
-    }
-    const stored = await this.skillStore.load();
-    const wanted = new Set(profile.enabledSkills);
-    return stored
-      .filter((skill: StoredSkill) => wanted.has(skill.name))
-      .map((skill: StoredSkill) => ({
+    return (await this.skillService.granted(profile)).map(
+      (skill: StoredSkill) => ({
         name: skill.name,
         description: skill.description,
         instructions: skill.instructions,
-      }));
+      }),
+    );
   }
 
   private async ensureHost(profileId: string): Promise<AgentHost> {
@@ -1993,7 +2055,21 @@ export class AgentRuntime {
       ...(this.options.webSearch ? {webSearch: this.options.webSearch} : {}),
       ...(services.jobService ? {jobService: services.jobService} : {}),
       ...(services.deskService ? {deskService: services.deskService} : {}),
-      ...(services.skillService ? {skillService: services.skillService} : {}),
+      /*
+       * The skill writer and the reader, per host because both are per profile.
+       *
+       * `save` is the adapter the tool sees; it writes the file and grants the
+       * name to *this* bot, which is the one that asked. The library reads the
+       * grant again on every call rather than capturing it, so switching a skill
+       * off takes effect on the next load rather than on the next rebuild.
+       */
+      skillService: {
+        save: async (input) =>
+          await this.skillService.saveFromAgent(input, profileId),
+      },
+      skillLibrary: {
+        load: async (name) => await this.skillService.load(profileId, name),
+      },
       ...(services.discordService
         ? {discordService: services.discordService}
         : {}),

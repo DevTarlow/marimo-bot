@@ -978,6 +978,7 @@ async function main() {
         'write_file',
         'run_shell',
         'create_job',
+        'save_skill',
       ];
       const missing = needed.filter(
         (name) => !probe.catalogNames?.includes(name),
@@ -991,6 +992,12 @@ async function main() {
         ok(
           `the tool catalogue offers ${String(probe.catalogNames?.length)} tools`,
         );
+      }
+
+      if (probe.skillsRoundTrip !== true) {
+        fail('the skills editor did not reach the SKILL.md folder');
+      } else {
+        ok('a skill saves, lists and removes through the editor path');
       }
 
       /*
@@ -2365,6 +2372,29 @@ const PROBE = `(async () => {
     result.catalogBlurbs = catalog.tools.every(
       (tool) => typeof tool.blurb === 'string' && tool.blurb.length > 0,
     );
+
+    /*
+     * The skills round trip. The store, its parsing and the editor have unit
+     * tests; what they cannot prove is that the running app wired the store at
+     * all. This saves one through the same IPC the card uses, checks it is
+     * listed, and removes it again — the temp user data is thrown away either
+     * way, and leaving it would make the next install's first read non-empty.
+     */
+    const {skills: beforeSkills} = await window.marimo.call('skills.list', {});
+    const savedSkills = await window.marimo.call('skills.save', {
+      draft: {
+        name: 'smoke-procedure',
+        description: 'A procedure the smoke check writes and removes.',
+        instructions: '1. Prove the editor reaches the folder.',
+      },
+    });
+    const removedSkills = await window.marimo.call('skills.remove', {
+      id: 'smoke-procedure',
+    });
+    result.skillsRoundTrip =
+      beforeSkills.length === 0 &&
+      savedSkills.skills.some((skill) => skill.name === 'smoke-procedure') &&
+      removedSkills.skills.every((skill) => skill.name !== 'smoke-procedure');
 
     const {messages, pending} = await window.marimo.call('sessions.get', {
       profileId: activeProfileId,

@@ -7,11 +7,11 @@
 <p align="center">A desktop AI assistant that works in a folder you choose.</p>
 
 > [!WARNING]
-> Marimo Bot is under construction. It changes often, and some changes are breaking: what one build saved, the next may rewrite or refuse. Keep your own copies of anything you care about.
+> Marimo Bot is under construction. It changes often, and some changes are breaking. Keep your own copies of anything you care about.
 
 I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-The current build runs every conversation on a rebuilt engine. A chat made by an older build is brought forward when you open or continue it. There is no switch between engines, and no second engine left to fall back to.
+Marimo Bot keeps a conversation's full history and the instructions it was running under, so reopening a chat does not start it over.
 
 The app runs on your computer, not in a browser. There is no account with us. You bring the model: a service you already use, or a llama.cpp server on your own machine.
 
@@ -102,11 +102,11 @@ Settings has a **Skills** card. Write one there, or copy a folder into the skill
 
 A bot can also write one. Turn on **save_skill** under what the bot can do, then ask it to remember a way of working, or run **Learn a skill** from the `+` menu after a conversation. It writes the skill, shows you what it is about to save, and switches it on for that bot when you approve.
 
-Settings keeps earlier versions of each skill and lets you restore one. A skill you overwrite is still the user's markdown, so the older copies are there when the new wording turns out worse.
+Settings keeps earlier versions of each skill and lets you restore one. A skill you overwrite is still the user's markdown, so the earlier copies are there when the new wording turns out worse.
 
 ### Long conversations
 
-When a chat gets long, the app replaces the older part with a summary so the model can keep going, and the conversation keeps every message.
+When a chat gets long, the app replaces the earlier part with a summary so the model can keep going, and the conversation keeps every message.
 
 **Compact** in the `+` menu beside the message box does the same when you ask.
 
@@ -144,7 +144,7 @@ The worker is a small copy of the app that runs due jobs while the window is clo
 
 Then it goes back to sleep until the next job is due. To quit, use the tray menu.
 
-A job started in an older conversation is brought forward before its run. If the app cannot read that conversation, the job fails with a sentence rather than falling back to the old engine.
+A job runs in its own conversation, with the same tools and approvals as a chat.
 
 ### The companion
 
@@ -154,13 +154,9 @@ Settings lets you choose how long its answers are, how many messages float above
 
 ### The engine
 
-New conversations run on the v2 harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
-
-A conversation made by an older build is migrated when you open it, send to it, answer its card or compact it. Its visible words and membership come with it. A waiting card becomes a card on the new engine with the original call, tool and arguments, so it can still be answered. The old engine's log is left where it is, and the move is one way.
+Every conversation runs on the harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
 
 The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, memory suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and model as they were. It leaves the Space, the icon and memory alone.
-
-There is no environment variable or setting that keeps a conversation on the old engine. An old chat that cannot be read reports that instead of opening a second engine.
 
 ## Models and keys
 
@@ -197,7 +193,7 @@ A command, or a save over a file that already exists, waits for your answer. The
 
 Every tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all.
 
-Recall is off until you turn it on, and it sends its record nowhere. This build does not record Dream-RSI traces.
+Recall is off until you turn it on, and it sends its record nowhere.
 
 Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. There is no undo.
 
@@ -266,7 +262,6 @@ See the next section for the short answer: Windows and macOS installers, automat
 - The Windows and macOS installers are written but not built. Only the Linux AppImage has been run.
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
-- Dream-RSI trace recording is not part of this build.
 - The app checks the Recall download against a fingerprint, but there is no signature to prove where it came from. No other model is downloaded.
 
 ## Requirements

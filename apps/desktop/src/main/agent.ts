@@ -958,6 +958,23 @@ export class AgentService {
     return await this.runtime.forgetDismissedMemory();
   }
 
+  /** The unified learning inbox: facts, grants and refusals. */
+  async learningProposals() {
+    return await this.runtime.harness().learningProposals();
+  }
+
+  /** Answers any proposal; a grant writes the profile only here. */
+  async resolveLearningProposal(proposalId: string, accept: boolean) {
+    return await this.runtime
+      .harness()
+      .resolveLearningProposal(proposalId, accept);
+  }
+
+  /** Forgets every learning refusal, so a bot may ask again. */
+  async forgetLearningLessons() {
+    return await this.runtime.harness().forgetLearningLessons();
+  }
+
   /** Reads a conversation back and proposes what is worth remembering. */
   async reviewMemory(profileId: string, sessionId: string) {
     try {

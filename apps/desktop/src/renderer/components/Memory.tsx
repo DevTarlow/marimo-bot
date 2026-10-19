@@ -8,10 +8,11 @@
  * readout is the same number the agent's `read_memory` quotes, read from the
  * same place, so the bar cannot drift from the warning.
  *
- * The proposals are the other half. Long-term memory is injected into every
- * future system prompt, so a wrong entry is not a wrong answer once — it is a
- * wrong belief carried into every later conversation. The agent proposes and the
- * user decides.
+ * The suggestions themselves moved to the Learning card, where a fact and a
+ * capability are one list of decisions. What is left here is what the bot
+ * already carries: its size, its cadence, and the facts the user turned down.
+ * Keeping the refusal list here is deliberate — it is memory's own history, and
+ * it is what stops the reviewer proposing a rejected fact again.
  *
  * Both buttons remove an entry, and that is deliberate: a suggestion that stayed
  * after being refused would be proposed again on every idle look, and a queue
@@ -29,7 +30,6 @@ import {
 } from '@marimo/protocol';
 import type {
   DismissedMemory,
-  MemoryProposal,
   MemoryProvenanceEntry,
   MemoryUsage,
 } from '@marimo/protocol';
@@ -45,22 +45,11 @@ export function Memory({
   opened,
   onToggle,
   onChange,
-  lastReview,
 }: {
   opened: ReadonlySet<string>;
   onToggle: (title: string, expanded: boolean) => void;
   onChange?: () => void;
-  /**
-   * What the last background look read, and how much it found.
-   *
-   * The reassurance half of the feature. A look that read forty events and found
-   * nothing is the *usual* outcome, and without this line the only visible
-   * evidence is an empty list — which is exactly what a broken feature looks
-   * like. Absent before the first look of this session.
-   */
-  lastReview?: {events: number; found: number} | null;
 }): React.JSX.Element {
-  const [proposals, setProposals] = useState<MemoryProposal[] | null>(null);
   /**
    * What the user has refused, so the panel can show it and clear it.
    *
@@ -96,7 +85,6 @@ export function Memory({
         window.marimo.call('memory.usage', {}),
         window.marimo.call('memory.provenance', {}),
       ]);
-      setProposals(listed.proposals);
       setDismissed(listed.dismissed);
       setUsage(measured);
       setProvenance(dated.entries);
@@ -109,58 +97,6 @@ export function Memory({
   useEffect(() => {
     void load();
   }, []);
-
-  const resolve = async (id: string, accept: boolean): Promise<void> => {
-    setBusy(true);
-    setProblem(null);
-    /*
-     * Taken out of the list straight away rather than after the round trip. The
-     * button has been pressed, and an entry that stays put invites a second
-     * press — which on the accept side would write the same fact twice.
-     */
-    setProposals((current) =>
-      (current ?? []).filter((proposal) => proposal.id !== id),
-    );
-    try {
-      const result = await window.marimo.call('memory.resolve', {
-        proposalId: id,
-        accept,
-      });
-      /*
-       * A refusal — the agent cannot be built right now — puts it back rather
-       * than pretending it worked. It is still in the store, and the next look
-       * at this panel will find it.
-       */
-      if (!result.ok) {
-        setProblem(result.problem ?? 'That suggestion could not be saved.');
-      } else if (result.supersede?.outcome === 'absent') {
-        /*
-         * The write happened and the correction did not. Said out loud, in the
-         * slot the panel uses for things that need reading, because the person
-         * pressed "Remember" believing a fact would be replaced — and both
-         * versions are now in memory until they go and look.
-         */
-        setProblem(
-          'Remembered, but the fact this was meant to replace was not found, ' +
-            'so the old wording may still be there. Check it and correct it by ' +
-            'hand if so.',
-        );
-      } else if (result.supersede?.outcome === 'ambiguous') {
-        setProblem(
-          `Remembered, but the fact this was meant to replace matched ${
-            result.supersede.matches ?? 0
-          } entries, so none was removed.`,
-        );
-      }
-      await load();
-      onChange?.();
-    } catch (failure) {
-      setProblem(describe(failure));
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
 
   /*
    * Saved when the drag ends rather than on every step. A slider fires an event
@@ -342,92 +278,11 @@ export function Memory({
         </>
       )}
 
-      <h4 className="memory-proposals-heading">What it would remember</h4>
       <p className="settings-muted">
-        After a conversation goes quiet, the bot reads it back and suggests
-        what is worth keeping. These are shown to it at the start of every
-        future conversation, so it asks before writing one down.
+        Suggestions are answered in Learning, above. This card is what the bot
+        already carries: how large memory is kept, how often a conversation is
+        read back, and the facts you have turned down.
       </p>
-
-      {/*
-        Drawn before the list rather than after it, because it is the answer to
-        "is this working at all" and that question comes first when the list is
-        empty — which is most of the time, and exactly when an empty list is
-        indistinguishable from a feature that never ran.
-      */}
-      {lastReview !== undefined && lastReview !== null && (
-        <p className="settings-why">
-          The last look read {lastReview.events} message
-          {lastReview.events === 1 ? '' : 's'} and found {lastReview.found}.
-        </p>
-      )}
-
-      {proposals === null ? (
-        <p className="settings-muted">Reading…</p>
-      ) : proposals.length === 0 ? (
-        <p className="settings-muted">
-          Nothing waiting. Most conversations have nothing in them worth keeping
-          — that is the expected answer, not a problem.
-        </p>
-      ) : (
-        proposals.map((proposal) => (
-          <div className="memory-item" key={proposal.id}>
-            <p className="memory-text">{proposal.text}</p>
-            {/*
-             * A correction is a different decision from an addition, and it has
-             * to look like one: accepting this removes a fact as well as adding
-             * one, and the person is the only one who knows whether the old
-             * wording is really what they meant.
-             */}
-            {proposal.replaces !== undefined && (
-              <p className="settings-muted memory-replaces">
-                {/* eslint-disable-next-line react/no-unescaped-entities */}
-                This replaces: <span>{proposal.replaces}</span>
-              </p>
-            )}
-            {/*
-             * The sentence the fact was drawn from, before the model's own
-             * explanation of it. The quote is checked against the transcript and
-             * the reason is not, so a person reading this is looking at the one
-             * part of the proposal that cannot have been invented.
-             */}
-            {proposal.evidence !== undefined && (
-              <blockquote className="memory-evidence">
-                &ldquo;{proposal.evidence.quote}&rdquo;
-              </blockquote>
-            )}
-            {proposal.reason.length > 0 && (
-              <details className="memory-why">
-                <summary>Why it suggested this</summary>
-                <p>{proposal.reason}</p>
-              </details>
-            )}
-            <div className="memory-actions">
-              <span className="memory-section">{proposal.section}</span>
-              <button
-                type="button"
-                className="button button-quiet button-small"
-                disabled={busy}
-                onClick={() => {
-                  void resolve(proposal.id, false);
-                }}
-              >
-                Don&rsquo;t remember
-              </button>
-              <button
-                type="button"
-                className="button button-primary button-small"
-                disabled={busy}
-                onClick={() => {
-                  void resolve(proposal.id, true);
-                }}
-              >
-                Remember
-              </button>
-            </div>
-          </div>
-        ))
-      )}
 
       {/*
        * Only drawn when there is something to draw, which `summarizeDismissed`

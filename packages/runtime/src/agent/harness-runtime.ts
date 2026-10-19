@@ -12,6 +12,8 @@ import {randomUUID} from 'node:crypto';
 import type {
   AgentProfile,
   AgentUiEvent,
+  LearningLesson,
+  LearningProposal,
   MemorySupersede,
   CompactResult,
   PendingGate,
@@ -21,6 +23,7 @@ import type {
 } from '@marimo/protocol';
 import {
   AdkDriver,
+  CORE_TOOLS,
   GateNotFoundError,
   MemoryStore,
   OpenAiCompatLlm,
@@ -37,6 +40,7 @@ import {
   type EventStore,
   type HarnessSpec,
   type JobService,
+  type LearningToolService,
   type RecallLookup,
   type SkillToolService,
   type WebSearchProvider,
@@ -47,6 +51,7 @@ import {
 import type {MemoryProposal} from '@marimo/protocol';
 
 import {FeedbackStore} from '../feedback.js';
+import {LearningProposalStore} from '../learning-proposals.js';
 import {MemoryProposalStore} from '../memory-proposals.js';
 import type {AppPaths} from '../paths.js';
 import {FileEventStore} from '../events/file-event-store.js';
@@ -164,6 +169,7 @@ export class HarnessRuntime {
   private readonly skillStore: SkillStore;
   private readonly skillService: RuntimeSkillService;
   private readonly proposals: MemoryProposalStore;
+  private readonly learning: LearningProposalStore;
   private readonly feedback: FeedbackStore;
   private readonly states = new Map<string, SessionState>();
   /** ADK sessions left parked on a helper gate, keyed by parent session. */
@@ -187,6 +193,9 @@ export class HarnessRuntime {
     });
     this.proposals = new MemoryProposalStore({
       file: options.paths.memoryProposals,
+    });
+    this.learning = new LearningProposalStore({
+      file: options.paths.learningProposals,
     });
     this.feedback = new FeedbackStore({file: options.paths.feedback});
   }
@@ -419,10 +428,18 @@ export class HarnessRuntime {
         : await this.options.versions.list().catch(() => []);
     const ownVersions = versions.filter((record) => record.spec.id === profileId);
     const proposalFile = await this.proposals.load();
-    const proposals = proposalFile.proposals.filter(
-      (proposal) => proposal.profileId === profileId,
-    ).length;
-    const dismissedProposals = proposalFile.dismissed.length;
+    const learningFile = await this.learning.load();
+    const proposals =
+      proposalFile.proposals.filter(
+        (proposal) => proposal.profileId === profileId,
+      ).length +
+      learningFile.proposals.filter(
+        (proposal) => proposal.profileId === profileId,
+      ).length;
+    const dismissedProposals =
+      proposalFile.dismissed.length +
+      learningFile.lessons.filter((lesson) => lesson.profileId === profileId)
+        .length;
     const reviewedConversations = Object.keys(proposalFile.reviewed).length;
     outcomes.corrections = (await this.feedback.forProfile(profileId)).length;
     const skillList = await this.skillStore.load();
@@ -1017,6 +1034,272 @@ export class HarnessRuntime {
     return supersede === undefined ? {ok: true} : {ok: true, supersede};
   }
 
+  /**
+   * The one inbox: facts waiting, changes waiting, and the refusals.
+   *
+   * Two documents, one answer. Memory has a watermark and an exact-text refusal
+   * list; a grant has neither. Merging them here rather than in the window keeps
+   * the two stores' different shapes from leaking into a component that only
+   * wants a list of decisions.
+   */
+  async learningProposals(): Promise<{
+    proposals: LearningProposal[];
+    memory: MemoryProposal[];
+    lessons: LearningLesson[];
+  }> {
+    const [learning, memory] = await Promise.all([
+      this.learning.load(),
+      this.proposals.load(),
+    ]);
+    return {
+      proposals: learning.proposals,
+      memory: memory.proposals,
+      lessons: learning.lessons,
+    };
+  }
+
+  /**
+   * Answers a proposal of any kind.
+   *
+   * A memory proposal is resolved by the memory path, because it is the one that
+   * knows how to write a bullet and report a failed supersede. Everything else is
+   * a grant here, and the grant is the person's click: the profile is updated
+   * only inside this method, after `accept`, never by the tool that asked.
+   */
+  async resolveLearningProposal(
+    proposalId: string,
+    accept: boolean,
+  ): Promise<{
+    ok: boolean;
+    problem?: string;
+    applied?: string;
+    supersede?: import('@marimo/protocol').MemorySupersede;
+  }> {
+    const memory = (await this.proposals.load()).proposals.find(
+      (proposal) => proposal.id === proposalId,
+    );
+    if (memory !== undefined) {
+      const answer = await this.resolveMemoryProposal(proposalId, accept);
+      return {
+        ok: answer.ok,
+        ...(answer.problem === undefined ? {} : {problem: answer.problem}),
+        ...(answer.supersede === undefined
+          ? {}
+          : {supersede: answer.supersede}),
+      };
+    }
+
+    const file = await this.learning.load();
+    const proposal = file.proposals.find((entry) => entry.id === proposalId);
+    if (proposal === undefined) {
+      return {ok: false, problem: 'That suggestion is no longer waiting.'};
+    }
+    if (!accept) {
+      /*
+       * The lesson is the point of declining here. Removing the card alone
+       * would let the next turn ask the same question, which is the loop this
+       * store exists to stop.
+       */
+      await this.learning.remove(proposalId, true);
+      return {ok: true, applied: 'Declined; it will not ask again.'};
+    }
+    if (proposal.kind === 'grant') {
+      return await this.applyGrant(proposal);
+    }
+    return {
+      ok: false,
+      problem: 'That kind of change cannot be applied yet.',
+    };
+  }
+
+  /** Forgets every refusal, so the bot may ask again. */
+  async forgetLearningLessons(): Promise<LearningLesson[]> {
+    return (await this.learning.clearLessons()).lessons;
+  }
+
+  async forgetLearningSession(sessionId: string): Promise<void> {
+    await this.learning.forget(sessionId);
+  }
+
+  async forgetLearningProfile(profileId: string): Promise<void> {
+    await this.learning.forgetProfile(profileId);
+  }
+
+  /** Writes a capability into the profile, which is the only way one is granted. */
+  private async applyGrant(
+    proposal: import('@marimo/protocol').GrantProposal,
+  ): Promise<{ok: boolean; problem?: string; applied?: string}> {
+    const profile = (await this.options.profiles.profiles()).find(
+      (candidate) => candidate.id === proposal.profileId,
+    );
+    if (profile === undefined) {
+      return {ok: false, problem: 'That bot no longer exists.'};
+    }
+
+    if (proposal.target === 'tool') {
+      const known = CORE_TOOLS.find((tool) => tool.name === proposal.name);
+      /*
+       * Checked again at the write, not only when the card was drawn. The
+       * catalogue can change between the proposal and the click — an upgrade, a
+       * hand-edited profile — and `run_shell` is refused by name everywhere.
+       */
+      if (known === undefined || known.name === 'run_shell') {
+        await this.learning.remove(proposal.id);
+        return {
+          ok: false,
+          problem: 'That tool is not one this app can grant.',
+        };
+      }
+      if (!profile.enabledTools.includes(known.name)) {
+        await this.options.profiles.update(profile.id, {
+          enabledTools: [...profile.enabledTools, known.name],
+        });
+      }
+      await this.learning.remove(proposal.id);
+      return {
+        ok: true,
+        applied: `${known.name} granted to ${profile.name}.`,
+      };
+    }
+
+    const settings = await this.options.settings.load();
+    const server = settings.mcpServers.find(
+      (entry) =>
+        entry.id === proposal.name ||
+        entry.name.toLocaleLowerCase() ===
+          proposal.name.toLocaleLowerCase(),
+    );
+    if (server === undefined) {
+      await this.learning.remove(proposal.id);
+      return {
+        ok: false,
+        problem: `There is no connector called "${proposal.name}" on this computer.`,
+      };
+    }
+    /*
+     * Absent means every connector, which is the state every profile written
+     * before the field existed is in. Granting one of those a specific server
+     * would narrow the grant, which is the opposite of what the person just
+     * approved.
+     */
+    if (profile.mcpServerIds === undefined) {
+      await this.learning.remove(proposal.id);
+      return {
+        ok: true,
+        applied: `${profile.name} already uses every connector.`,
+      };
+    }
+    if (!profile.mcpServerIds.includes(server.id)) {
+      await this.options.profiles.update(profile.id, {
+        mcpServerIds: [...profile.mcpServerIds, server.id],
+      });
+    }
+    await this.learning.remove(proposal.id);
+    return {ok: true, applied: `${server.name} granted to ${profile.name}.`};
+  }
+
+  /**
+   * What a `request_tool` or `request_connector` call writes.
+   *
+   * Bound to one profile, one conversation and one turn, so the model cannot
+   * name the agent it is asking for. The name is checked against the catalogue
+   * and the settings here rather than trusted from the tool: a model can write
+   * any string, and a card for a capability that does not exist is a decision
+   * nobody can make.
+   */
+  private learningToolFor(
+    profileId: string,
+    sessionId: string,
+    turnId?: string,
+  ): LearningToolService {
+    return {
+      request: async (input) => {
+        const settings = await this.options.settings.load();
+        let name = input.name.trim();
+        if (input.target === 'tool') {
+          if (name === 'run_shell') {
+            return {
+              ok: false,
+              result:
+                'run_shell is never requested. Say what you would run and why, ' +
+                'and let the person decide in Settings.',
+            };
+          }
+          const known = CORE_TOOLS.find((tool) => tool.name === name);
+          if (known === undefined) {
+            return {
+              ok: false,
+              result: `There is no tool called "${name}" in this app.`,
+            };
+          }
+          const profile = (await this.options.profiles.profiles()).find(
+            (candidate) => candidate.id === profileId,
+          );
+          if (profile?.enabledTools.includes(name) === true) {
+            return {
+              ok: false,
+              result: `You already have ${name}. Use it rather than asking for it.`,
+            };
+          }
+        } else {
+          const server = settings.mcpServers.find(
+            (entry) =>
+              entry.id === name ||
+              entry.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+          );
+          if (server === undefined) {
+            return {
+              ok: false,
+              result: `There is no connector called "${name}" on this computer.`,
+            };
+          }
+          name = server.id;
+        }
+
+        const file = await this.learning.record({
+          kind: 'grant',
+          target: input.target,
+          name,
+          profileId,
+          sessionId,
+          reason: input.reason,
+          evidence:
+            turnId === undefined && input.evidence === undefined
+              ? []
+              : [
+                  {
+                    ...(turnId === undefined ? {} : {turnId}),
+                    ...(input.evidence === undefined
+                      ? {}
+                      : {quote: input.evidence}),
+                  },
+                ],
+        });
+        const subject = `${input.target}:${name.toLocaleLowerCase()}`;
+        const refused = file.lessons.some(
+          (lesson) =>
+            lesson.profileId === profileId &&
+            lesson.kind === 'grant' &&
+            lesson.summary === subject,
+        );
+        if (refused) {
+          return {
+            ok: false,
+            result:
+              'The person has already declined that. Do not ask again unless ' +
+              'something has changed; say what changed if it has.',
+          };
+        }
+        return {
+          ok: true,
+          result:
+            `Asked the person for ${name}. It is in the learning inbox, waiting ` +
+            'for them; you do not have it yet, so do not use it in this turn.',
+        };
+      },
+    };
+  }
+
   /** Whether this conversation has a v2 log, so the shell can fall back. */
   async hasLog(sessionId: string): Promise<boolean> {
     if (this.store.has !== undefined) {
@@ -1192,11 +1475,12 @@ export class HarnessRuntime {
           }),
         ),
       }),
-      toolContext: (_harness, signal) => ({
+      toolContext: (_harness, signal, turnId) => ({
         workspaceRoot: prepared.workspaceRoot,
         signal,
         memory: prepared.memory,
         skills,
+        learning: this.learningToolFor(profileId, sessionId, turnId),
         ...(prepared.recall === undefined ? {} : {recall: prepared.recall}),
         ...(prepared.jobs === undefined ? {} : {jobs: prepared.jobs}),
         sessionId,

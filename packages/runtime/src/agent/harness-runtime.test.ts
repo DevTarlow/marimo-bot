@@ -19,6 +19,7 @@ import {SettingsStore} from '../settings.js';
 import {WorkspaceStore} from '../workspaces.js';
 import {HarnessRuntime} from './harness-runtime.js';
 import {HarnessVersionStore} from '../harness-versions.js';
+import {LearningProposalStore} from '../learning-proposals.js';
 
 const roots: string[] = [];
 
@@ -677,6 +678,105 @@ describe('HarnessRuntime', () => {
     expect(await runtime.sessionInfo('builder-1')).toMatchObject({
       purpose: 'bot-builder',
     });
+  });
+
+  /*
+   * The rule the whole loop turns on: the tool asks, the store waits, and the
+   * profile is written only inside the resolution — never by the turn that
+   * asked. This asserts the write happens on accept, and that the card is gone
+   * afterwards so the same request cannot be answered twice.
+   */
+  it('grants a tool only when the person accepts the proposal', async () => {
+    const {deps, profileId} = await setup();
+    const store = new LearningProposalStore({
+      file: deps.paths.learningProposals,
+    });
+    const recorded = await store.record({
+      kind: 'grant',
+      target: 'tool',
+      name: 'read_file',
+      profileId,
+      sessionId: null,
+      reason: 'I could not open the file.',
+      evidence: [],
+    });
+    const id = recorded.proposals[0]?.id ?? '';
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+
+    const before = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(before?.enabledTools).not.toContain('read_file');
+
+    const answer = await runtime.resolveLearningProposal(id, true);
+    expect(answer.ok).toBe(true);
+    expect(answer.applied).toContain('read_file');
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.enabledTools).toContain('read_file');
+    expect((await runtime.learningProposals()).proposals).toEqual([]);
+  });
+
+  it('turns a declined grant into a lesson, and keeps the profile alone', async () => {
+    const {deps, profileId} = await setup();
+    const store = new LearningProposalStore({
+      file: deps.paths.learningProposals,
+    });
+    const recorded = await store.record({
+      kind: 'grant',
+      target: 'tool',
+      name: 'read_file',
+      profileId,
+      sessionId: null,
+      reason: 'I could not open the file.',
+      evidence: [],
+    });
+    const id = recorded.proposals[0]?.id ?? '';
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+
+    const answer = await runtime.resolveLearningProposal(id, false);
+    expect(answer.ok).toBe(true);
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.enabledTools).not.toContain('read_file');
+    const inbox = await runtime.learningProposals();
+    expect(inbox.proposals).toEqual([]);
+    expect(inbox.lessons[0]?.summary).toBe('tool:read_file');
+  });
+
+  it('answers a memory proposal through the same learning call', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'I will remember that.'},
+        {type: 'done'},
+      ],
+    ]);
+    const reviewer = async (): Promise<string> =>
+      JSON.stringify({
+        proposals: [
+          {
+            section: 'Preferences and tone',
+            text: '- prefers tabs',
+            reason: 'They said so.',
+            replaces: '',
+            quote: 'I prefer tabs',
+          },
+        ],
+      });
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver, reviewer);
+    await collect(runtime.run(profileId, 's1', 'I prefer tabs.'));
+
+    const found = await runtime.reviewMemory('s1');
+    const id = found.proposals[0]?.id ?? '';
+    const answer = await runtime.resolveLearningProposal(id, true);
+    expect(answer.ok).toBe(true);
+    expect((await runtime.learningProposals()).memory).toEqual([]);
   });
 
   it('proposes a memory from a conversation and remembers it was read', async () => {

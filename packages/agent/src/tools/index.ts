@@ -26,6 +26,10 @@ import type {ProviderId} from '@marimo/protocol';
 
 import type {AgentConfig} from '../config.js';
 import {MemoryStore} from '../memory/index.js';
+import {
+  requestConnectorTool,
+  requestToolTool,
+} from '../engine/learning-tools.js';
 import {ASK_AGENT_TOOL, createAskAgentTool} from './ask-agent-tool.js';
 import type {AgentDelegation} from './ask-agent-tool.js';
 import {createDraftBotTool} from './bot-tools.js';
@@ -91,6 +95,14 @@ export const SAFE_DEFAULT_TOOLS = [
   'update_memory',
   'prune_memory',
   'web_search',
+  /*
+   * Asking is not acting. These two write a proposal into the learning inbox
+   * and change nothing else, which is why they can be on by default while
+   * `run_shell` and `write_file` cannot: the person's click is still the only
+   * path to a grant.
+   */
+  'request_tool',
+  'request_connector',
 ] as const;
 
 /**
@@ -289,12 +301,30 @@ export function describeTools(options: {
   );
 
   const granted = new Set<string>(SAFE_DEFAULT_TOOLS);
-  return built.map((tool) => ({
+  /*
+   * The two request tools are built by the v2 engine rather than by this
+   * builder, because they write to the learning inbox and the old tool set has
+   * no such service. They still belong on this screen: a capability the person
+   * cannot see is one they cannot grant, and these are the tools that make the
+   * rest of the learning loop reachable. The descriptions are the v2 definitions
+   * themselves, so the switch and the tool cannot describe themselves
+   * differently.
+   */
+  const proposed = [requestToolTool, requestConnectorTool].map((tool) => ({
     name: tool.name,
     description: tool.description,
     blurb: blurbFor(tool.name),
     byDefault: granted.has(tool.name),
   }));
+  return [
+    ...built.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      blurb: blurbFor(tool.name),
+      byDefault: granted.has(tool.name),
+    })),
+    ...proposed,
+  ];
 }
 
 /**
@@ -348,6 +378,12 @@ const TOOL_BLURBS: Record<string, string> = {
     'see the name, character and abilities in a card and decide.',
   recall:
     'Search your space and its own notes by what you mean, not by the exact words.',
+  request_tool:
+    'Ask you for a tool it does not have, with its reason. It never grants ' +
+    'itself one: the request waits for you in Learning, and you decide.',
+  request_connector:
+    'Ask you to let it use one of your connectors. Same rule as a tool: it ' +
+    'asks, you decide, and nothing changes until you do.',
   read_memory: 'Read its own notes about you and this space.',
   update_memory:
     'Write something down to remember for next time — a preference, a decision, ' +

@@ -282,6 +282,17 @@ export type {AdkDriverOptions} from './engine/adk-driver.js';
 export {CORE_TOOLS, gateFor, toolsFor} from './engine/core-tools.js';
 export type {AnyToolDefinition} from './engine/core-tools.js';
 export {describeToolError, outcome} from './engine/tool-contract.js';
+export {
+  LEARNING_TOOLS,
+  REQUEST_CONNECTOR,
+  REQUEST_TOOL,
+  requestConnectorTool,
+  requestToolTool,
+} from './engine/learning-tools.js';
+export type {
+  LearningRequestInput,
+  LearningToolService,
+} from './engine/learning-tools.js';
 export type {
   SkillLoad,
   SkillSaveInput,

@@ -11,6 +11,13 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
 import type {AgentConfig} from '../config.js';
 import {MemoryStore} from '../memory/index.js';
+
+/*
+ * The two request tools are built by the v2 engine, because they write to the
+ * learning inbox and this builder has no such service. They are still part of
+ * what the app can offer, so the comparisons below count them.
+ */
+const PROPOSAL_TOOL_NAMES = ['request_tool', 'request_connector'];
 import type {RecallLookup} from './recall-tools.js';
 
 /**
@@ -468,7 +475,9 @@ describe('the safe defaults', () => {
         // when the app has an index to answer from.
         recallService: recallStub(),
       },
-    ).map((tool) => tool.name);
+    )
+      .map((tool) => tool.name)
+      .concat(PROPOSAL_TOOL_NAMES);
   }
 
   it('names only tools that exist', () => {
@@ -565,7 +574,9 @@ describe('the tool catalogue', () => {
       provider: 'deepseek',
       webSearch: {search: async () => []},
       ...services(),
-    }).map((tool) => tool.name);
+    })
+      .map((tool) => tool.name)
+      .concat(PROPOSAL_TOOL_NAMES);
   }
 
   /*
@@ -700,7 +711,9 @@ describe('the capability presets', () => {
             pendingGates: async () => [],
           },
         },
-      ).map((tool) => tool.name),
+      )
+        .map((tool) => tool.name)
+        .concat(PROPOSAL_TOOL_NAMES),
     );
   }
 

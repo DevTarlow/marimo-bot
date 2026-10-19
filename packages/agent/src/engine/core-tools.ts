@@ -24,6 +24,7 @@ import {JOB_TOOLS} from './job-tools.js';
 import {KNOWLEDGE_TOOLS} from './knowledge-tool.js';
 import {WEB_TOOLS} from './web-tools.js';
 import {recallTool} from './recall-tool.js';
+import {LEARNING_TOOLS} from './learning-tools.js';
 import {SKILL_TOOLS} from './skill-tools.js';
 import {
   describeToolError,
@@ -307,6 +308,7 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   ...SKILL_TOOLS,
   askAgentTool,
   startTaskTool,
+  ...LEARNING_TOOLS,
   recallTool,
   draftBotTool,
   ...JOB_TOOLS,
@@ -329,6 +331,7 @@ export interface ToolAvailability {
   recall?: boolean;
   jobs?: boolean;
   webSearch?: boolean;
+  learning?: boolean;
 }
 
 export function toolsFor(
@@ -347,7 +350,8 @@ export function toolsFor(
       (tool.requiresTask !== true || available.task === true) &&
       (tool.requiresRecall !== true || available.recall === true) &&
       (tool.requiresJobs !== true || available.jobs === true) &&
-      (tool.requiresWebSearch !== true || available.webSearch === true),
+      (tool.requiresWebSearch !== true || available.webSearch === true) &&
+      (tool.requiresLearning !== true || available.learning === true),
   );
 }
 

@@ -2765,6 +2765,151 @@ export function emptyMemoryProposals(): MemoryProposalsFile {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Learning proposals                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A second kind of suggestion: not a fact to remember, but a change to what the
+ * bot may do or how it runs.
+ *
+ * Memory is the first proposal type and it stays in its own document, because it
+ * has a watermark and a refusal list that mean nothing to a grant. This is the
+ * document for everything the agent can ask for that is not a fact: a tool or
+ * connector it kept failing without, a harness setting it thinks is wrong, and a
+ * memory bullet or skill that has stopped earning its place.
+ *
+ * Every kind is a *proposal*. Nothing here is applied by being recorded. The
+ * window turns one into a decision, and the decision is the write.
+ */
+export const learningKindSchema = z.enum([
+  'grant',
+  'policy',
+  'maintenance',
+]);
+
+/**
+ * A pointer back into the log, for a suggestion that is not a quotation.
+ *
+ * Memory proposals carry one verified quote. A grant cannot: the evidence is a
+ * turn that failed for lack of the capability, not a sentence. A list of turn ids
+ * is the honest shape, and the window can open each one.
+ */
+export const learningEvidenceSchema = z.object({
+  turnId: z.string().min(1).optional(),
+  quote: z.string().trim().max(300).optional(),
+});
+export const learningEvidenceListSchema = z
+  .array(learningEvidenceSchema)
+  .max(5)
+  .default([]);
+
+const learningBase = {
+  id: z.string().min(1),
+  profileId: z.string().min(1),
+  /** The conversation it came from, when there is one. */
+  sessionId: z.string().min(1).nullable(),
+  /** Why the bot is asking, in its own words. */
+  reason: z.string().trim().max(400),
+  evidence: learningEvidenceListSchema,
+  createdAt: z.string().min(1),
+};
+
+/**
+ * A capability the bot kept failing without.
+ *
+ * `name` is a tool name from the catalogue or a connector's own id/name; the
+ * runtime resolves it against what this install actually has before the card is
+ * drawn, so a proposal cannot name a capability that does not exist.
+ */
+export const grantProposalSchema = z.object({
+  ...learningBase,
+  kind: z.literal('grant'),
+  target: z.enum(['tool', 'connector']),
+  name: z.string().trim().min(1).max(120),
+});
+export type GrantProposal = z.infer<typeof grantProposalSchema>;
+
+/**
+ * A change to the safe half of how the bot runs.
+ *
+ * Deliberately not the harness itself: the Role, the Persona, the contract and
+ * the tool gates are human text and human policy, and no proposal may touch
+ * them. What is here is the tunable context: how memory is recalled, how much
+ * room a turn gets before compaction, and how many tool calls it may spend.
+ */
+export const policyPatchSchema = z.object({
+  memoryPolicy: z.enum(['all', 'relevant']).optional(),
+  maxContextTokens: z.number().int().positive().optional(),
+  maxToolCalls: z.number().int().positive().optional(),
+});
+
+export const policyProposalSchema = z.object({
+  ...learningBase,
+  kind: z.literal('policy'),
+  patch: policyPatchSchema,
+  /** The change in one sentence, for the card. */
+  summary: z.string().trim().min(1).max(300),
+});
+export type PolicyProposal = z.infer<typeof policyProposalSchema>;
+
+/**
+ * Work the bot thinks should be done to its own notes or skills.
+ *
+ * `prune-memory` names a bullet; `disable-skill` names a skill. Both are
+ * proposals rather than housekeeping, because deleting a fact or switching off a
+ * procedure is exactly the kind of change the person has been approving.
+ */
+export const maintenanceProposalSchema = z.object({
+  ...learningBase,
+  kind: z.literal('maintenance'),
+  action: z.enum(['prune-memory', 'disable-skill']),
+  /** The bullet text, or the skill name. */
+  target: z.string().trim().min(1).max(400),
+  /** The layer a memory bullet belongs to, when it has one. */
+  section: z.string().trim().max(48).optional(),
+  summary: z.string().trim().min(1).max(300),
+});
+export type MaintenanceProposal = z.infer<typeof maintenanceProposalSchema>;
+
+export const learningProposalSchema = z.discriminatedUnion('kind', [
+  grantProposalSchema,
+  policyProposalSchema,
+  maintenanceProposalSchema,
+]);
+
+export type LearningProposal = z.infer<typeof learningProposalSchema>;
+
+/**
+ * A refusal, kept so the same suggestion is not made again.
+ *
+ * The memory document has an exact-text refusal list because a fact is a
+ * sentence. This one is keyed by the proposal's *subject* — `tool:read_file`,
+ * `prune-memory:<bullet>` — because "do not ask for that again" is about the
+ * thing, not the wording, and a model that rephrases its reason should still be
+ * quiet.
+ */
+export const learningLessonSchema = z.object({
+  id: z.string().min(1),
+  profileId: z.string().min(1),
+  kind: learningKindSchema,
+  /** The subject that was refused, e.g. `tool:read_file`. */
+  summary: z.string().trim().min(1).max(400),
+  at: z.string().min(1),
+});
+export type LearningLesson = z.infer<typeof learningLessonSchema>;
+
+export const learningFileSchema = z.object({
+  version: z.literal(1),
+  proposals: z.array(learningProposalSchema),
+  lessons: z.array(learningLessonSchema),
+});
+export type LearningFile = z.infer<typeof learningFileSchema>;
+
+export function emptyLearningFile(): LearningFile {
+  return {version: 1, proposals: [], lessons: []};
+}
+
+/* -------------------------------------------------------------------------- */
 /* Calls: renderer -> main                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -3426,6 +3571,24 @@ export const agentCallSchemas = {
     proposalId: z.string().min(1),
     accept: z.boolean(),
   }),
+  /**
+   * The whole learning inbox: facts and changes in one list.
+   *
+   * Two stores behind one call because the window is deciding about
+   * *suggestions*, not about documents. A component that had to merge a memory
+   * queue and a grant queue would be the second place that knows the difference.
+   */
+  'learning.proposals': z.object({}),
+  /**
+   * Answers any proposal. A grant writes the profile; a memory fact writes
+   * memory; a refusal records a lesson in both cases.
+   */
+  'learning.resolve': z.object({
+    proposalId: z.string().min(1),
+    accept: z.boolean(),
+  }),
+  /** Forgets every refusal, so the bot may ask again. */
+  'learning.forgetLessons': z.object({}),
   /*
    * "That answer was wrong."
    *
@@ -3728,6 +3891,26 @@ export interface AgentCallResults {
      */
     supersede?: MemorySupersede;
   };
+  'learning.proposals': {
+    proposals: LearningProposal[];
+    memory: MemoryProposal[];
+    lessons: LearningLesson[];
+  };
+  'learning.resolve': {
+    ok: boolean;
+    problem?: string;
+    /** What changed, in one sentence, when the answer was yes. */
+    applied?: string;
+    /**
+     * What became of a memory bullet a correction meant to replace.
+     *
+     * Carried through the unified call because the warning is the same warning:
+     * accepting a correction that matched nothing leaves both versions in memory,
+     * and the person pressed a button believing the old one was gone.
+     */
+    supersede?: MemorySupersede;
+  };
+  'learning.forgetLessons': {lessons: LearningLesson[]};
   'memory.feedback': {ok: boolean; problem?: string};
   'memory.feedback.list': {entries: FeedbackEntry[]};
   'memory.feedback.clear': {entries: FeedbackEntry[]};

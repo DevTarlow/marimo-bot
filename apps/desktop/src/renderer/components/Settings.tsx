@@ -74,6 +74,7 @@ import {BotIconGrid} from './BotIconGrid.js';
 import {BotMenu} from './BotMenu.js';
 import {Connectors} from './Connectors.js';
 import {Dream} from './Dream.js';
+import {Learning} from './Learning.js';
 import {Memory} from './Memory.js';
 import {ModelPicker} from './ModelPicker.js';
 import type {PopoverAnchor} from './Popover.js';
@@ -1317,11 +1318,25 @@ export function Settings({
           onSaved={load}
         />
 
-        <Memory
+        {/*
+          Learning sits before Memory because a suggestion is about the next
+          turn, while memory is about what the bot already carries. The proposal
+          list moved here from the Memory card so there is one inbox rather than
+          two places to look for the same decision.
+        */}
+        <Learning
           opened={opened}
           onToggle={fold}
+          {...(loaded.profile === undefined
+            ? {}
+            : {profileId: loaded.profile.id})}
           {...(lastReview === undefined ? {} : {lastReview})}
+          onChange={() => {
+            void load();
+          }}
         />
+
+        <Memory opened={opened} onToggle={fold} />
         {/*
           Recall sits beside memory because it is the same subject from the other
           end: memory is what the agent writes down, recall is how it finds it

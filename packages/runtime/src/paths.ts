@@ -80,6 +80,15 @@ export interface AppPaths {
    */
   memoryProposals: string;
   /**
+   * The non-memory proposals: grants, policy changes and maintenance.
+   *
+   * Its own document rather than a second field in `memory-proposals.json`,
+   * because the two have different lifetimes: memory carries a review watermark
+   * and an exact-text refusal list, and neither means anything to a grant. One
+   * inbox in the window, two stores with the shapes their own questions need.
+   */
+  learningProposals: string;
+  /**
    * The half of memory that is about the person rather than the project.
    *
    * One folder per profile under here, each holding a `memory.md`, mirroring the
@@ -213,6 +222,7 @@ export function resolveAppPaths(
     workspaces: join(userData, 'workspaces.json'),
     jobs: join(userData, 'jobs.json'),
     memoryProposals: join(userData, 'memory-proposals.json'),
+    learningProposals: join(userData, 'learning', 'proposals.json'),
     personMemoryDir: join(userData, 'memory'),
     feedback: join(userData, 'feedback.json'),
     appLock: join(userData, 'app.lock'),

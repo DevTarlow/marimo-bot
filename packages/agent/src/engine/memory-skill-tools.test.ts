@@ -334,4 +334,25 @@ describe('memory and skill tools', () => {
     expect(prompt).toContain('triage — Sort an inbox.');
     expect(prompt).not.toContain('Do the steps.');
   });
+
+  /*
+   * A bot cannot ask for a tool it has never heard of. The catalogue is the
+   * sentence that makes `request_tool` usable, and it is carried only when the
+   * prompt context has one — an ordinary turn does not pay for it.
+   */
+  it('lists the capabilities the bot could ask for', () => {
+    const spec = resolveHarness({profile: profile(), app, version: 1});
+    const prompt = composeHarnessInstruction(spec, {
+      catalogue: [
+        {name: 'read_file', description: 'Open a text file.'},
+        {name: 'web_search', description: 'Search the web.'},
+      ],
+    });
+    expect(prompt).toContain('read_file — Open a text file.');
+    expect(prompt).toContain('web_search — Search the web.');
+    expect(prompt).toContain('request_tool');
+    expect(composeHarnessInstruction(spec)).not.toContain(
+      'Capabilities you do not have',
+    );
+  });
 });

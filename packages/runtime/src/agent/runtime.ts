@@ -654,8 +654,10 @@ export class AgentRuntime {
     for (const sessionId of conversations) {
       await this.dreamStore.forget(sessionId);
       await this.proposals.forget(sessionId);
+      await this.harness().forgetLearningSession(sessionId);
     }
     await this.proposals.forgetProfile(profileId);
+    await this.harness().forgetLearningProfile(profileId);
     await this.feedbackStore.forgetProfile(profileId);
 
     /*
@@ -1229,6 +1231,7 @@ export class AgentRuntime {
      * that grows by one line per deleted chat and can never be read back.
      */
     await this.proposals.forget(sessionId);
+    await this.harness().forgetLearningSession(sessionId);
   }
 
   /**

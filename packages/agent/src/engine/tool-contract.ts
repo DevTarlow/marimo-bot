@@ -14,6 +14,7 @@ import type {ZodObject, ZodRawShape} from 'zod';
 
 import type {GateRule} from '../harness/spec.js';
 import type {MemoryStore} from '../memory/memory-store.js';
+import type {LearningToolService} from './learning-tools.js';
 import type {JobService} from '../tools/job-tools.js';
 import type {RecallLookup} from '../tools/recall-tools.js';
 import type {WebSearchProvider} from '../tools/web-search-tool.js';
@@ -68,6 +69,8 @@ export interface ToolContext {
   recall?: RecallLookup;
   /** Present only when this runtime can schedule jobs. */
   jobs?: JobService;
+  /** Present only when this runtime has a learning inbox to record into. */
+  learning?: LearningToolService;
   /** Present only when this install has a search provider. */
   webSearch?: WebSearchProvider;
   /** Whether http_fetch may reach loopback and private hosts. */
@@ -98,6 +101,8 @@ export interface ToolDefinition<Args = unknown> {
   requiresRecall?: boolean;
   /** A tool that needs scheduling is absent when no job service is present. */
   requiresJobs?: boolean;
+  /** A tool that needs a learning inbox is absent when there is none. */
+  requiresLearning?: boolean;
   /** A tool that needs web search is absent when no provider is present. */
   requiresWebSearch?: boolean;
   execute(args: Args, context: ToolContext): Promise<ToolOutcome>;

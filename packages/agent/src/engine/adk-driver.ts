@@ -31,7 +31,12 @@ import {
   type HarnessPromptContext,
 } from '../context/instruction.js';
 import {resolveInsideWorkspace} from '../tools/paths.js';
-import {gateFor, toolsFor, type AnyToolDefinition} from './core-tools.js';
+import {
+  CORE_TOOLS,
+  gateFor,
+  toolsFor,
+  type AnyToolDefinition,
+} from './core-tools.js';
 import type {
   DriverEvent,
   DriverResume,
@@ -79,6 +84,7 @@ export interface AdkDriverOptions {
   toolContext?: (
     harness: HarnessSpec,
     signal: AbortSignal,
+    turnId?: string,
   ) => ToolContext | Promise<ToolContext>;
   /** The ADK session a parked helper left behind, when one exists. */
   resumeSessions?: (sessionId: string) => unknown;
@@ -150,7 +156,11 @@ export class AdkDriver implements TurnDriver {
       cached === undefined
         ? await this.sessionsFrom(input.sessionId, history, input.harness)
         : (cached as InMemorySessionService);
-    const context = await this.toolContextFor(input.harness, input.signal);
+    const context = await this.toolContextFor(
+      input.harness,
+      input.signal,
+      input.turnId,
+    );
     const runner = this.runnerFor(
       input.harness,
       sessions,
@@ -187,7 +197,11 @@ export class AdkDriver implements TurnDriver {
       cached === undefined
         ? await this.sessionsFrom(input.sessionId, history, input.harness)
         : (cached as InMemorySessionService);
-    const context = await this.toolContextFor(input.harness, input.signal);
+    const context = await this.toolContextFor(
+      input.harness,
+      input.signal,
+      input.turnId,
+    );
     const runner = this.runnerFor(
       input.harness,
       sessions,
@@ -456,6 +470,7 @@ export class AdkDriver implements TurnDriver {
           {};
         return composeHarnessInstruction(harness, {
           ...prompt,
+          catalogue: this.requestCatalogue(harness),
           ...(instruction === undefined ? {} : {instruction}),
         });
       },
@@ -471,9 +486,10 @@ export class AdkDriver implements TurnDriver {
   private async toolContextFor(
     harness: HarnessSpec,
     signal: AbortSignal,
+    turnId?: string,
   ): Promise<ToolContext> {
     return (
-      (await this.options.toolContext?.(harness, signal)) ?? {
+      (await this.options.toolContext?.(harness, signal, turnId)) ?? {
         workspaceRoot: harness.workspaceRoot ?? '',
         signal,
       }
@@ -696,6 +712,7 @@ ${task}`});
         task: context.delegateTask !== undefined,
         jobs: context.jobs !== undefined,
         webSearch: context.webSearch !== undefined,
+        learning: context.learning !== undefined,
       })
     ).filter((definition) => omitTools?.has(definition.name) !== true);
     return definitions.map((definition) => {
@@ -732,6 +749,33 @@ ${task}`});
         },
       }) as unknown as FunctionTool<never>;
     });
+  }
+
+  /**
+   * The capabilities this bot could ask for, in the words the catalogue uses.
+   *
+   * Only when it has `request_tool`: advertising a list of things the bot cannot
+   * request is the prompt-invites-a-call-it-cannot-make failure. The shell is
+   * removed here as well as refused by the tool and the runtime, because this is
+   * the sentence the model reads before it decides to ask.
+   */
+  private requestCatalogue(
+    harness: HarnessSpec,
+  ): Array<{name: string; description: string}> {
+    if (!harness.tools.grants.includes('request_tool')) {
+      return [];
+    }
+    const granted = new Set(harness.tools.grants);
+    return CORE_TOOLS.filter(
+      (tool) =>
+        !granted.has(tool.name) &&
+        tool.name !== 'run_shell' &&
+        tool.name !== 'request_tool' &&
+        tool.name !== 'request_connector',
+    ).map((tool) => ({
+      name: tool.name,
+      description: firstSentence(tool.description),
+    }));
   }
 
   private confirmationFor(
@@ -1096,4 +1140,19 @@ function eventChars(event: SessionEvent): number {
     default:
       return 80;
   }
+}
+
+
+/**
+ * The first sentence of a tool description, bounded.
+ *
+ * The catalogue is paid on every turn, so a full description of every ungranted
+ * tool would be a context tax on the one feature that is supposed to reduce the
+ * person's explaining. The first sentence is what distinguishes one capability
+ * from another; the schema the model gets when it is granted says the rest.
+ */
+function firstSentence(text: string): string {
+  const end = text.indexOf('. ');
+  const sentence = (end < 0 ? text : text.slice(0, end + 1)).trim();
+  return sentence.length > 140 ? `${sentence.slice(0, 137)}...` : sentence;
 }

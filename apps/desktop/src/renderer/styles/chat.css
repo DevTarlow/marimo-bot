@@ -2697,6 +2697,34 @@
   font-size: var(--text-base);
 }
 
+/*
+ * The outcome line above the inbox.
+ *
+ * Small and factual rather than a dashboard: the numbers exist to give the
+ * proposal below them a denominator, not to become a thing to watch. Wrapped
+ * because it is five facts on one line and the window is not always wide.
+ */
+.learning-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.learning-stats strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.learning-kind {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .memory-item {
   display: flex;
   flex-direction: column;

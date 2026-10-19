@@ -20,6 +20,15 @@ export interface HarnessSkillSummary {
 export interface HarnessPromptContext {
   memory?: string;
   skills?: readonly HarnessSkillSummary[];
+  /**
+   * Capabilities this bot does not have and could ask for.
+   *
+   * Only filled when `request_tool` is granted, and never with `run_shell`: a
+   * list of things the bot may request is a list of things the person may be
+   * asked to approve, and putting the shell on it would make the refusal a
+   * matter of the model's judgement.
+   */
+  catalogue?: ReadonlyArray<{name: string; description: string}>;
   /** Text for this turn only: the surface that asked, not the bot. */
   instruction?: string;
 }
@@ -74,6 +83,20 @@ export function composeHarnessInstruction(
         'Skills you may load. The line says when one is useful; the steps are ' +
           'read with load_skill only when a task matches:',
         ...skills.map((skill) => `- ${skill.name} — ${skill.description}`),
+      ].join('\n'),
+    );
+  }
+
+  const catalogue = context.catalogue ?? [];
+  if (catalogue.length > 0) {
+    sections.push(
+      [
+        'Capabilities you do not have. If a task needs one, `request_tool` can',
+        'ask the person for it — they decide, and you do not have it until they',
+        'do. Do not use this list to narrate a capability you were not given:',
+        ...catalogue.map(
+          (entry) => `- ${entry.name} — ${entry.description}`,
+        ),
       ].join('\n'),
     );
   }

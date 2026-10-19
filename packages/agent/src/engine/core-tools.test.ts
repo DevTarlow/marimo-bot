@@ -86,6 +86,19 @@ describe('toolsFor', () => {
     expect(names).toEqual(['current_time']);
   });
 
+  /*
+   * The request tools are the one pair whose availability is about the runtime
+   * rather than the Space. A turn with no inbox cannot record a proposal, and a
+   * tool that answers "cannot ask" is a capability the model would narrate.
+   */
+  it('offers a request tool only when there is an inbox to record into', () => {
+    const spec = harness('/tmp/space', ['request_tool', 'request_connector']);
+    expect(toolsFor(spec, {}).map((entry) => entry.name)).toEqual([]);
+    expect(
+      toolsFor(spec, {learning: true}).map((entry) => entry.name),
+    ).toEqual(['request_tool', 'request_connector']);
+  });
+
   it('offers a workspace tool when there is a Space', () => {
     expect(
       toolsFor(harness('/tmp/space', ['current_time', 'read_file'])).map(

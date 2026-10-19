@@ -1098,9 +1098,26 @@ export class HarnessRuntime {
       this.proposals.load(),
       this.learning.currentLessons(),
     ]);
+    /*
+     * Scoped to the bot whose card is being drawn. A proposal carries the
+     * profile it would change, and showing one bot's request under another's
+     * name is how a person approves something for the wrong agent. The
+     * app-wide view is the one with no profile id, and it is only used where
+     * there is no bot in context.
+     */
     return {
-      proposals: learning.proposals,
-      memory: memory.proposals,
+      proposals:
+        profileId === undefined
+          ? learning.proposals
+          : learning.proposals.filter(
+              (proposal) => proposal.profileId === profileId,
+            ),
+      memory:
+        profileId === undefined
+          ? memory.proposals
+          : memory.proposals.filter(
+              (proposal) => proposal.profileId === profileId,
+            ),
       lessons,
     };
   }

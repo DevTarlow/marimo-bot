@@ -695,6 +695,7 @@ describe('HarnessRuntime', () => {
             text: '- prefers tabs',
             reason: 'They said so.',
             replaces: '',
+            quote: 'I prefer tabs',
           },
         ],
       });
@@ -708,6 +709,7 @@ describe('HarnessRuntime', () => {
       section: 'Preferences and tone',
       text: '- prefers tabs',
       profileId,
+      evidence: {quote: 'I prefer tabs'},
     });
 
     const second = await runtime.reviewMemory('s1');

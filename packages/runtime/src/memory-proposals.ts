@@ -101,6 +101,8 @@ export interface NewProposal {
   reason: string;
   /** The existing bullet this fact corrects, when the reviewer noticed one. */
   replaces?: string;
+  /** The conversation words the reviewer checked the fact against. */
+  evidence?: {quote: string; turnId?: string};
 }
 
 export class MemoryProposalStore {

@@ -44,6 +44,13 @@ describe('the prompt', () => {
     );
   });
 
+  it('asks for a quote that can be checked against the conversation', () => {
+    const prompt = reviewPrompt('USER: I prefer tabs');
+    expect(prompt).toContain('"quote"');
+    expect(prompt).toContain('copied word for word');
+    expect(prompt).toContain('discarded');
+  });
+
   /*
    * The reviewer is shown what memory already holds so a *correction* can be
    * recognised as one. No substring test can tell that "we use pnpm now"
@@ -610,6 +617,7 @@ describe('running a review', () => {
             section: 'Notes',
             text: 'Uses pnpm, not npm.',
             reason: 'they said so',
+            quote: 'I always use pnpm',
           },
         ]);
       },
@@ -617,6 +625,45 @@ describe('running a review', () => {
 
     expect(proposals).toHaveLength(1);
     expect(proposals[0]?.text).toBe('Uses pnpm, not npm.');
+  });
+
+  /*
+   * The quote is the only part of a proposal that is not the model's own
+   * wording, so it is the only part that can be checked. A fact the reviewer
+   * cannot point at is dropped rather than shown with a plausible reason.
+   */
+  it('keeps the quote that occurs in the conversation, and drops one that does not', async () => {
+    const {proposals} = await runReview({
+      events: [
+        {
+          author: 'user',
+          turnId: 'turn-1',
+          content: {parts: [{text: 'I always use pnpm.'}]},
+        },
+      ],
+      memory: '',
+      ask: async () =>
+        answer([
+          {
+            section: 'Notes',
+            text: 'Uses pnpm.',
+            reason: 'they said so',
+            quote: 'I always use pnpm',
+          },
+          {
+            section: 'About the user',
+            text: 'Lives in Berlin.',
+            reason: 'they said so',
+            quote: 'I live in Berlin',
+          },
+        ]),
+    });
+
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]?.evidence).toEqual({
+      quote: 'I always use pnpm',
+      turnId: 'turn-1',
+    });
   });
 
   it('drops what the memory already holds', async () => {
@@ -629,6 +676,7 @@ describe('running a review', () => {
             section: 'Notes',
             text: 'Uses pnpm, not npm.',
             reason: 'they said so',
+            quote: 'I always use pnpm',
           },
         ]),
     });
@@ -705,6 +753,7 @@ describe('facts the user refused', () => {
             section: 'About the user',
             text: 'Scans their receipts every Sunday.',
             reason: 'they said so',
+            quote: 'I scan receipts',
           },
         ]),
     });
@@ -728,6 +777,7 @@ describe('facts the user refused', () => {
             section: 'About the user',
             text: '  scans their RECEIPTS every   sunday. ',
             reason: 'they said so',
+            quote: 'I scan receipts',
           },
         ]),
     });
@@ -751,6 +801,7 @@ describe('facts the user refused', () => {
             section: 'About the user',
             text: 'Finds filing receipts a chore.',
             reason: 'they said so',
+            quote: 'Receipts are a chore',
           },
         ]),
     });
@@ -769,16 +820,19 @@ describe('facts the user refused', () => {
             section: 'About the user',
             text: 'Works in Rust.',
             reason: 'already known',
+            quote: 'lots of things',
           },
           {
             section: 'About the user',
             text: 'Scans their receipts every Sunday.',
             reason: 'refused',
+            quote: 'lots of things',
           },
           {
             section: 'About the user',
             text: 'Has a dog named Bramble.',
             reason: 'new',
+            quote: 'lots of things',
           },
         ]),
     });

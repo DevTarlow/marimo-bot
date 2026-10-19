@@ -51,6 +51,17 @@ export interface MemoryProposal {
    * the state the memory skill spends a paragraph warning against.
    */
   replaces?: string;
+  /**
+   * The words in the conversation this fact came from.
+   *
+   * Required on anything the review records. A proposal's `reason` is the
+   * model's own explanation and costs nothing to invent; a quote is checked
+   * against the transcript, so a fact nobody said cannot reach the queue by
+   * being confidently worded. The turn id is filled in when the quote can be
+   * located, which is what lets the window say *where* in the conversation the
+   * claim came from rather than only that it did.
+   */
+  evidence?: {quote: string; turnId?: string};
 }
 
 /** The most proposals one review may produce. */
@@ -117,6 +128,15 @@ const proposalSchema = z.object({
    * correction" from "a correction whose target was lost".
    */
   replaces: z.string().trim().max(400).optional(),
+  /**
+   * A phrase copied from the conversation.
+   *
+   * Optional in the parse and required by `runReview`, on purpose: an answer
+   * without one is a well-formed JSON object that cannot be trusted, and the
+   * parse is also used to prove what a model *wrote*. The filter that matters
+   * lives below, where the quote is checked against the transcript.
+   */
+  quote: z.string().trim().min(1).max(300).optional(),
 });
 
 const answerSchema = z.object({
@@ -228,10 +248,16 @@ export function reviewPrompt(
     'Those are the common layers, not the only ones: a section the memory file',
     'already has is fine to use, and "Notes" is the fallback when nothing fits.',
     '',
+    'Every proposal must carry "quote": a short phrase copied word for word',
+    'from the conversation that supports the fact. Do not paraphrase it, do not',
+    'join two sentences with an ellipsis, and do not quote the agent\'s own',
+    'reasoning. A proposal whose quote cannot be found in the conversation is',
+    'discarded before the user sees it.',
+    '',
     'Answer with JSON only, no prose around it:',
     '{"proposals":[{"section":"' +
       PROPOSAL_EXAMPLE_SECTION +
-      '","text":"...","reason":"...","replaces":""}]}',
+      '","text":"...","reason":"...","replaces":"","quote":"..."}]}',
     '',
     'At most 5. An empty list is the right answer for most conversations.',
     '',
@@ -332,11 +358,60 @@ function withoutEmptyReplaces(proposal: {
   text: string;
   reason: string;
   replaces?: string | undefined;
+  quote?: string | undefined;
 }): MemoryProposal {
-  const {replaces, ...rest} = proposal;
-  return replaces === undefined || replaces.length === 0
-    ? rest
-    : {...rest, replaces};
+  const {replaces, quote, ...rest} = proposal;
+  const evidence = quote === undefined || quote.length === 0 ? undefined : quote;
+  return {
+    ...rest,
+    ...(replaces === undefined || replaces.length === 0 ? {} : {replaces}),
+    ...(evidence === undefined ? {} : {evidence: {quote: evidence}}),
+  };
+}
+
+/**
+ * Whether a quote really occurs in the text the reviewer was given.
+ *
+ * Case- and whitespace-insensitive, and no more lenient than that. A model that
+ * re-cased a sentence still copied it; one that rewrote it did not, and the
+ * difference is the whole point of asking. The quotes around it are stripped
+ * because a model asked for a phrase often supplies the quotation marks too.
+ */
+function quoteAppears(quote: string, text: string): boolean {
+  const wanted = comparable(quote.replaceAll(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/gu, ''));
+  if (wanted.length < 3) {
+    return false;
+  }
+  return comparable(text).includes(wanted);
+}
+
+function comparable(value: string): string {
+  return value.toLowerCase().replaceAll(/\s+/gu, ' ').trim();
+}
+
+/**
+ * The turn a quote came from, when the events still carry one.
+ *
+ * A review reads events that were rendered, and the turn id is on the ones that
+ * have it. Looking it up here rather than in the caller keeps the evidence and
+ * the proposal in one write: a proposal whose quote is in event 12 but whose
+ * turn id says 11 is worse than no turn id at all.
+ */
+function turnOfQuote(
+  quote: string,
+  events: readonly ReviewEvent[],
+): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    const text = (event?.content?.parts ?? [])
+      .filter((part) => part.thought !== true)
+      .map((part) => part.text ?? '')
+      .join(' ');
+    if (text.length > 0 && quoteAppears(quote, text) && event?.turnId !== undefined) {
+      return event.turnId;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -438,6 +513,8 @@ export function isNewProposal(
 /** One stored event, as this file reads it. */
 export interface ReviewEvent {
   author?: string;
+  /** The turn the words belong to, when the caller kept it. */
+  turnId?: string;
   content?: {parts?: Array<{text?: string; thought?: boolean}>};
 }
 
@@ -543,14 +620,47 @@ export async function runReview(
     return {proposals: [], used: stretch.used};
   }
 
-  return {
-    proposals: parseProposals(answer).filter(
-      (proposal) =>
-        isNewProposal(proposal, request.memory) &&
-        !wasRefused(proposal, request.refused ?? []),
-    ),
-    used: stretch.used,
-  };
+  /*
+   * A correction is stated in the feedback note, not in the conversation, and
+   * it is the strongest evidence the reviewer gets. Including it here means a
+   * proposal that quotes the user's correction survives the check rather than
+   * being discarded for quoting words the transcript never contained.
+   */
+  const evidenceText = [
+    stretch.text,
+    ...(request.corrections ?? []).flatMap((entry) => [
+      entry.text,
+      entry.excerpt,
+    ]),
+  ].join('\n');
+
+  const proposals: MemoryProposal[] = [];
+  for (const proposal of parseProposals(answer)) {
+    const quote = proposal.evidence?.quote;
+    /*
+     * No quote, no proposal. This is the deterministic half of "do not infer":
+     * a model can write a confident sentence about a project it never read, and
+     * the only cost of dropping that is one suggestion the user does not see.
+     */
+    if (quote === undefined || !quoteAppears(quote, evidenceText)) {
+      continue;
+    }
+    if (!isNewProposal(proposal, request.memory)) {
+      continue;
+    }
+    if (wasRefused(proposal, request.refused ?? [])) {
+      continue;
+    }
+    const turnId = turnOfQuote(quote, request.events);
+    proposals.push({
+      ...proposal,
+      evidence: {
+        quote,
+        ...(turnId === undefined ? {} : {turnId}),
+      },
+    });
+  }
+  return {proposals, used: stretch.used};
 }
 
 /**

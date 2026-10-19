@@ -2754,6 +2754,23 @@
   user-select: text;
 }
 
+/*
+ * The words the fact came from.
+ *
+ * A quote mark and a rule rather than a coloured box: this is evidence, not a
+ * warning, and the person is meant to read it as something that was said. It sits
+ * above the model's reason because it is the part that was checked.
+ */
+.memory-evidence {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  user-select: text;
+}
+
 .memory-why summary {
   cursor: pointer;
 }

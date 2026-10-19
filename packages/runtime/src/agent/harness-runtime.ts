@@ -955,6 +955,9 @@ export class HarnessRuntime {
         ...(proposal.replaces === undefined
           ? {}
           : {replaces: proposal.replaces}),
+        ...(proposal.evidence === undefined
+          ? {}
+          : {evidence: proposal.evidence}),
       })),
     );
     const added = new Set(found.proposals.map((proposal) => proposal.text));
@@ -1587,21 +1590,25 @@ function reviewEvents(
   events: readonly import('@marimo/agent').SessionEvent[],
 ): Array<{
   author?: string;
+  turnId?: string;
   content?: {parts?: Array<{text?: string; thought?: boolean}>};
 }> {
   const reviewable: Array<{
     author?: string;
+    turnId?: string;
     content?: {parts?: Array<{text?: string; thought?: boolean}>};
   }> = [];
   for (const event of events) {
     if (event.type === 'user.message') {
       reviewable.push({
         author: 'user',
+        turnId: event.turnId,
         content: {parts: [{text: event.text}]},
       });
     } else if (event.type === 'assistant.message') {
       reviewable.push({
         author: event.author,
+        turnId: event.turnId,
         content: {
           parts: [
             ...(event.reasoning === undefined

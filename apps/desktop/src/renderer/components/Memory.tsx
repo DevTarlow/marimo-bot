@@ -385,6 +385,17 @@ export function Memory({
                 This replaces: <span>{proposal.replaces}</span>
               </p>
             )}
+            {/*
+             * The sentence the fact was drawn from, before the model's own
+             * explanation of it. The quote is checked against the transcript and
+             * the reason is not, so a person reading this is looking at the one
+             * part of the proposal that cannot have been invented.
+             */}
+            {proposal.evidence !== undefined && (
+              <blockquote className="memory-evidence">
+                &ldquo;{proposal.evidence.quote}&rdquo;
+              </blockquote>
+            )}
             {proposal.reason.length > 0 && (
               <details className="memory-why">
                 <summary>Why it suggested this</summary>

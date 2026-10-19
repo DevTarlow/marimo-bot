@@ -2331,6 +2331,23 @@ export const memoryProposalSchema = z.object({
    * not answered yet, which is a worse trade for the one case of a downgrade.
    */
   replaces: z.string().trim().max(400).optional(),
+  /**
+   * The words in the conversation this fact came from.
+   *
+   * Optional because proposals written before this field existed are still
+   * waiting for an answer, and an upgrade must not throw away a person's queue
+   * to gain a citation. Everything the current reviewer records has one, and the
+   * window shows it: a fact the user can trace to a sentence is one they can
+   * judge, and a fact they cannot is a suggestion with a reason attached.
+   */
+  evidence: z
+    .object({
+      /** Copied from the conversation; the reviewer verified it occurs there. */
+      quote: z.string().trim().min(1).max(300),
+      /** The turn it came from, when the reviewer could place it. */
+      turnId: z.string().min(1).optional(),
+    })
+    .optional(),
   /** The agent it would be remembered by. */
   profileId: z.string().min(1),
   createdAt: z.string().min(1),

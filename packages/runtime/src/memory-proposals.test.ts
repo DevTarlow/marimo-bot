@@ -85,6 +85,31 @@ describe('the proposal store', () => {
     expect(reopened.proposals[0]?.replaces).toBe('Uses npm.');
   });
 
+  /*
+   * Evidence is what makes a proposal checkable after a restart. The quote was
+   * verified against the transcript when the review ran; if the store dropped it,
+   * the window would show a fact with only the model's own reason beside it,
+   * which is the thing the quote exists to outrank.
+   */
+  it('carries the words a fact came from, across a restart', async () => {
+    await store.record('session-1', 4, [
+      proposal({evidence: {quote: 'I prefer tabs.', turnId: 'turn-1'}}),
+    ]);
+
+    const reopened = await new MemoryProposalStore({file}).load();
+    expect(reopened.proposals[0]?.evidence).toEqual({
+      quote: 'I prefer tabs.',
+      turnId: 'turn-1',
+    });
+  });
+
+  it('carries no evidence for a proposal written before the field existed', async () => {
+    await store.record('session-1', 4, [proposal()]);
+
+    const reopened = await new MemoryProposalStore({file}).load();
+    expect(reopened.proposals[0]).not.toHaveProperty('evidence');
+  });
+
   it('carries no replaces for an ordinary proposal', async () => {
     await store.record('session-1', 4, [proposal()]);
 

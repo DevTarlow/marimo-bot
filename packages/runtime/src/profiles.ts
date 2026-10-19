@@ -324,11 +324,13 @@ export class ProfileStore {
         model: storedModel,
         spaceId: storedSpace,
         avatar: storedAvatar,
+        policy: storedPolicy,
         ...carried
       } = current;
       const grant = patchedValue(clean.mcpServerIds, storedGrant);
       const model = patchedValue(clean.model, storedModel);
       const space = patchedValue(clean.spaceId, storedSpace);
+      const policy = patchedValue(clean.policy, storedPolicy);
       /*
        * Clearing the icon is "back to the default for this bot", not "leave the
        * field missing": a missing field is a state the window would have to
@@ -368,6 +370,7 @@ export class ProfileStore {
         ...(model === undefined ? {} : {model}),
         ...(space === undefined ? {} : {spaceId: space}),
         ...(avatar === undefined ? {} : {avatar}),
+        ...(policy === undefined ? {} : {policy}),
       };
       await this.writeFile(replaceProfile(updated, file));
       return updated;

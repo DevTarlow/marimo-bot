@@ -110,8 +110,26 @@ export function proposalSubject(
   switch (proposal.kind) {
     case 'grant':
       return `${proposal.target}:${proposal.name.trim().toLocaleLowerCase()}`;
-    case 'policy':
-      return `policy:${JSON.stringify(proposal.patch)}`;
+    case 'policy': {
+      /*
+       * Key order is normalised before the comparison. Two proposals naming the
+       * same three settings in a different order are the same proposal, and a
+       * refusal keyed on `JSON.stringify` of whatever order the model happened
+       * to write would never match twice.
+       */
+      const patch = {
+        ...(proposal.patch.memoryPolicy === undefined
+          ? {}
+          : {memoryPolicy: proposal.patch.memoryPolicy}),
+        ...(proposal.patch.maxContextTokens === undefined
+          ? {}
+          : {maxContextTokens: proposal.patch.maxContextTokens}),
+        ...(proposal.patch.maxToolCalls === undefined
+          ? {}
+          : {maxToolCalls: proposal.patch.maxToolCalls}),
+      };
+      return `policy:${JSON.stringify(patch)}`;
+    }
     case 'maintenance':
       return `${proposal.action}:${proposal.target.trim().toLocaleLowerCase()}`;
   }

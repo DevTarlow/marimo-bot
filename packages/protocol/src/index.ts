@@ -1167,6 +1167,51 @@ export function defaultBotAvatarFor(index: number): BotAvatar {
  * impossible to read while the active agent was changing. They live in
  * `workspacesFileSchema` now, for the whole install.
  */
+/**
+ * The bounds a proposal may name.
+ *
+ * Wide enough for a real choice, narrow enough that a typo cannot make a bot
+ * unusable. The context floor is above the app's stable layers plus a turn, and
+ * the ceiling is below any current provider's window; the tool-call ceiling is
+ * the point at which a turn is a program rather than a request.
+ */
+export const HARNESS_POLICY_CONTEXT_MIN = 8_000;
+export const HARNESS_POLICY_CONTEXT_MAX = 512_000;
+export const HARNESS_POLICY_TOOL_CALLS_MIN = 1;
+export const HARNESS_POLICY_TOOL_CALLS_MAX = 50;
+
+/**
+ * The safe half of how a bot runs.
+ *
+ * These are the three settings a proposal may change. Role, Persona, the
+ * contract and the tool gates are deliberately absent: they are human text and
+ * human policy, and the loop's rule is that the bot may improve how it works
+ * without rewriting who it is.
+ */
+export const harnessPolicySchema = z.object({
+  /** `all` carries the file whole; `relevant` retrieves against the question. */
+  memoryPolicy: z.enum(['all', 'relevant']).optional(),
+  /** Room for the stable layers and the recent turns before compaction. */
+  maxContextTokens: z
+    .number()
+    .int()
+    .min(HARNESS_POLICY_CONTEXT_MIN)
+    .max(HARNESS_POLICY_CONTEXT_MAX)
+    .optional(),
+  /** Tool calls one turn may spend. */
+  maxToolCalls: z
+    .number()
+    .int()
+    .min(HARNESS_POLICY_TOOL_CALLS_MIN)
+    .max(HARNESS_POLICY_TOOL_CALLS_MAX)
+    .optional(),
+});
+
+export type HarnessPolicy = z.infer<typeof harnessPolicySchema>;
+
+/** Kept as an alias because the proposal schema names its payload a patch. */
+export const policyPatchSchema = harnessPolicySchema;
+
 export const agentProfileSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1),
@@ -1278,6 +1323,18 @@ export const agentProfileSchema = z.object({
    * a fresh agent.
    */
   spaceId: z.string().min(1).optional(),
+  /**
+   * How this bot runs, when a proposal changed it.
+   *
+   * The safe subset only: memory recall, compaction room and the tool-call
+   * budget. A profile with no policy runs the app's defaults, which is the state
+   * every profile written before this field existed is in — and the resolver
+   * reads an absent field as "no override", so an upgrade changes nothing.
+   *
+   * Optional and tolerant for the reason `model` is: a profile the schema
+   * refuses is skipped, and one bad policy block must not cost the bot.
+   */
+  policy: harnessPolicySchema.optional(),
 });
 
 export const profilePatchSchema = z.object({
@@ -1285,6 +1342,8 @@ export const profilePatchSchema = z.object({
   identity: z.string().optional(),
   /** An empty string clears it; absent leaves whatever is stored alone. */
   persona: z.string().optional(),
+  /** `null` clears the overrides and returns the bot to the app's defaults. */
+  policy: harnessPolicySchema.nullable().optional(),
   /**
    * The icon, or `null` to go back to the default for this bot's place in the
    * roster. Absent leaves whatever is stored alone — the same three answers
@@ -2491,11 +2550,7 @@ export type GrantProposal = z.infer<typeof grantProposalSchema>;
  * them. What is here is the tunable context: how memory is recalled, how much
  * room a turn gets before compaction, and how many tool calls it may spend.
  */
-export const policyPatchSchema = z.object({
-  memoryPolicy: z.enum(['all', 'relevant']).optional(),
-  maxContextTokens: z.number().int().positive().optional(),
-  maxToolCalls: z.number().int().positive().optional(),
-});
+
 
 export const policyProposalSchema = z.object({
   ...learningBase,

@@ -17,7 +17,7 @@ import {MemoryStore} from '../memory/index.js';
  * learning inbox and this builder has no such service. They are still part of
  * what the app can offer, so the comparisons below count them.
  */
-const PROPOSAL_TOOL_NAMES = ['request_tool', 'request_connector'];
+const PROPOSAL_TOOL_NAMES = ['request_tool', 'request_connector', 'propose_policy'];
 import type {RecallLookup} from './recall-tools.js';
 
 /**

@@ -27,6 +27,7 @@ import type {ProviderId} from '@marimo/protocol';
 import type {AgentConfig} from '../config.js';
 import {MemoryStore} from '../memory/index.js';
 import {
+  proposePolicyTool,
   requestConnectorTool,
   requestToolTool,
 } from '../engine/learning-tools.js';
@@ -103,6 +104,7 @@ export const SAFE_DEFAULT_TOOLS = [
    */
   'request_tool',
   'request_connector',
+  'propose_policy',
 ] as const;
 
 /**
@@ -310,7 +312,11 @@ export function describeTools(options: {
    * themselves, so the switch and the tool cannot describe themselves
    * differently.
    */
-  const proposed = [requestToolTool, requestConnectorTool].map((tool) => ({
+  const proposed = [
+    requestToolTool,
+    requestConnectorTool,
+    proposePolicyTool,
+  ].map((tool) => ({
     name: tool.name,
     description: tool.description,
     blurb: blurbFor(tool.name),
@@ -384,6 +390,9 @@ const TOOL_BLURBS: Record<string, string> = {
   request_connector:
     'Ask you to let it use one of your connectors. Same rule as a tool: it ' +
     'asks, you decide, and nothing changes until you do.',
+  propose_policy:
+    'Suggest a change to how it runs — how memory is recalled, how much room a ' +
+    'turn has, how many tool calls it may spend. It asks; you decide.',
   read_memory: 'Read its own notes about you and this space.',
   update_memory:
     'Write something down to remember for next time — a preference, a decision, ' +

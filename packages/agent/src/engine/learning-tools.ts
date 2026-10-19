@@ -18,17 +18,27 @@
  */
 import {z} from 'zod';
 
+import {harnessPolicySchema} from '@marimo/protocol';
+
 import type {ToolDefinition} from './tool-contract.js';
 import {outcome} from './tool-contract.js';
 
 export const REQUEST_TOOL = 'request_tool';
 export const REQUEST_CONNECTOR = 'request_connector';
+export const PROPOSE_POLICY = 'propose_policy';
 
 export interface LearningRequestInput {
   target: 'tool' | 'connector';
   name: string;
   reason: string;
   /** Evidence the model wants to attach, in its own words. */
+  evidence?: string;
+}
+
+export interface LearningPolicyInput {
+  /** Any subset of the safe policy; the runtime merges it over the profile's. */
+  patch: z.infer<typeof harnessPolicySchema>;
+  reason: string;
   evidence?: string;
 }
 
@@ -40,6 +50,16 @@ export interface LearningToolService {
    * the agent it is asking for — that is the turn's fact, not the model's.
    */
   request(input: LearningRequestInput): Promise<{ok: boolean; result: string}>;
+  /**
+   * Records a change to how the bot runs.
+   *
+   * Separate from `request` because the payload is a policy rather than a name,
+   * and because the runtime validates it against the same bounds the profile
+   * schema does — a proposal is not a way around the schema.
+   */
+  proposePolicy(
+    input: LearningPolicyInput,
+  ): Promise<{ok: boolean; result: string}>;
 }
 
 const parameters = z.object({
@@ -160,4 +180,86 @@ function requestDefinition(
 export const requestToolTool = requestDefinition('tool');
 export const requestConnectorTool = requestDefinition('connector');
 
-export const LEARNING_TOOLS = [requestToolTool, requestConnectorTool] as const;
+/**
+ * Propose a change to how the bot runs.
+ *
+ * The three fields are the whole safe half of the harness. Role, Persona, the
+ * contract and the tool gates are not here and cannot be reached through this
+ * tool: the rule is that the bot may improve how it works without rewriting who
+ * it is, and the schema is where that is enforced rather than the prompt.
+ */
+export const proposePolicyTool: ToolDefinition<Record<string, unknown>> = {
+  name: PROPOSE_POLICY,
+  description:
+    'Propose a change to how you run: whether memory is recalled whole or by ' +
+    'relevance, how much room a turn has before it is compacted, or how many ' +
+    'tool calls a turn may spend. This changes nothing by itself — the person ' +
+    'sees the proposal and decides. You cannot propose a change to your Role, ' +
+    'your Persona, the app’s rules, or a tool’s approval gate.',
+  parameters: harnessPolicySchema.extend({
+    reason: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .describe('What the current setting costs, in the person’s terms.'),
+    evidence: z
+      .string()
+      .trim()
+      .max(300)
+      .optional()
+      .describe('A short note about the turn that shows the problem.'),
+  }),
+  requiresLearning: true,
+  execute: async (args, context) => {
+    const reason = String(args.reason ?? '').trim();
+    const evidence = String(args.evidence ?? '').trim();
+    const patch = {
+      ...(typeof args.memoryPolicy === 'string'
+        ? {memoryPolicy: args.memoryPolicy as 'all' | 'relevant'}
+        : {}),
+      ...(typeof args.maxContextTokens === 'number'
+        ? {maxContextTokens: args.maxContextTokens}
+        : {}),
+      ...(typeof args.maxToolCalls === 'number'
+        ? {maxToolCalls: args.maxToolCalls}
+        : {}),
+    };
+    if (reason.length === 0) {
+      return outcome(
+        false,
+        'A proposal needs a reason. Say what the current setting costs.',
+      );
+    }
+    if (Object.keys(patch).length === 0) {
+      return outcome(
+        false,
+        'A proposal needs at least one setting to change.',
+      );
+    }
+    if (context.learning === undefined) {
+      return outcome(false, 'This turn cannot propose a change.');
+    }
+    try {
+      const answer = await context.learning.proposePolicy({
+        patch,
+        reason,
+        ...(evidence.length === 0 ? {} : {evidence}),
+      });
+      return outcome(answer.ok, answer.result);
+    } catch (error) {
+      return outcome(
+        false,
+        `Could not record the proposal: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  },
+};
+
+export const LEARNING_TOOLS = [
+  requestToolTool,
+  requestConnectorTool,
+  proposePolicyTool,
+] as const;

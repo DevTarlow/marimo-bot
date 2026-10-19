@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 
 import type {ToolContext} from './tool-contract.js';
 import {
+  proposePolicyTool,
   requestConnectorTool,
   requestToolTool,
 } from './learning-tools.js';
@@ -17,7 +18,10 @@ function context(
   return {
     workspaceRoot: '/tmp',
     signal: new AbortController().signal,
-    learning: {request},
+    learning: {
+      request,
+      proposePolicy: async () => ({ok: true, result: 'Proposed.'}),
+    },
   };
 }
 
@@ -68,6 +72,51 @@ describe('request_tool', () => {
       context(async () => ({ok: true, result: 'nope'})),
     );
     expect(noReason.ok).toBe(false);
+  });
+
+  it('proposes a policy change through the same inbox', async () => {
+    const asked: unknown[] = [];
+    const result = await proposePolicyTool.execute(
+      {
+        maxToolCalls: 10,
+        reason: 'The turn kept running out of calls.',
+      },
+      {
+        workspaceRoot: '/tmp',
+        signal: new AbortController().signal,
+        learning: {
+          request: async () => ({ok: true, result: 'nope'}),
+          proposePolicy: async (input) => {
+            asked.push(input);
+            return {ok: true, result: 'Proposed.'};
+          },
+        },
+      },
+    );
+
+    expect(result).toEqual({ok: true, result: 'Proposed.'});
+    expect(asked).toEqual([
+      {
+        patch: {maxToolCalls: 10},
+        reason: 'The turn kept running out of calls.',
+      },
+    ]);
+  });
+
+  it('refuses a policy proposal that changes nothing', async () => {
+    const result = await proposePolicyTool.execute(
+      {reason: 'Something feels wrong.'},
+      {
+        workspaceRoot: '/tmp',
+        signal: new AbortController().signal,
+        learning: {
+          request: async () => ({ok: true, result: 'nope'}),
+          proposePolicy: async () => ({ok: true, result: 'Proposed.'}),
+        },
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.result).toContain('at least one setting');
   });
 
   it('answers with a sentence when the turn has no inbox', async () => {

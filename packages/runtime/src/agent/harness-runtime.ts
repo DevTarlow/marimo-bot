@@ -684,6 +684,16 @@ export class HarnessRuntime {
           ? null
           : [...spec.tools.mcpServerIds],
       model: spec.model,
+      /*
+       * The safe policy comes back too. A version is a whole harness, and
+       * restoring one that changed how much room a turn had while leaving the
+       * room at the new value would be a partial undo presented as a whole one.
+       */
+      policy: {
+        memoryPolicy: spec.context.memory.policy,
+        maxContextTokens: spec.context.compaction.maxContextTokens,
+        maxToolCalls: spec.tools.budgets.maxToolCalls,
+      },
     });
     return profile;
   }
@@ -1146,6 +1156,9 @@ export class HarnessRuntime {
     if (proposal.kind === 'maintenance') {
       return await this.applyMaintenance(proposal);
     }
+    if (proposal.kind === 'policy') {
+      return await this.applyPolicy(proposal);
+    }
     return {
       ok: false,
       problem: 'That kind of change cannot be applied yet.',
@@ -1330,6 +1343,48 @@ export class HarnessRuntime {
     return {ok: true, applied: 'Forgot it.'};
   }
 
+  /**
+   * Applies a change to how the bot runs.
+   *
+   * The profile carries the safe subset, and the resolver maps it into the
+   * harness on the next turn — which is also what gives the change a new
+   * version hash in the ledger. Nothing here touches Role, Persona, the contract
+   * or a gate: the schema has no fields for them.
+   */
+  private async applyPolicy(
+    proposal: import('@marimo/protocol').PolicyProposal,
+  ): Promise<{ok: boolean; problem?: string; applied?: string}> {
+    const profile = (await this.options.profiles.profiles()).find(
+      (candidate) => candidate.id === proposal.profileId,
+    );
+    if (profile === undefined) {
+      return {ok: false, problem: 'That bot no longer exists.'};
+    }
+    const patch = {
+      ...(proposal.patch.memoryPolicy === undefined
+        ? {}
+        : {memoryPolicy: proposal.patch.memoryPolicy}),
+      ...(proposal.patch.maxContextTokens === undefined
+        ? {}
+        : {maxContextTokens: proposal.patch.maxContextTokens}),
+      ...(proposal.patch.maxToolCalls === undefined
+        ? {}
+        : {maxToolCalls: proposal.patch.maxToolCalls}),
+    };
+    if (Object.keys(patch).length === 0) {
+      await this.learning.remove(proposal.id);
+      return {ok: false, problem: 'That proposal changed nothing.'};
+    }
+    await this.options.profiles.update(profile.id, {
+      policy: {...(profile.policy ?? {}), ...patch},
+    });
+    await this.learning.remove(proposal.id);
+    return {
+      ok: true,
+      applied: `${profile.name}: ${proposal.summary}. It applies from the next turn.`,
+    };
+  }
+
   /** Writes a capability into the profile, which is the only way one is granted. */
   private async applyGrant(
     proposal: import('@marimo/protocol').GrantProposal,
@@ -1502,6 +1557,66 @@ export class HarnessRuntime {
             'for them; you do not have it yet, so do not use it in this turn.',
         };
       },
+      proposePolicy: async (input) => {
+        const patch = {
+          ...(input.patch.memoryPolicy === undefined
+            ? {}
+            : {memoryPolicy: input.patch.memoryPolicy}),
+          ...(input.patch.maxContextTokens === undefined
+            ? {}
+            : {maxContextTokens: input.patch.maxContextTokens}),
+          ...(input.patch.maxToolCalls === undefined
+            ? {}
+            : {maxToolCalls: input.patch.maxToolCalls}),
+        };
+        if (Object.keys(patch).length === 0) {
+          return {
+            ok: false,
+            result: 'That proposal named no setting, so there is nothing to decide.',
+          };
+        }
+        const summary = describePolicy(patch);
+        const file = await this.learning.record({
+          kind: 'policy',
+          patch,
+          summary,
+          profileId,
+          sessionId,
+          reason: input.reason,
+          evidence:
+            turnId === undefined && input.evidence === undefined
+              ? []
+              : [
+                  {
+                    ...(turnId === undefined ? {} : {turnId}),
+                    ...(input.evidence === undefined
+                      ? {}
+                      : {quote: input.evidence}),
+                  },
+                ],
+        });
+        const subject = `policy:${JSON.stringify(patch)}`;
+        const refused = file.lessons.some(
+          (lesson) =>
+            lesson.profileId === profileId &&
+            lesson.kind === 'policy' &&
+            lesson.summary === subject,
+        );
+        if (refused) {
+          return {
+            ok: false,
+            result:
+              'The person has already declined that change. Do not ask again ' +
+              'unless something has changed.',
+          };
+        }
+        return {
+          ok: true,
+          result:
+            `Proposed: ${summary}. It is in the learning inbox; you still run ` +
+            'under the current setting until the person applies it.',
+        };
+      },
     };
   }
 
@@ -1598,6 +1713,9 @@ export class HarnessRuntime {
           ? {}
           : {mcpServerIds: profile.mcpServerIds}),
         ...(profile.model === undefined ? {} : {model: profile.model}),
+        ...(profile.policy === undefined
+          ? {}
+          : {harness: policyOverrides(profile.policy)}),
       },
       app: {
         model: {provider: config.provider, model: config.model},
@@ -2138,4 +2256,52 @@ function modelOf(
     }
   }
   return model;
+}
+
+
+/** A profile's policy, in the shape the harness resolver merges. */
+function policyOverrides(
+  policy: import('@marimo/protocol').HarnessPolicy,
+): import('@marimo/agent').HarnessOverrides {
+  return {
+    context: {
+      ...(policy.memoryPolicy === undefined
+        ? {}
+        : {memory: {policy: policy.memoryPolicy}}),
+      ...(policy.maxContextTokens === undefined
+        ? {}
+        : {compaction: {maxContextTokens: policy.maxContextTokens}}),
+    },
+    tools: {
+      ...(policy.maxToolCalls === undefined
+        ? {}
+        : {budgets: {maxToolCalls: policy.maxToolCalls}}),
+    },
+  };
+}
+
+
+/** One proposal's change, in the words the card uses. */
+function describePolicy(patch: {
+  memoryPolicy?: 'all' | 'relevant';
+  maxContextTokens?: number;
+  maxToolCalls?: number;
+}): string {
+  const parts: string[] = [];
+  if (patch.memoryPolicy !== undefined) {
+    parts.push(
+      patch.memoryPolicy === 'all'
+        ? 'carry all of memory in the prompt'
+        : 'recall only the relevant part of memory',
+    );
+  }
+  if (patch.maxContextTokens !== undefined) {
+    parts.push(
+      `give a turn ${patch.maxContextTokens.toLocaleString()} tokens of room`,
+    );
+  }
+  if (patch.maxToolCalls !== undefined) {
+    parts.push(`allow ${String(patch.maxToolCalls)} tool calls per turn`);
+  }
+  return parts.join('; ');
 }

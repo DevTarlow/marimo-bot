@@ -771,7 +771,8 @@ ${task}`});
         !granted.has(tool.name) &&
         tool.name !== 'run_shell' &&
         tool.name !== 'request_tool' &&
-        tool.name !== 'request_connector',
+        tool.name !== 'request_connector' &&
+        tool.name !== 'propose_policy',
     ).map((tool) => ({
       name: tool.name,
       description: firstSentence(tool.description),

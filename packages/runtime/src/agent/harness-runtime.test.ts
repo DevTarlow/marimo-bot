@@ -682,6 +682,48 @@ describe('HarnessRuntime', () => {
   });
 
   /*
+   * A policy proposal is the one change that is not a new file or a new grant:
+   * it edits the profile, and the resolver turns that into the harness the next
+   * turn runs under. The version ledger is where that becomes visible, so the
+   * test reads it rather than trusting the profile write alone.
+   */
+  it('applies a policy proposal and the next turn runs under it', async () => {
+    const {deps, profileId} = await setup();
+    const store = new LearningProposalStore({
+      file: deps.paths.learningProposals,
+    });
+    const recorded = await store.record({
+      kind: 'policy',
+      patch: {memoryPolicy: 'all', maxToolCalls: 10},
+      summary: 'carry all of memory in the prompt; allow 10 tool calls per turn',
+      profileId,
+      sessionId: null,
+      reason: 'Memory was being narrowed when it did not need to be.',
+      evidence: [],
+    });
+    const id = recorded.proposals[0]?.id ?? '';
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hi'}, {type: 'done'}],
+    ]);
+    const runtime = runtimeFrom(deps, () => driver);
+
+    const answer = await runtime.resolveLearningProposal(id, true);
+    expect(answer.ok).toBe(true);
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.policy).toEqual({memoryPolicy: 'all', maxToolCalls: 10});
+
+    await collect(runtime.run(profileId, 's1', 'Hello'));
+    const versions = await new HarnessVersionStore({
+      rootDir: deps.paths.harnessVersions,
+    }).list();
+    expect(versions[0]?.spec.context.memory.policy).toBe('all');
+    expect(versions[0]?.spec.tools.budgets.maxToolCalls).toBe(10);
+  });
+
+  /*
    * Maintenance is proposed from the library rather than from a model: memory
    * that is over the limit it was given, and a skill nobody loads. Both are
    * proposals because both are removals, and both are applied by removing one

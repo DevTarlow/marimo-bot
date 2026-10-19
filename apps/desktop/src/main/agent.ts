@@ -59,6 +59,7 @@ import type {
   RecallScopeName,
   SessionSummary,
   SkillDraft,
+  SkillHistoryEntry,
   StoredSkill,
   TranscriptMessage,
   Workspace,
@@ -1054,6 +1055,17 @@ export class AgentService {
 
   async removeSkill(id: string): Promise<StoredSkill[]> {
     return await this.runtime.removeSkill(id);
+  }
+
+  async skillHistory(id: string): Promise<SkillHistoryEntry[]> {
+    return await this.runtime.skillHistory(id);
+  }
+
+  async restoreSkill(
+    id: string,
+    entryId: string,
+  ): Promise<{skills: StoredSkill[]; saved: StoredSkill}> {
+    return await this.runtime.restoreSkill(id, entryId);
   }
 
   async selectProfile(profileId: string): Promise<void> {

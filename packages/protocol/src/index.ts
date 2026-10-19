@@ -1521,6 +1521,23 @@ export const storedSkillSchema = z.object({
 export type StoredSkill = z.infer<typeof storedSkillSchema>;
 
 /**
+ * One earlier body of a skill, kept when the next save replaced it.
+ *
+ * The body is included rather than a path: the renderer cannot read user data,
+ * and a preview is what lets a person choose which version to put back. The
+ * `id` is the history file's own name, scoped to the skill folder.
+ */
+export const skillHistoryEntrySchema = z.object({
+  id: z.string().min(1),
+  savedAt: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  instructions: z.string(),
+});
+
+export type SkillHistoryEntry = z.infer<typeof skillHistoryEntrySchema>;
+
+/**
  * The longest set of instructions a skill file may hold.
  *
  * Much larger than the 8,000 this used to be, because the instructions no longer
@@ -3493,6 +3510,11 @@ export const agentCallSchemas = {
     draft: skillDraftSchema,
   }),
   'skills.remove': z.object({id: z.string().min(1)}),
+  'skills.history': z.object({id: z.string().min(1)}),
+  'skills.restore': z.object({
+    id: z.string().min(1),
+    entryId: z.string().min(1),
+  }),
   /*
    * Makes a bot, from a draft the person has seen.
    *
@@ -3653,6 +3675,8 @@ export interface AgentCallResults {
   'skills.list': {skills: StoredSkill[]};
   'skills.save': {skills: StoredSkill[]; saved: StoredSkill};
   'skills.remove': {skills: StoredSkill[]};
+  'skills.history': {entries: SkillHistoryEntry[]};
+  'skills.restore': {skills: StoredSkill[]; saved: StoredSkill};
   'settings.get': {settings: PublicSettings};
   'settings.set': {settings: PublicSettings};
 }

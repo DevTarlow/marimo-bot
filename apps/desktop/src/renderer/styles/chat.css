@@ -2062,6 +2062,37 @@
   gap: var(--space-2);
 }
 
+/*
+ * A history panel belongs to the whole row, not the button column, so it takes
+ * the next line even when the row wrapped. The border is on the row above it;
+ * the panel only separates its own entries.
+ */
+.skills-history {
+  display: flex;
+  flex: 1 0 100%;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border);
+}
+
+.skills-history-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.skills-history-row > div {
+  min-width: 0;
+}
+
+.skills-history-row strong {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 /* -------------------------------------------------------------- connectors */
 
 .connector {

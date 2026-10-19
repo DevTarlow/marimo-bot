@@ -49,6 +49,7 @@ import type {
   PublicSettings,
   SettingsPatch,
   SkillDraft,
+  SkillHistoryEntry,
   StoredSkill,
 } from '@marimo/protocol';
 
@@ -1074,6 +1075,21 @@ export function Settings({
                 await window.marimo.call('skills.remove', {id});
               })
             }
+            onHistory={async (id) => {
+              try {
+                const {entries} = await window.marimo.call('skills.history', {
+                  id,
+                });
+                return entries;
+              } catch {
+                return null;
+              }
+            }}
+            onRestore={async (id, entryId) =>
+              await change(async () => {
+                await window.marimo.call('skills.restore', {id, entryId});
+              })
+            }
           />
         </SettingsSection>
 
@@ -1943,6 +1959,8 @@ function SkillsCard({
   onGrant,
   onSave,
   onRemove,
+  onHistory,
+  onRestore,
 }: {
   skills: StoredSkill[];
   granted: Set<string>;
@@ -1951,6 +1969,8 @@ function SkillsCard({
   onGrant: (name: string, on: boolean) => void;
   onSave: (draft: SkillDraft, id?: string) => Promise<boolean>;
   onRemove: (id: string) => Promise<boolean>;
+  onHistory: (id: string) => Promise<SkillHistoryEntry[] | null>;
+  onRestore: (id: string, entryId: string) => Promise<boolean>;
 }): React.JSX.Element {
   const [editing, setEditing] = useState<{
     id?: string;
@@ -1958,6 +1978,12 @@ function SkillsCard({
   } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [writing, setWriting] = useState(false);
+  const [history, setHistory] = useState<{
+    id: string;
+    entries: SkillHistoryEntry[];
+    error: string | null;
+  } | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   const blank = (): SkillDraft => ({
     name: '',
@@ -2158,6 +2184,30 @@ function SkillsCard({
                 >
                   Edit
                 </button>
+                <button
+                  type="button"
+                  className="button button-quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    if (history?.id === skill.id) {
+                      setHistory(null);
+                      return;
+                    }
+                    void onHistory(skill.id).then((entries) => {
+                      setHistory(
+                        entries === null
+                          ? {
+                              id: skill.id,
+                              entries: [],
+                              error: 'Could not read the saved versions.',
+                            }
+                          : {id: skill.id, entries, error: null},
+                      );
+                    });
+                  }}
+                >
+                  History
+                </button>
                 {removing === skill.id ? (
                   <>
                     <button
@@ -2198,6 +2248,49 @@ function SkillsCard({
                   </button>
                 )}
               </div>
+              {history?.id === skill.id && (
+                <div className="skills-history">
+                  {history.error !== null ? (
+                    <p className="settings-muted">{history.error}</p>
+                  ) : history.entries.length === 0 ? (
+                    <p className="settings-muted">
+                      No earlier versions yet. Each save keeps the body it
+                      replaces.
+                    </p>
+                  ) : (
+                    history.entries.map((entry) => (
+                      <div className="skills-history-row" key={entry.id}>
+                        <div>
+                          <strong>
+                            {new Date(entry.savedAt).toLocaleString()}
+                          </strong>
+                          <em className="settings-why">{entry.description}</em>
+                          <p className="settings-muted">
+                            {entry.instructions.slice(0, 240)}
+                            {entry.instructions.length > 240 ? '…' : ''}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="button button-quiet"
+                          disabled={busy || restoring !== null}
+                          onClick={() => {
+                            setRestoring(entry.id);
+                            void onRestore(skill.id, entry.id).then((restored) => {
+                              setRestoring(null);
+                              if (restored) {
+                                setHistory(null);
+                              }
+                            });
+                          }}
+                        >
+                          {restoring === entry.id ? 'Restoring…' : 'Restore'}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

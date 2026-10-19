@@ -198,6 +198,43 @@ describe('SkillStore', () => {
     expect(previous).toContain('Read the unread mail.');
   });
 
+  it('lists the saved bodies and restores one of them', async () => {
+    const skills = store();
+    await skills.save({
+      name: 'triage',
+      description: 'Sort the inbox.',
+      instructions: 'Read the unread mail.',
+    });
+    expect(await skills.history('triage')).toEqual([]);
+    await skills.save({
+      name: 'triage',
+      description: 'Sort the inbox, faster.',
+      instructions: 'Read the unread mail, then group by sender.',
+    });
+    const entries = await skills.history('triage');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.instructions).toBe('Read the unread mail.');
+    expect(entries[0]?.name).toBe('triage');
+
+    const restored = await skills.restore('triage', entries[0]?.id ?? '');
+    expect(restored.skill.instructions).toBe('Read the unread mail.');
+    expect(restored.skill.description).toBe('Sort the inbox.');
+    expect((await skills.load())[0]?.instructions).toBe('Read the unread mail.');
+    expect((await skills.history('triage')).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('refuses a history id that would leave the folder', async () => {
+    const skills = store();
+    await skills.save({
+      name: 'triage',
+      description: 'Sort the inbox.',
+      instructions: 'Read the mail.',
+    });
+    await expect(skills.restore('triage', '../SKILL.md')).rejects.toThrow(
+      'not a saved skill version',
+    );
+  });
+
   it('replaces a skill saved under another spelling of the same name', async () => {
     const first = await store().save(draft);
     const second = await store().save({

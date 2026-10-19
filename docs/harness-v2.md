@@ -337,8 +337,10 @@ very next request of the turn that made it, not only the next turn.
 on demand. `save_skill` is gated and writes the same `skills/<name>/SKILL.md`
 the Settings editor writes. A replacement keeps the previous body under
 `skills/<name>/history/`, capped at twenty, so improving a procedure is
-reversible. The prompt is rebuilt per request here too, so a skill saved during
-a turn is advertised to the model before that turn ends.
+reversible. Settings lists those bodies with their time and a preview, and
+Restore writes one back through the same save path — so the body it replaces is
+itself kept in history. The prompt is rebuilt per request here too, so a skill
+saved during a turn is advertised to the model before that turn ends.
 
 **The review** reads a v2 conversation after a quiet minute, asks the profile's
 own model, and records proposals in the existing `memory-proposals.json`. The

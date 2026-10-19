@@ -43,7 +43,7 @@ import {
   SKILL_INSTRUCTIONS_MAX,
   skillsFileSchema,
 } from '@marimo/protocol';
-import type {StoredSkill} from '@marimo/protocol';
+import type {SkillHistoryEntry, StoredSkill} from '@marimo/protocol';
 
 /** The file one skill folder must hold. */
 export const SKILL_FILE = 'SKILL.md';
@@ -304,6 +304,89 @@ export class SkillStore {
           : {}),
       };
     });
+  }
+
+  /**
+   * The bodies this skill had before its current one, newest first.
+   *
+   * A history file is the whole `SKILL.md` as it stood, so it can be parsed the
+   * same way as the live one. An entry this build cannot parse is skipped rather
+   * than guessed at; it stays on disk for a person to read.
+   */
+  async history(skillId: string): Promise<SkillHistoryEntry[]> {
+    const folder = safeFolder(skillId);
+    const history = join(this.options.root, folder, 'history');
+    const names = await readdir(history).catch((failure: unknown) => {
+      if (isMissing(failure)) {
+        return [] as string[];
+      }
+      throw failure;
+    });
+    const entries: SkillHistoryEntry[] = [];
+    for (const name of names.filter((entry) => entry.endsWith('.md')).sort().reverse()) {
+      const file = join(history, name);
+      const text = await readFile(file, 'utf8').catch(() => undefined);
+      if (text === undefined) {
+        continue;
+      }
+      let parsed: SkillFileContents | undefined;
+      try {
+        parsed = parseSkillMarkdown(text, folder);
+      } catch {
+        continue;
+      }
+      if (parsed === undefined) {
+        continue;
+      }
+      const info = await stat(file).catch(() => undefined);
+      entries.push({
+        id: name,
+        savedAt: (info?.mtime ?? new Date(0)).toISOString(),
+        name: parsed.name,
+        description: parsed.description,
+        instructions: parsed.instructions,
+      });
+    }
+    return entries;
+  }
+
+  /**
+   * Puts one earlier body back, keeping the body it replaces in history.
+   *
+   * Restoring is a normal save in every respect, including the rename rules and
+   * the history entry it makes of the current text, so a restore is itself
+   * reversible.
+   */
+  async restore(
+    skillId: string,
+    entryId: string,
+  ): Promise<{skill: StoredSkill; updated: boolean; renamedFrom?: string}> {
+    if (
+      entryId.length === 0 ||
+      entryId.includes('/') ||
+      entryId.includes('\\') ||
+      !entryId.endsWith('.md')
+    ) {
+      throw new Error('That is not a saved skill version.');
+    }
+    const folder = safeFolder(skillId);
+    const file = join(this.options.root, folder, 'history', entryId);
+    const text = await readFile(file, 'utf8').catch(() => undefined);
+    if (text === undefined) {
+      throw new Error('That saved version no longer exists.');
+    }
+    const parsed = parseSkillMarkdown(text, folder);
+    if (parsed === undefined) {
+      throw new Error('That saved version is not a readable skill.');
+    }
+    return await this.save(
+      {
+        name: parsed.name,
+        description: parsed.description,
+        instructions: parsed.instructions,
+      },
+      skillId,
+    );
   }
 
   /** Removes one skill by id, and answers with what is left. */

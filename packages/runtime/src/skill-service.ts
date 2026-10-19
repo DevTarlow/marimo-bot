@@ -26,7 +26,12 @@
  * window is a skill on disk that nothing carries — visible in Settings, and fixed
  * by ticking its box.
  */
-import type {AgentProfile, SkillDraft, StoredSkill} from '@marimo/protocol';
+import type {
+  AgentProfile,
+  SkillDraft,
+  SkillHistoryEntry,
+  StoredSkill,
+} from '@marimo/protocol';
 
 import type {ProfileStore} from './profiles.js';
 import {normaliseName} from './skills.js';
@@ -114,6 +119,30 @@ export class RuntimeSkillService {
       await this.carryRename(renamedFrom, skill.name);
     }
     return {skills: await this.options.skills.load(), saved: skill};
+  }
+
+  /** The earlier bodies of one skill, newest first. */
+  async history(id: string): Promise<SkillHistoryEntry[]> {
+    return await this.options.skills.history(id);
+  }
+
+  /**
+   * Puts one earlier body back.
+   *
+   * A restore follows the same rename rule as an editor save: if the old body
+   * named the skill differently, every grant moves with it. The restored body
+   * itself goes through `save`, so the current text is kept in history and the
+   * restore is reversible in the same way.
+   */
+  async restore(
+    id: string,
+    entryId: string,
+  ): Promise<{skills: StoredSkill[]; saved: StoredSkill}> {
+    const result = await this.options.skills.restore(id, entryId);
+    if (result.renamedFrom !== undefined) {
+      await this.carryRename(result.renamedFrom, result.skill.name);
+    }
+    return {skills: await this.options.skills.load(), saved: result.skill};
   }
 
   /**

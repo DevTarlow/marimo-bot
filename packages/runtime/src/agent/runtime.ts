@@ -83,6 +83,7 @@ import type {
   SessionSummary,
   SettingsPatch,
   SkillDraft,
+  SkillHistoryEntry,
   StoredSettings,
   StoredSkill,
   Workspace,
@@ -1100,6 +1101,19 @@ export class AgentRuntime {
 
   async removeSkill(id: string): Promise<StoredSkill[]> {
     return await this.skillService.remove(id);
+  }
+
+  /** The earlier bodies of one skill, for the Settings history view. */
+  async skillHistory(id: string): Promise<SkillHistoryEntry[]> {
+    return await this.skillService.history(id);
+  }
+
+  /** Puts one earlier body back, and answers with the whole library. */
+  async restoreSkill(
+    id: string,
+    entryId: string,
+  ): Promise<{skills: StoredSkill[]; saved: StoredSkill}> {
+    return await this.skillService.restore(id, entryId);
   }
 
   /**

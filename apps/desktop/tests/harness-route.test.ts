@@ -1,5 +1,8 @@
 import {describe, expect, it} from 'vitest';
 
+import {readFile} from 'node:fs/promises';
+import {join} from 'node:path';
+
 import {shouldUseV2} from '../src/main/harness-route.js';
 
 describe('the conversation engine route', () => {
@@ -58,5 +61,26 @@ describe('the conversation engine route', () => {
         fallbackEmpty: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe('the app and the old host', () => {
+  it('does not call the old runtime turn methods', async () => {
+    const source = await readFile(
+      join(process.cwd(), 'src', 'main', 'agent.ts'),
+      'utf8',
+    );
+    for (const call of [
+      '.host(',
+      '.run(',
+      '.approve(',
+      '.compact(',
+      '.reviewMemory(',
+      '.reviewProgress(',
+      '.resolveMemoryProposal(',
+      '.pendingGates(',
+    ]) {
+      expect(source).not.toContain(`runtime${call}`);
+    }
   });
 });

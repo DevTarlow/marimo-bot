@@ -1584,6 +1584,19 @@ export class AgentRuntime {
       return {messages: [], pending: []};
     }
     /*
+     * A v2 conversation's transcript comes from its own log. Reading a rebuilt
+     * chat should not build the old host, and the old host has no events for it
+     * anyway.
+     */
+    if (await this.harness().hasLog(sessionId)) {
+      const messages = await this.harness().transcript(sessionId, profileId);
+      const pending = await this.harness().pendingGates(sessionId);
+      return {
+        messages: await this.markFeedback(messages, sessionId),
+        pending,
+      };
+    }
+    /*
      * The placeholder-config host, which is the same one a turn uses before its
      * configuration is resolved. It has the session service and nothing else,
      * which is exactly what reading needs.

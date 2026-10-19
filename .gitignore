@@ -40,3 +40,8 @@ apps/desktop/.model-cache/
 # throwaway diagnostic ends up in a release. Put scratch files in a directory
 # under this pattern instead.
 .marimo*/
+
+# A scratch root some test runs create beside the workspace. It holds the same
+# .marimo-* temp directories the pattern above describes, and it is never part
+# of the app.
+.agents/

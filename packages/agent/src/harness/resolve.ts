@@ -12,10 +12,7 @@ import {agentModelSchema} from '@marimo/protocol';
 import type {AgentModel} from '@marimo/protocol';
 
 import {DEFAULT_HARNESS} from './defaults.js';
-import {
-  guidanceForTools,
-  harnessSpecSchema,
-} from './spec.js';
+import {guidanceForTools, harnessSpecSchema} from './spec.js';
 import type {
   Budgets,
   Collaborators,

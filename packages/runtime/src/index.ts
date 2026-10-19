@@ -399,3 +399,8 @@ export {
 export type {SkillDraft, SkillStoreOptions} from './skills.js';
 export {RuntimeSkillService} from './skill-service.js';
 export type {RuntimeSkillServiceOptions} from './skill-service.js';
+/*
+ * The v2 conversation log. The engine owns the events; this owns the file.
+ */
+export {EventLogError, FileEventStore} from './events/file-event-store.js';
+export type {FileEventStoreOptions} from './events/file-event-store.js';

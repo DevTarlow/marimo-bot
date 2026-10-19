@@ -242,3 +242,38 @@ export type {
  * this replaces them.
  */
 export * from './harness/index.js';
+/*
+ * The v2 turn engine and its log. The driver seam is exported because a test and
+ * a future transport both implement it; the event store seam is exported because
+ * the file-backed implementation lives in `@marimo/runtime`.
+ */
+export {
+  TurnBusyError,
+  GateNotFoundError,
+  TurnEngine,
+} from './engine/turn-engine.js';
+export type {
+  ApproveParams as EngineApproveParams,
+  EngineUpdate,
+  RunParams,
+  TurnEngineOptions,
+} from './engine/turn-engine.js';
+export {MemoryEventStore} from './engine/event-store.js';
+export type {EventStore} from './engine/event-store.js';
+export type {
+  DriverEvent,
+  DriverResume,
+  DriverRun,
+  GateDecision,
+  TurnDriver,
+} from './engine/driver.js';
+export {
+  decisionsIn,
+  newestTurnEvents,
+  newestTurnId,
+  parseSessionEvent,
+  pendingGatesIn as pendingGatesFromLog,
+  roundDecided,
+  turnIdOf,
+} from './engine/events.js';
+export type {SessionEvent, TokenUsage} from './engine/events.js';

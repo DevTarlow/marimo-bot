@@ -192,7 +192,9 @@ describe('resolveHarness', () => {
   it('records trace only when learning is on and retention was asked for', () => {
     const off = resolveHarness({profile: profile(), app, version: 1});
     expect(off.plugins).not.toContain('trace');
-    expect(off.plugins).toEqual(expect.arrayContaining(['redaction', 'loop-guard']));
+    expect(off.plugins).toEqual(
+      expect.arrayContaining(['redaction', 'loop-guard']),
+    );
 
     const on = resolveHarness({
       profile: profile(),

@@ -1,8 +1,4 @@
-export {
-  APP_CONTRACT,
-  DEFAULT_BUDGETS,
-  DEFAULT_HARNESS,
-} from './defaults.js';
+export {APP_CONTRACT, DEFAULT_BUDGETS, DEFAULT_HARNESS} from './defaults.js';
 export {resolveHarness} from './resolve.js';
 export type {ResolveHarnessInput} from './resolve.js';
 export {

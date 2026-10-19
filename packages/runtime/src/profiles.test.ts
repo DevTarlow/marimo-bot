@@ -11,10 +11,7 @@ import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
-import {
-  DEFAULT_AGENT_PERSONA,
-  DEFAULT_AGENT_ROLE,
-} from '@marimo/protocol';
+import {DEFAULT_AGENT_PERSONA, DEFAULT_AGENT_ROLE} from '@marimo/protocol';
 
 import {
   LastProfileError,
@@ -36,7 +33,12 @@ describe('ProfileStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): ProfileStore {
@@ -215,9 +217,7 @@ describe('ProfileStore', () => {
     );
 
     const loaded = await store().load();
-    expect(loaded.profiles[0]?.persona).toBe(
-      'Call me Tarlow. Skip the emoji.',
-    );
+    expect(loaded.profiles[0]?.persona).toBe('Call me Tarlow. Skip the emoji.');
     expect(loaded.profiles[0]?.preferences).toBeUndefined();
   });
 
@@ -465,7 +465,12 @@ describe('an agents file from a newer build', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): ProfileStore {
@@ -514,7 +519,9 @@ describe('an agents file from a newer build', () => {
     await writeFuture();
     const before = await readFile(file, 'utf8');
 
-    await store().load().catch(() => undefined);
+    await store()
+      .load()
+      .catch(() => undefined);
 
     const entries = await readdir(dir);
     expect(entries.filter((entry) => entry.includes('unreadable'))).toEqual([]);
@@ -525,7 +532,9 @@ describe('an agents file from a newer build', () => {
     await writeFuture();
     const profiles = store();
 
-    await expect(profiles.create(seed('Another'))).rejects.toThrow(/newer version/u);
+    await expect(profiles.create(seed('Another'))).rejects.toThrow(
+      /newer version/u,
+    );
 
     // And the file is still the newer build's.
     const after = JSON.parse(await readFile(file, 'utf8')) as {version: number};
@@ -555,7 +564,12 @@ describe('an agents file with no version', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('preserves it rather than replacing it, and carries on with a fresh one', async () => {
@@ -613,7 +627,12 @@ describe('the folders a pre-workspaces file carried', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): ProfileStore {
@@ -713,7 +732,12 @@ describe('ProfileStore avatars', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): ProfileStore {

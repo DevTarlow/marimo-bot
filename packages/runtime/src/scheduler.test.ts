@@ -208,7 +208,12 @@ describe('JobScheduler', () => {
 
   afterEach(async () => {
     scheduler.stop();
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** A job on a given schedule, owned by the active agent by default. */
@@ -234,9 +239,7 @@ describe('JobScheduler', () => {
   it('does not run an occurrence it failed to claim', async () => {
     await jobAt('0 9 * * *');
     // Stands in for the app and the headless runner racing for one occurrence.
-    const refused = vi
-      .spyOn(store, 'advanceDue')
-      .mockResolvedValue(null);
+    const refused = vi.spyOn(store, 'advanceDue').mockResolvedValue(null);
     try {
       await scheduler.start();
       await clock.runUntil(scheduler, afterStart(2 * 3_600_000));
@@ -349,7 +352,7 @@ describe('JobScheduler', () => {
     expect(runner.runs[0]?.profileId).toBe('profile-2');
   });
 
-  it('runs two agents\' due jobs in one look', async () => {
+  it("runs two agents' due jobs in one look", async () => {
     await jobAt('0 9 * * *', {profileId: 'profile-1'});
     await jobAt('0 9 * * *', {profileId: 'profile-2'});
 

@@ -113,7 +113,12 @@ describe('AgentRuntime', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(
@@ -483,7 +488,12 @@ describe('the catalogue', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(): AgentRuntime {
@@ -659,7 +669,12 @@ describe('changing an agent', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(): AgentRuntime {
@@ -729,7 +744,12 @@ describe('the identity a new agent gets', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(): AgentRuntime {
@@ -801,9 +821,9 @@ describe('the identity a new agent gets', () => {
     const instance = runtime();
     const [lead] = await instance.profiles();
     expect(lead).toBeDefined();
-    await expect(
-      instance.startBuilderSession(lead?.id ?? ''),
-    ).rejects.toThrow(/draft-bot tool/u);
+    await expect(instance.startBuilderSession(lead?.id ?? '')).rejects.toThrow(
+      /draft-bot tool/u,
+    );
 
     await instance.updateProfile(lead?.id ?? '', {
       enabledTools: [...(lead?.enabledTools ?? []), DRAFT_BOT_TOOL],
@@ -952,7 +972,12 @@ describe('reading a conversation without a working provider', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(): AgentRuntime {
@@ -1106,7 +1131,12 @@ describe('folders and filing', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /*
@@ -1502,7 +1532,12 @@ describe('the model a turn answers with', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(
@@ -1614,7 +1649,12 @@ describe('who is in a conversation', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(
@@ -1665,9 +1705,9 @@ describe('who is in a conversation', () => {
     const session = await agent.createSession(lead);
     const id = session?.id ?? '';
 
-    await expect(
-      agent.setParticipants(helper, id, [helper]),
-    ).rejects.toThrow(/Unknown session/u);
+    await expect(agent.setParticipants(helper, id, [helper])).rejects.toThrow(
+      /Unknown session/u,
+    );
     expect(await agent.sessionParticipants(lead, id)).toBeUndefined();
   });
 
@@ -1709,7 +1749,13 @@ describe('who is in a conversation', () => {
     await agent.setParticipants(lead, id, [lead, 'ghost']);
 
     const events = [];
-    for await (const event of agent.run(lead, id, 'hello', undefined, 'ghost')) {
+    for await (const event of agent.run(
+      lead,
+      id,
+      'hello',
+      undefined,
+      'ghost',
+    )) {
       events.push(event);
     }
 
@@ -1772,7 +1818,12 @@ describe('recall', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /*
@@ -1878,7 +1929,12 @@ describe('removing a bot', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function runtime(): AgentRuntime {

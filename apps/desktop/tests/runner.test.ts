@@ -66,7 +66,12 @@ describe('runDue', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** A profile and a job that came due five minutes ago. */
@@ -341,7 +346,12 @@ describe('the connector secrets the runner reads', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   async function writeSecret(contents: string): Promise<void> {
@@ -449,7 +459,12 @@ describe('main', () => {
     } else {
       process.env[USER_DATA_ENV] = previous;
     }
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** Runs `main` without printing, and answers its exit code. */

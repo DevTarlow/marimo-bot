@@ -21,10 +21,23 @@ import type {ConversationEvent} from './conversations.js';
 import {INDEX_FILE, readIndex} from './store.js';
 import type {IndexModel} from './store.js';
 
-const MODEL: IndexModel = {repo: 'unsloth/embeddinggemma-2-GGUF', revision: 'rev2', dims: 8};
+const MODEL: IndexModel = {
+  repo: 'unsloth/embeddinggemma-2-GGUF',
+  revision: 'rev2',
+  dims: 8,
+};
 
 /** Words the fake embedder knows, so a query can find a chunk. */
-const VOCABULARY = ['retry', 'upload', 'cookie', 'bake', 'memory', 'tabs', 'oven', 'user'];
+const VOCABULARY = [
+  'retry',
+  'upload',
+  'cookie',
+  'bake',
+  'memory',
+  'tabs',
+  'oven',
+  'user',
+];
 
 /**
  * A deterministic stand-in for the model.
@@ -72,8 +85,18 @@ describe('refreshIndex', () => {
   });
 
   afterEach(async () => {
-    await rm(workspace, {recursive: true, force: true});
-    await rm(indexDir, {recursive: true, force: true});
+    await rm(workspace, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
+    await rm(indexDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   async function write(path: string, text: string): Promise<void> {
@@ -97,7 +120,10 @@ describe('refreshIndex', () => {
   }
 
   it('indexes the folder and the memory file into one space', async () => {
-    await write('src/retry.ts', 'export function withRetry() {}\n// three attempts');
+    await write(
+      'src/retry.ts',
+      'export function withRetry() {}\n// three attempts',
+    );
     await write('README.md', 'how to upload a file');
     const embedder = fakeEmbedder();
 
@@ -113,7 +139,9 @@ describe('refreshIndex', () => {
     expect(paths).toContain('README.md');
     expect(paths).toContain('memory:Project pointers');
 
-    const chunk = data.file.records.find((record) => record.path === 'src/retry.ts');
+    const chunk = data.file.records.find(
+      (record) => record.path === 'src/retry.ts',
+    );
     expect(chunk?.startLine).toBe(1);
     expect(chunk?.endLine).toBe(2);
     expect(chunk?.sha256).toHaveLength(64);
@@ -126,7 +154,9 @@ describe('refreshIndex', () => {
     expect(written).not.toContain('withRetry');
     expect(written).not.toContain('the user prefers tabs');
     // The file name travels with the text, which is what the model was trained on.
-    expect(embedder.calls.flat().join('\n')).toContain('title: src/retry.ts | text:');
+    expect(embedder.calls.flat().join('\n')).toContain(
+      'title: src/retry.ts | text:',
+    );
   });
 
   /*
@@ -141,7 +171,9 @@ describe('refreshIndex', () => {
     expect(first.calls.length).toBeGreaterThan(0);
 
     const second = fakeEmbedder();
-    const {coverage} = await refresh(second, {memory: '## Notes\n- the user prefers tabs\n'});
+    const {coverage} = await refresh(second, {
+      memory: '## Notes\n- the user prefers tabs\n',
+    });
 
     expect(second.calls).toEqual([]);
     expect(coverage.embedded).toBe(0);
@@ -174,7 +206,9 @@ describe('refreshIndex', () => {
     await rm(join(workspace, 'b.ts'));
     const {data} = await refresh(fakeEmbedder());
 
-    expect(data.file.records.map((record) => record.path)).not.toContain('b.ts');
+    expect(data.file.records.map((record) => record.path)).not.toContain(
+      'b.ts',
+    );
     expect(data.file.files.map((file) => file.path)).not.toContain('b.ts');
   });
 
@@ -205,7 +239,9 @@ describe('refreshIndex', () => {
 
     const {data, coverage} = await refresh(fakeEmbedder());
 
-    expect(data.file.records.map((record) => record.path)).not.toContain('binary.bin');
+    expect(data.file.records.map((record) => record.path)).not.toContain(
+      'binary.bin',
+    );
     expect(coverage.skipped).toBe(1);
     // Recorded with a stamp and no records, so the next refresh does not try it
     // again — and the file's presence does not read as a change forever.
@@ -214,18 +250,25 @@ describe('refreshIndex', () => {
 
   it('never walks into the folders the search skips', async () => {
     await write('node_modules/pkg/index.js', 'const retry = 1;');
-    await write('.marimo/default/memory.md', '## Notes\n- the user prefers tabs');
+    await write(
+      '.marimo/default/memory.md',
+      '## Notes\n- the user prefers tabs',
+    );
     await write('.git/config', 'const bake = 1;');
     await write('src/a.ts', 'const retry = 1;');
 
     const {data} = await refresh(fakeEmbedder());
 
-    expect(data.file.records.map((record) => record.path)).toEqual(['src/a.ts']);
+    expect(data.file.records.map((record) => record.path)).toEqual([
+      'src/a.ts',
+    ]);
   });
 
   it('re-embeds memory when the file changes, and only then', async () => {
     await write('a.ts', 'const retry = 1;');
-    await refresh(fakeEmbedder(), {memory: '## Notes\n- the user prefers tabs\n'});
+    await refresh(fakeEmbedder(), {
+      memory: '## Notes\n- the user prefers tabs\n',
+    });
 
     const same = fakeEmbedder();
     await refresh(same, {memory: '## Notes\n- the user prefers tabs\n'});
@@ -250,13 +293,18 @@ describe('refreshIndex', () => {
     // answer would be *right*, and the test would pass for the wrong reason.
     await write(
       'a.ts',
-      Array.from({length: 200}, (_, i) => `const retry${String(i)} = bake(${String(i)});`).join('\n'),
+      Array.from(
+        {length: 200},
+        (_, i) => `const retry${String(i)} = bake(${String(i)});`,
+      ).join('\n'),
     );
     const partial = {
       calls: [] as string[][],
       embed: async (texts: readonly string[]) => {
         partial.calls.push([...texts]);
-        return {vectors: texts.slice(0, 1).map(() => new Float32Array(8).fill(1))};
+        return {
+          vectors: texts.slice(0, 1).map(() => new Float32Array(8).fill(1)),
+        };
       },
     };
 
@@ -312,7 +360,10 @@ describe('refreshIndex', () => {
   it('embeds a conversation once, then only the new stretch', async () => {
     const embedder = fakeEmbedder();
     let events: ConversationEvent[] = [
-      {author: 'user', content: {parts: [{text: 'how should the retry work?'}]}},
+      {
+        author: 'user',
+        content: {parts: [{text: 'how should the retry work?'}]},
+      },
       {
         author: 'agent',
         content: {
@@ -356,7 +407,10 @@ describe('refreshIndex', () => {
     expect(asked).not.toContain('the thinking nobody said');
     expect(asked).not.toContain('read_file');
 
-    events = [...events, {author: 'user', content: {parts: [{text: 'and the upload?'}]}}];
+    events = [
+      ...events,
+      {author: 'user', content: {parts: [{text: 'and the upload?'}]}},
+    ];
     embedder.calls.length = 0;
     const second = await refreshIndex({
       workspaceRoot: workspace,
@@ -372,7 +426,9 @@ describe('refreshIndex', () => {
     expect(again).not.toContain('three attempts');
     expect(second.watermark).toEqual({s1: 3});
     expect(
-      second.data.file.records.filter((record) => record.kind === 'conversation'),
+      second.data.file.records.filter(
+        (record) => record.kind === 'conversation',
+      ),
     ).toHaveLength(2);
   });
 
@@ -426,7 +482,11 @@ describe('refreshIndex', () => {
       ],
       embedParts: async (inputs) => {
         parts.push(inputs[0] ?? []);
-        return {vectors: inputs.map(() => Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]))};
+        return {
+          vectors: inputs.map(() =>
+            Float32Array.from([1, 0, 0, 0, 0, 0, 0, 0]),
+          ),
+        };
       },
     };
 
@@ -443,7 +503,10 @@ describe('refreshIndex', () => {
     expect(record?.path).toBe('photo.png');
     expect(record?.mediaKind).toBe('image');
     // The file name as plain words, and the picture: never `title: … | text: …`.
-    expect(parts[0]?.[0]).toEqual({type: 'text', text: join(workspace, 'photo.png')});
+    expect(parts[0]?.[0]).toEqual({
+      type: 'text',
+      text: join(workspace, 'photo.png'),
+    });
     expect(parts[0]?.[1]).toMatchObject({type: 'image_url'});
   });
 });
@@ -475,7 +538,9 @@ describe('memoryBullets', () => {
 
   it('ignores prose and blank lines', () => {
     expect(
-      memoryBullets('## Notes\n\nSome prose with no bullet.\n- a real fact\n\n'),
+      memoryBullets(
+        '## Notes\n\nSome prose with no bullet.\n- a real fact\n\n',
+      ),
     ).toEqual([{section: 'Notes', text: 'a real fact'}]);
   });
 

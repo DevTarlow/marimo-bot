@@ -19,7 +19,12 @@ describe('FileSessionService', () => {
   });
 
   afterEach(async () => {
-    await rm(rootDir, {recursive: true, force: true});
+    await rm(rootDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   async function newSession(sessionId = 'session-1') {

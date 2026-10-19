@@ -247,7 +247,12 @@ describe('Discord tools', () => {
     });
 
     afterEach(async () => {
-      await rm(workDir, {recursive: true, force: true});
+      await rm(workDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     });
 
     function config(): AgentConfig {

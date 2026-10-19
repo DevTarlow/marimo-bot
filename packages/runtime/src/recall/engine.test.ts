@@ -19,7 +19,11 @@ import {PassThrough} from 'node:stream';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
-import {EMBEDDING_PINS, embeddingPidFile, recallSpec} from '../local-model/index.js';
+import {
+  EMBEDDING_PINS,
+  embeddingPidFile,
+  recallSpec,
+} from '../local-model/index.js';
 import {EmbeddingError} from './client.js';
 import {RecallEngine} from './engine.js';
 
@@ -53,7 +57,12 @@ describe('RecallEngine', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /**
@@ -92,10 +101,7 @@ describe('RecallEngine', () => {
     onEmbed?: (body: unknown) => Response;
   }): RecallEngine {
     const child = options.child ?? new FakeChild();
-    const spawnImpl = ((
-      _file: string,
-      args: string[],
-    ): FakeChild => {
+    const spawnImpl = ((_file: string, args: string[]): FakeChild => {
       if (options.spawns) {
         options.spawns.count += 1;
       }
@@ -107,7 +113,8 @@ describe('RecallEngine', () => {
       if (String(url).endsWith('/health')) {
         return {ok: true, status: 200} as Response;
       }
-      const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
+      const body =
+        init?.body === undefined ? undefined : JSON.parse(String(init.body));
       return options.onEmbed === undefined
         ? new Response(
             JSON.stringify({
@@ -224,9 +231,8 @@ describe('RecallEngine', () => {
     const order: string[] = [];
     const recall = engine({
       onEmbed: (body) => {
-        const text = (
-          body as {input: Array<{content: Array<{text: string}>}>}
-        ).input[0]?.content[0]?.text;
+        const text = (body as {input: Array<{content: Array<{text: string}>}>})
+          .input[0]?.content[0]?.text;
         order.push(text ?? '');
         return new Response(
           JSON.stringify({

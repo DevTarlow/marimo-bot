@@ -67,8 +67,18 @@ describe('RecallService', () => {
   });
 
   afterEach(async () => {
-    await rm(workspace, {recursive: true, force: true});
-    await rm(indexDir, {recursive: true, force: true});
+    await rm(workspace, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
+    await rm(indexDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function service(

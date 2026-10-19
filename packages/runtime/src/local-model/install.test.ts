@@ -12,7 +12,16 @@
  * what lets a test assert on a 555 MB download's *bookkeeping* in milliseconds.
  */
 import {createHash} from 'node:crypto';
-import {mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile} from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
@@ -45,7 +54,8 @@ function fakeFetch(
     failure?: Error;
   } = {},
 ): typeof fetch {
-  const payload = typeof body === 'string' ? new TextEncoder().encode(body) : body;
+  const payload =
+    typeof body === 'string' ? new TextEncoder().encode(body) : body;
   return (async (url: unknown, init: RequestInit = {}) => {
     options.calls?.push({
       url: String(url),
@@ -56,7 +66,9 @@ function fakeFetch(
     }
     return new Response(payload, {
       status: options.status ?? 200,
-      headers: options.headers ?? {'content-length': String(payload.byteLength)},
+      headers: options.headers ?? {
+        'content-length': String(payload.byteLength),
+      },
     });
   }) as unknown as typeof fetch;
 }
@@ -71,7 +83,12 @@ describe('downloadVerified', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('puts the file in place only once the digest matches', async () => {
@@ -244,7 +261,12 @@ describe('the engine', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /**
@@ -273,14 +295,17 @@ describe('the engine', () => {
     const archive = join(dir, 'engine.tar.gz');
     await writeFile(archive, 'archive', 'utf8');
 
-    await unpackEngine(archive, dir, {platform: 'linux', execFileImpl: fakeTar()});
+    await unpackEngine(archive, dir, {
+      platform: 'linux',
+      execFileImpl: fakeTar(),
+    });
 
-    expect(
-      await readFile(join(engineDir(dir), 'llama-server'), 'utf8'),
-    ).toBe('binary');
-    expect(await readFile(join(engineDir(dir), 'libllama.so.0.6.0'), 'utf8')).toBe(
-      'library',
+    expect(await readFile(join(engineDir(dir), 'llama-server'), 'utf8')).toBe(
+      'binary',
     );
+    expect(
+      await readFile(join(engineDir(dir), 'libllama.so.0.6.0'), 'utf8'),
+    ).toBe('library');
   });
 
   /*
@@ -293,7 +318,10 @@ describe('the engine', () => {
     const archive = join(dir, 'engine.tar.gz');
     await writeFile(archive, 'archive', 'utf8');
 
-    await unpackEngine(archive, dir, {platform: 'linux', execFileImpl: fakeTar()});
+    await unpackEngine(archive, dir, {
+      platform: 'linux',
+      execFileImpl: fakeTar(),
+    });
 
     const link = join(engineDir(dir), 'libllama.so.0');
     expect(await readlink(link)).toBe('libllama.so.0.6.0');
@@ -325,9 +353,9 @@ describe('the engine', () => {
     });
 
     expect(result.installed).toBe(true);
-    expect(
-      await readFile(join(engineDir(dir), 'llama-server'), 'utf8'),
-    ).toBe('binary');
+    expect(await readFile(join(engineDir(dir), 'llama-server'), 'utf8')).toBe(
+      'binary',
+    );
     // The archive is not kept: it is 32 MB of nothing once it is unpacked.
     await expect(stat(join(dir, '.engine-e.tar.gz.part'))).rejects.toThrow();
   });
@@ -446,7 +474,12 @@ describe('installEmbeddingPiece', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('downloads the text model from the pinned revision', async () => {
@@ -474,7 +507,9 @@ describe('installEmbeddingPiece', () => {
     });
 
     expect(result.installed).toBe(true);
-    expect(await readFile(join(dir, 'mmproj.gguf'), 'utf8')).toBe('the encoders');
+    expect(await readFile(join(dir, 'mmproj.gguf'), 'utf8')).toBe(
+      'the encoders',
+    );
   });
 
   it('leaves a piece that is already the pinned size alone', async () => {
@@ -518,4 +553,3 @@ describe('installEmbeddingPiece', () => {
     expect(await readFile(join(dir, piece.file), 'utf8')).toBe('the backbone');
   });
 });
-

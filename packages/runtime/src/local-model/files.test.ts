@@ -86,8 +86,18 @@ function embeddingManifest() {
       contextSize: 8192,
       pooling: 'mean',
       pieces: {
-        text: {label: 't', file: 'text.gguf', sha256: 'b'.repeat(64), bytes: 10},
-        media: {label: 'm', file: 'mmproj.gguf', sha256: 'c'.repeat(64), bytes: 20},
+        text: {
+          label: 't',
+          file: 'text.gguf',
+          sha256: 'b'.repeat(64),
+          bytes: 10,
+        },
+        media: {
+          label: 'm',
+          file: 'mmproj.gguf',
+          sha256: 'c'.repeat(64),
+          bytes: 20,
+        },
       },
     },
   });
@@ -101,7 +111,12 @@ describe('the recall model’s files', () => {
   });
 
   afterEach(async () => {
-    await rm(home, {recursive: true, force: true});
+    await rm(home, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('keeps them in their own directory inside the model directory', () => {
@@ -111,9 +126,9 @@ describe('the recall model’s files', () => {
   });
 
   it('follows the same override the model directory does', () => {
-    expect(recallDir({userData: '/data', env: {[MODEL_DIR_ENV]: '/elsewhere'}})).toBe(
-      join('/elsewhere', 'recall'),
-    );
+    expect(
+      recallDir({userData: '/data', env: {[MODEL_DIR_ENV]: '/elsewhere'}}),
+    ).toBe(join('/elsewhere', 'recall'));
   });
 
   it('reuses the engine layout for the recall engine', async () => {

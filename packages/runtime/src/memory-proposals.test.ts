@@ -41,7 +41,12 @@ describe('the proposal store', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('starts with nothing waiting and nothing reviewed', async () => {

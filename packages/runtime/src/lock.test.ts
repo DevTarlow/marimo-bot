@@ -24,11 +24,19 @@ describe('withFileLock', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** A sleep that records how long it was asked to wait, without waiting. */
-  function instantSleep(): {sleep: (ms: number) => Promise<void>; waits: number[]} {
+  function instantSleep(): {
+    sleep: (ms: number) => Promise<void>;
+    waits: number[];
+  } {
     const waits: number[] = [];
     return {
       waits,
@@ -94,7 +102,9 @@ describe('withFileLock', () => {
     const long = new Date(Date.now() - 60_000);
     await utimes(lock, long, long);
 
-    await expect(withFileLock(lock, async () => 'taken')).resolves.toBe('taken');
+    await expect(withFileLock(lock, async () => 'taken')).resolves.toBe(
+      'taken',
+    );
   });
 
   it('does not take over a lock that is still fresh', async () => {

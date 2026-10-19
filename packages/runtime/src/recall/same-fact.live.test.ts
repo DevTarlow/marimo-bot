@@ -32,7 +32,11 @@ import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import {SAME_FACT_SCORE} from '@marimo/agent';
 
 import {EMBEDDING_PINS} from '../local-model/pins.js';
-import {modelDir, recallSpec, resolveRecallFiles} from '../local-model/files.js';
+import {
+  modelDir,
+  recallSpec,
+  resolveRecallFiles,
+} from '../local-model/files.js';
 import {RecallEngine} from './engine.js';
 import {RecallService} from './service.js';
 
@@ -73,7 +77,7 @@ const MEMORY = [
 const CASES: ReadonlyArray<{fact: string; same: boolean}> = [
   // Paraphrases: no content word in common with the bullet they restate.
   {fact: 'They indent with tabs whatever the language is.', same: true},
-  {fact: "Their dog is called Bramble.", same: true},
+  {fact: 'Their dog is called Bramble.', same: true},
   // A contradiction, which is the case that must be caught.
   {fact: 'We use npm for this project now.', same: true},
   {fact: 'The package manager is npm.', same: true},
@@ -122,7 +126,12 @@ describe.runIf(runnable)('the same-fact floor against the pinned model', () => {
   afterAll(async () => {
     await engine?.stop();
     if (indexDir !== undefined) {
-      await rm(indexDir, {recursive: true, force: true});
+      await rm(indexDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
@@ -150,7 +159,7 @@ describe.runIf(runnable)('the same-fact floor against the pinned model', () => {
     }
 
     const wrong = measured.filter(
-      (entry) => entry.same !== (entry.score >= SAME_FACT_SCORE),
+      (entry) => entry.same !== entry.score >= SAME_FACT_SCORE,
     );
     /*
      * Reported as the numbers rather than as "expected true, got false", because
@@ -164,7 +173,10 @@ describe.runIf(runnable)('the same-fact floor against the pinned model', () => {
       ),
       `SAME_FACT_SCORE is ${String(SAME_FACT_SCORE)}; measured ` +
         measured
-          .map((entry) => `${entry.score.toFixed(4)} ${entry.same ? 'same' : 'other'}`)
+          .map(
+            (entry) =>
+              `${entry.score.toFixed(4)} ${entry.same ? 'same' : 'other'}`,
+          )
           .join(', '),
     ).toEqual([]);
   }, 120_000);

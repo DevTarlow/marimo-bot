@@ -50,7 +50,15 @@ describe('renderConversationText', () => {
       {
         author: 'read_file',
         content: {
-          parts: [{functionResponse: {id: 'c1', name: 'read_file', response: {result: 'export const a = 1;'}}}],
+          parts: [
+            {
+              functionResponse: {
+                id: 'c1',
+                name: 'read_file',
+                response: {result: 'export const a = 1;'},
+              },
+            },
+          ],
         },
       },
       message('assistant', 'It exports one constant.'),
@@ -64,7 +72,10 @@ describe('renderConversationText', () => {
   it('labels the user and the agent, and leaves no line for a silent event', () => {
     const events: ConversationEvent[] = [
       message('user', 'hello'),
-      {author: 'assistant', content: {parts: [{text: 'thinking', thought: true}]}},
+      {
+        author: 'assistant',
+        content: {parts: [{text: 'thinking', thought: true}]},
+      },
       message('assistant', 'hi'),
     ];
 
@@ -91,7 +102,9 @@ describe('renderConversationText', () => {
     const events: ConversationEvent[] = [
       {
         author: 'assistant',
-        content: {parts: [{text: 'calling', functionCall: {name: 'read_file'}}]},
+        content: {
+          parts: [{text: 'calling', functionCall: {name: 'read_file'}}],
+        },
       },
     ];
 
@@ -146,7 +159,9 @@ describe('conversationSlice', () => {
   });
 
   it('reports the exclusive index just past the last event it included', () => {
-    expect(conversationSlice(events, 0, MAX_CONVERSATION_CHARS).endEvent).toBe(3);
+    expect(conversationSlice(events, 0, MAX_CONVERSATION_CHARS).endEvent).toBe(
+      3,
+    );
     expect(conversationSlice(events, 1, MAX_CONVERSATION_CHARS)).toEqual({
       text: 'USER: second\n\nUSER: third',
       endEvent: 3,
@@ -168,7 +183,11 @@ describe('conversationSlice', () => {
 
   it('resumes where the previous slice stopped', () => {
     const first = conversationSlice(events, 0, 11);
-    const second = conversationSlice(events, first.endEvent, MAX_CONVERSATION_CHARS);
+    const second = conversationSlice(
+      events,
+      first.endEvent,
+      MAX_CONVERSATION_CHARS,
+    );
 
     expect(first).toEqual({text: 'USER: first', endEvent: 1});
     expect(second).toEqual({text: 'USER: second\n\nUSER: third', endEvent: 3});
@@ -181,9 +200,18 @@ describe('conversationSlice', () => {
    */
   it('advances over a run of invisible events and embeds nothing', () => {
     const invisible: ConversationEvent[] = [
-      {author: 'assistant', content: {parts: [{text: 'thinking', thought: true}]}},
-      {author: 'assistant', content: {parts: [{functionCall: {name: 'read_file'}}]}},
-      {author: 'read_file', content: {parts: [{functionResponse: {name: 'read_file'}}]}},
+      {
+        author: 'assistant',
+        content: {parts: [{text: 'thinking', thought: true}]},
+      },
+      {
+        author: 'assistant',
+        content: {parts: [{functionCall: {name: 'read_file'}}]},
+      },
+      {
+        author: 'read_file',
+        content: {parts: [{functionResponse: {name: 'read_file'}}]},
+      },
     ];
 
     expect(conversationSlice(invisible, 0, 10)).toEqual({
@@ -194,9 +222,15 @@ describe('conversationSlice', () => {
 
   it('does not leave a blank line where an invisible event was skipped', () => {
     const mixed: ConversationEvent[] = [
-      {author: 'assistant', content: {parts: [{text: 'thinking', thought: true}]}},
+      {
+        author: 'assistant',
+        content: {parts: [{text: 'thinking', thought: true}]},
+      },
       message('user', 'one'),
-      {author: 'assistant', content: {parts: [{functionCall: {name: 'read_file'}}]}},
+      {
+        author: 'assistant',
+        content: {parts: [{functionCall: {name: 'read_file'}}]},
+      },
       message('assistant', 'two'),
     ];
 
@@ -230,7 +264,12 @@ describe('ConversationWatermarkStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function file(): string {
@@ -308,7 +347,11 @@ describe('ConversationWatermarkStore', () => {
       embedded: {sessionA: 2},
     });
 
-    await writeFile(file(), JSON.stringify({version: 99, embedded: {sessionA: 9}}), 'utf8');
+    await writeFile(
+      file(),
+      JSON.stringify({version: 99, embedded: {sessionA: 9}}),
+      'utf8',
+    );
     const newer = new ConversationWatermarkStore({file: file()});
     expect(await newer.load()).toEqual({});
     await newer.save({sessionA: 3});
@@ -336,9 +379,13 @@ describe('ConversationWatermarkStore', () => {
 
   it('answers empty for a document that is not shaped like one', async () => {
     await writeFile(file(), JSON.stringify({embedded: {a: 4}}), 'utf8');
-    expect(await new ConversationWatermarkStore({file: file()}).load()).toEqual({});
+    expect(await new ConversationWatermarkStore({file: file()}).load()).toEqual(
+      {},
+    );
 
     await writeFile(file(), JSON.stringify(['a']), 'utf8');
-    expect(await new ConversationWatermarkStore({file: file()}).load()).toEqual({});
+    expect(await new ConversationWatermarkStore({file: file()}).load()).toEqual(
+      {},
+    );
   });
 });

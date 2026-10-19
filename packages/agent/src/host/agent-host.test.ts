@@ -220,7 +220,12 @@ describe('AgentHost', () => {
     }
     await fake?.close();
     fake = undefined;
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /*
@@ -376,17 +381,12 @@ describe('AgentHost', () => {
       },
     };
 
-    const {host, session} = await startHost(
-      (messages) => {
-        const hasResult = messages.some(
-          (message) => message['role'] === 'tool',
-        );
-        return hasResult
-          ? textChunks('Found it.')
-          : toolCallChunks('call_search', 'web_search', {query: 'marimo'});
-      },
-      provider,
-    );
+    const {host, session} = await startHost((messages) => {
+      const hasResult = messages.some((message) => message['role'] === 'tool');
+      return hasResult
+        ? textChunks('Found it.')
+        : toolCallChunks('call_search', 'web_search', {query: 'marimo'});
+    }, provider);
 
     const events = await collect(host.run(session, 'search the web'));
 
@@ -1194,7 +1194,9 @@ describe('AgentHost', () => {
      */
     const requested = sent
       .filter((message) => message['role'] === 'assistant')
-      .flatMap((message) => (message['tool_calls'] ?? []) as Array<{id: string}>)
+      .flatMap(
+        (message) => (message['tool_calls'] ?? []) as Array<{id: string}>,
+      )
       .map((call) => call.id);
     const answered = sent
       .filter((message) => message['role'] === 'tool')
@@ -1245,7 +1247,9 @@ describe('AgentHost', () => {
 
   it('leaves the conversation alone when the automatic summary is empty', async () => {
     const {host, session} = await startHost((messages, index) =>
-      messages.length === 1 ? textChunks('') : textChunks(`answer ${String(index)}`),
+      messages.length === 1
+        ? textChunks('')
+        : textChunks(`answer ${String(index)}`),
     );
 
     for (let turn = 0; turn < 8; turn += 1) {
@@ -1267,7 +1271,9 @@ describe('AgentHost', () => {
     );
 
     const paused = await collect(host.run(session, 'run it'));
-    expect(paused.some((event) => event.type === 'approval.request')).toBe(true);
+    expect(paused.some((event) => event.type === 'approval.request')).toBe(
+      true,
+    );
     const before = await host.eventsFor(session);
 
     const result = await host.autoCompact(session, undefined, 1);
@@ -1284,7 +1290,9 @@ describe('AgentHost', () => {
     );
 
     const paused = await collect(host.run(session, 'run it'));
-    expect(paused.some((event) => event.type === 'approval.request')).toBe(true);
+    expect(paused.some((event) => event.type === 'approval.request')).toBe(
+      true,
+    );
 
     const result = await host.compact(session);
 
@@ -1566,19 +1574,16 @@ describe('AgentHost', () => {
       },
     };
 
-    const {host, session} = await startHost(
-      (messages) => {
-        const results = messages.filter(
-          (message) => message['role'] === 'tool',
-        ).length;
-        return results < 3
-          ? toolCallChunks(`call_search_${results}`, 'web_search', {
-              query: 'marimo',
-            })
-          : textChunks('Answered.');
-      },
-      provider,
-    );
+    const {host, session} = await startHost((messages) => {
+      const results = messages.filter(
+        (message) => message['role'] === 'tool',
+      ).length;
+      return results < 3
+        ? toolCallChunks(`call_search_${results}`, 'web_search', {
+            query: 'marimo',
+          })
+        : textChunks('Answered.');
+    }, provider);
 
     const events = await collect(host.run(session, 'search for marimo'));
 
@@ -1618,7 +1623,9 @@ describe('AgentHost', () => {
     const provider: WebSearchProvider = {
       search: async ({query}) => {
         queries.push(query);
-        return [{title: query, url: `https://example.com/${query}`, snippet: ''}];
+        return [
+          {title: query, url: `https://example.com/${query}`, snippet: ''},
+        ];
       },
     };
 
@@ -1657,19 +1664,16 @@ describe('AgentHost', () => {
       },
     };
 
-    const {host, session} = await startHost(
-      (messages) => {
-        const results = messages.filter(
-          (message) => message['role'] === 'tool',
-        ).length;
-        return results < 2
-          ? toolCallChunks(`call_search_${results}`, 'web_search', {
-              query: results === 0 ? 'first' : 'second',
-            })
-          : textChunks('Both done.');
-      },
-      provider,
-    );
+    const {host, session} = await startHost((messages) => {
+      const results = messages.filter(
+        (message) => message['role'] === 'tool',
+      ).length;
+      return results < 2
+        ? toolCallChunks(`call_search_${results}`, 'web_search', {
+            query: results === 0 ? 'first' : 'second',
+          })
+        : textChunks('Both done.');
+    }, provider);
 
     const events = await collect(host.run(session, 'search twice'));
 
@@ -1764,7 +1768,9 @@ describe('AgentHost', () => {
     );
 
     const paused = await collect(host.run(session, 'replace it'));
-    expect(paused.some((event) => event.type === 'approval.request')).toBe(true);
+    expect(paused.some((event) => event.type === 'approval.request')).toBe(
+      true,
+    );
 
     // One request, which is the gate. A recovery call would show up as a second:
     // a turn waiting on the user is not a turn that said nothing.
@@ -1781,9 +1787,10 @@ describe('AgentHost', () => {
    */
   describe('memory retrieval', () => {
     /** A lookup that answers with whatever the test says, and records the asks. */
-    function lookup(
-      answer: Partial<RecallAnswer> = {},
-    ): {service: RecallLookup; asked: string[]} {
+    function lookup(answer: Partial<RecallAnswer> = {}): {
+      service: RecallLookup;
+      asked: string[];
+    } {
       const asked: string[] = [];
       return {
         asked,
@@ -1848,7 +1855,10 @@ describe('AgentHost', () => {
      */
     async function padMemory(host: AgentHost): Promise<void> {
       for (let index = 0; index < 3; index += 1) {
-        await host.remember('Notes', `Scratch note ${index} ${'z'.repeat(1_600)}`);
+        await host.remember(
+          'Notes',
+          `Scratch note ${index} ${'z'.repeat(1_600)}`,
+        );
       }
     }
 
@@ -1957,7 +1967,9 @@ describe('AgentHost', () => {
      * swap the whole file for whatever happened to rank.
      */
     it('does not retrieve against a question too short to mean anything', async () => {
-      const {service, asked} = lookup({hits: [bullet('About the user', 'Lives in Berlin')]});
+      const {service, asked} = lookup({
+        hits: [bullet('About the user', 'Lives in Berlin')],
+      });
       const {host, session} = await start(service, () => textChunks('ok'));
       await seedMemory(host);
 
@@ -1984,7 +1996,9 @@ describe('AgentHost', () => {
       // cannot narrow returns before the hanging `search` is ever reached.
       await padMemory(host);
 
-      const events = await collect(host.run(session, 'where does the retry logic live'));
+      const events = await collect(
+        host.run(session, 'where does the retry logic live'),
+      );
 
       expect(typesOf(events)).toContain('turn.completed');
       const instruction = instructionOf();
@@ -2000,11 +2014,14 @@ describe('AgentHost', () => {
     it('offers the recall tool when the service is there, and not when it is not', async () => {
       const withRecall = await start(lookup().service, () => textChunks('ok'));
       await collect(withRecall.host.run(withRecall.session, 'hi'));
-      const names = (fake?.requests[0]?.body['tools'] as Array<{function: {name: string}}>)
-        .map((tool) => tool.function.name);
+      const names = (
+        fake?.requests[0]?.body['tools'] as Array<{function: {name: string}}>
+      ).map((tool) => tool.function.name);
 
       expect(names).toContain('recall');
-      expect(names?.indexOf('recall')).toBe(names.indexOf('search_knowledge_base') + 1);
+      expect(names?.indexOf('recall')).toBe(
+        names.indexOf('search_knowledge_base') + 1,
+      );
     });
   });
 
@@ -2305,7 +2322,9 @@ describe('AgentHost', () => {
 
       expect(activity.firstExchange).toBe(false);
       expect(activity.lastActivity).toBeInstanceOf(Date);
-      expect(Number.isNaN(activity.lastActivity?.getTime() ?? Number.NaN)).toBe(false);
+      expect(Number.isNaN(activity.lastActivity?.getTime() ?? Number.NaN)).toBe(
+        false,
+      );
     });
 
     it('says first exchange rather than throwing for an unknown session', async () => {
@@ -2323,7 +2342,6 @@ describe('AgentHost', () => {
     });
   });
 });
-
 
 /*
  * Handing work to a named agent, end to end.
@@ -2356,7 +2374,12 @@ describe('a conversation with a helper agent', () => {
     }
     await fake?.close();
     fake = undefined;
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function config(baseUrl: string, profileId?: string): AgentConfig {
@@ -2414,7 +2437,8 @@ describe('a conversation with a helper agent', () => {
    */
   function isHelper(messages: Array<Record<string, unknown>>): boolean {
     return String(
-      messages.find((message) => message['role'] === 'system')?.['content'] ?? '',
+      messages.find((message) => message['role'] === 'system')?.['content'] ??
+        '',
     ).includes(`internal name is "${agentNameFor(RESEARCHER.id)}"`);
   }
 
@@ -2460,13 +2484,15 @@ describe('a conversation with a helper agent', () => {
     );
     // Its own identity, rather than the lead's.
     expect(
-      helperRequest?.messages.find(
-        (message) => message['role'] === 'system',
-      )?.['content'],
+      helperRequest?.messages.find((message) => message['role'] === 'system')?.[
+        'content'
+      ],
     ).toContain(RESEARCHER.identity);
 
     const messages = projectTranscript(await host.eventsFor(session));
-    const helper = messages.find((message) => message.agentId === RESEARCHER.id);
+    const helper = messages.find(
+      (message) => message.agentId === RESEARCHER.id,
+    );
     expect(helper?.text).toBe('The logs show three warnings.');
     // The lead's summary is its own bubble, in the lead's own voice.
     expect(messages[messages.length - 1]).toMatchObject({
@@ -2492,9 +2518,11 @@ describe('a conversation with a helper agent', () => {
     await collect(host.run(session, 'look into the logs'));
 
     const declared = (request: RecordedRequest | undefined): string[] =>
-      ((request?.body['tools'] ?? []) as Array<{
-        function?: {name?: string};
-      }>).map((tool) => tool.function?.name ?? '');
+      (
+        (request?.body['tools'] ?? []) as Array<{
+          function?: {name?: string};
+        }>
+      ).map((tool) => tool.function?.name ?? '');
 
     const lead = fake.requests[0];
     const helper = fake.requests.find((request) => isHelper(request.messages));
@@ -2608,23 +2636,23 @@ describe('a conversation with a helper agent', () => {
      */
     const card = parked.find((event) => event.type === 'approval.request');
     expect(card).toMatchObject({tool: 'ask_agent'});
-    expect(
-      card?.type === 'approval.request' ? card.hint : '',
-    ).toContain('Researcher');
+    expect(card?.type === 'approval.request' ? card.hint : '').toContain(
+      'Researcher',
+    );
     /*
      * The path, not the tool's name: the card the user decides on has to say
      * *what* will be overwritten. The tool is in the arguments the gate carries,
      * and `write_file` in the sentence was the jargon this replaced.
      */
-    expect(
-      card?.type === 'approval.request' ? card.hint : '',
-    ).toContain('notes.txt');
-    expect(
-      card?.type === 'approval.request' ? card.hint : '',
-    ).not.toContain('write_file');
-    expect((await host.pendingGates(session)).map((gate) => gate.tool)).toEqual([
-      'ask_agent',
-    ]);
+    expect(card?.type === 'approval.request' ? card.hint : '').toContain(
+      'notes.txt',
+    );
+    expect(card?.type === 'approval.request' ? card.hint : '').not.toContain(
+      'write_file',
+    );
+    expect((await host.pendingGates(session)).map((gate) => gate.tool)).toEqual(
+      ['ask_agent'],
+    );
 
     /*
      * The click. Resuming is a new turn carrying the confirmation, exactly as it
@@ -2654,7 +2682,8 @@ describe('a conversation with a helper agent', () => {
     expect(
       messages.some(
         (message) =>
-          message.agentId === RESEARCHER.id && message.text.includes('Written.'),
+          message.agentId === RESEARCHER.id &&
+          message.text.includes('Written.'),
       ),
     ).toBe(true);
     expect(messages[messages.length - 1]?.agentId).toBeUndefined();

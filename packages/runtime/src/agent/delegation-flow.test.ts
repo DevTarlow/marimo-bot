@@ -31,7 +31,8 @@ import {WorkspaceStore} from '../workspaces.js';
 import {AgentRuntime} from './runtime.js';
 
 /** The two agents, by the one thing a request carries that tells them apart. */
-const LEAD_IDENTITY = 'You are Marimo Bot, and you hand writing work to Writer.';
+const LEAD_IDENTITY =
+  'You are Marimo Bot, and you hand writing work to Writer.';
 const WRITER_IDENTITY = 'You are Writer. You draft blog posts and file them.';
 
 /** What the user says, in their own words. */
@@ -398,7 +399,12 @@ describe('a blog post, from the chat to the website repo', () => {
     for (const agent of open.splice(0)) {
       await agent.dispose();
     }
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function start(): AgentRuntime {

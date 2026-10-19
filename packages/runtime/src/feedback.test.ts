@@ -27,7 +27,12 @@ describe('the feedback store', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('starts empty', async () => {
@@ -139,12 +144,12 @@ describe('the feedback store', () => {
       excerpt: 'Home answer.',
     });
 
-    expect((await store.forProfile('work')).map((entry) => entry.excerpt)).toEqual(
-      ['Work answer.'],
-    );
-    expect((await store.forProfile('home')).map((entry) => entry.excerpt)).toEqual(
-      ['Home answer.'],
-    );
+    expect(
+      (await store.forProfile('work')).map((entry) => entry.excerpt),
+    ).toEqual(['Work answer.']);
+    expect(
+      (await store.forProfile('home')).map((entry) => entry.excerpt),
+    ).toEqual(['Home answer.']);
   });
 
   it('caps the list by dropping the oldest', async () => {
@@ -193,8 +198,9 @@ describe('the feedback store', () => {
       excerpt: 'Wrong about the release date.',
     });
 
-    expect((await store.forgetProfile('default')).entries.map((e) => e.profileId))
-      .toEqual(['research']);
+    expect(
+      (await store.forgetProfile('default')).entries.map((e) => e.profileId),
+    ).toEqual(['research']);
     expect(await store.forProfile('default')).toEqual([]);
     expect(await store.forProfile('research')).toHaveLength(1);
   });

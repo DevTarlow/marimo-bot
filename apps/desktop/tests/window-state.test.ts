@@ -147,7 +147,12 @@ describe('the geometry file', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('comes back as it went in', async () => {
@@ -187,7 +192,11 @@ describe('the geometry file', () => {
     await mkdir(dirname(file), {recursive: true});
     await writeFile(file, JSON.stringify({x: 1, y: 2}), 'utf8');
     expect(await loadWindowState(file)).toBeUndefined();
-    await writeFile(file, JSON.stringify({x: '1', y: 2, width: 3, height: 4}), 'utf8');
+    await writeFile(
+      file,
+      JSON.stringify({x: '1', y: 2, width: 3, height: 4}),
+      'utf8',
+    );
     expect(await loadWindowState(file)).toBeUndefined();
   });
 

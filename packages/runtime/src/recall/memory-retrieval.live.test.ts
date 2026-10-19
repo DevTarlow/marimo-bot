@@ -161,7 +161,12 @@ describe.runIf(runnable)('memory retrieval against the pinned model', () => {
   afterAll(async () => {
     await engine?.stop();
     if (indexDir !== undefined) {
-      await rm(indexDir, {recursive: true, force: true});
+      await rm(indexDir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 

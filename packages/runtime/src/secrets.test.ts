@@ -16,7 +16,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(dir, {recursive: true, force: true});
+  await rm(dir, {recursive: true, force: true, maxRetries: 5, retryDelay: 20});
 });
 
 /** Stands in for `safeStorage`, with a transform that is obvious in a failure. */
@@ -74,7 +74,10 @@ describe('FileSecretStore', () => {
    * has to be able to say which one it hit.
    */
   it('says unreadable, not absent, when it cannot decrypt', async () => {
-    await writeFile(file, `encrypted:${Buffer.from('sealed(x)').toString('base64')}\n`);
+    await writeFile(
+      file,
+      `encrypted:${Buffer.from('sealed(x)').toString('base64')}\n`,
+    );
 
     const headless = new FileSecretStore(file, 'API key');
     const read = await headless.read();
@@ -88,7 +91,10 @@ describe('FileSecretStore', () => {
   });
 
   it('says unreadable when the keychain refuses to decrypt', async () => {
-    await writeFile(file, `encrypted:${Buffer.from('sealed(x)').toString('base64')}\n`);
+    await writeFile(
+      file,
+      `encrypted:${Buffer.from('sealed(x)').toString('base64')}\n`,
+    );
 
     const broken: SecretCipher = {
       available: () => true,
@@ -112,7 +118,10 @@ describe('FileSecretStore', () => {
      * somebody accepted it for must go on working: refusing to read it would
      * silently disconnect a connector that has been fine for months.
      */
-    await writeFile(file, `plaintext:${Buffer.from('sk-legacy').toString('base64')}\n`);
+    await writeFile(
+      file,
+      `plaintext:${Buffer.from('sk-legacy').toString('base64')}\n`,
+    );
     const store = new FileSecretStore(file, 'API key', cipher);
     expect(await store.get()).toBe('sk-legacy');
   });
@@ -157,8 +166,8 @@ describe('FileSecretStore', () => {
       encrypt: cipher.encrypt,
       decrypt: cipher.decrypt,
     };
-    expect(new FileSecretStore(file, 'API key', throwing).isEncryptionAvailable()).toBe(
-      false,
-    );
+    expect(
+      new FileSecretStore(file, 'API key', throwing).isEncryptionAvailable(),
+    ).toBe(false);
   });
 });

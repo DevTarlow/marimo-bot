@@ -78,7 +78,12 @@ describe('the app.reset call', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('reaches the reset, and needs no agent to do it', async () => {

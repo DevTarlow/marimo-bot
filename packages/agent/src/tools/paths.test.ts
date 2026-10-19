@@ -32,7 +32,12 @@ describe('resolveInsideWorkspace', () => {
   });
 
   afterEach(async () => {
-    await rm(base, {recursive: true, force: true});
+    await rm(base, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('resolves an ordinary file inside the root', async () => {
@@ -46,9 +51,9 @@ describe('resolveInsideWorkspace', () => {
   });
 
   it('refuses a path that climbs out', async () => {
-    await expect(resolveInsideWorkspace(root, '../outside/x')).rejects.toBeInstanceOf(
-      PathOutsideWorkspaceError,
-    );
+    await expect(
+      resolveInsideWorkspace(root, '../outside/x'),
+    ).rejects.toBeInstanceOf(PathOutsideWorkspaceError);
   });
 
   it('refuses an absolute path outside the root', async () => {
@@ -98,7 +103,9 @@ describe('resolveInsideWorkspace', () => {
   it('allows a link to a file that exists inside', async () => {
     await writeFile(join(root, 'real.txt'), 'hello');
     await symlink(join(root, 'real.txt'), join(root, 'link'));
-    expect(await resolveInsideWorkspace(root, 'link')).toBe(join(root, 'real.txt'));
+    expect(await resolveInsideWorkspace(root, 'link')).toBe(
+      join(root, 'real.txt'),
+    );
   });
 
   it('resolves the root itself', async () => {

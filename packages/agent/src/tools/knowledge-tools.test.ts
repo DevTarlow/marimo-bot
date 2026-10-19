@@ -34,7 +34,12 @@ describe('search_knowledge_base', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function tool(): BaseTool {
@@ -54,9 +59,9 @@ describe('search_knowledge_base', () => {
 
   it('matches case-sensitively when asked', async () => {
     await writeFile(join(workDir, 'src.txt'), 'Marimo Bot\n', 'utf8');
-    expect(await run(tool(), {query: 'Marimo Bot', caseSensitive: true})).toContain(
-      '1 match',
-    );
+    expect(
+      await run(tool(), {query: 'Marimo Bot', caseSensitive: true}),
+    ).toContain('1 match');
     expect(await run(tool(), {query: 'marimo', caseSensitive: true})).toContain(
       'No matches',
     );

@@ -121,7 +121,12 @@ describe('SkillStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function root(): string {
@@ -132,9 +137,7 @@ describe('SkillStore', () => {
     return new SkillStore({
       root: root(),
       ...(extra.reserved === undefined ? {} : {reserved: extra.reserved}),
-      ...(extra.legacyFile === undefined
-        ? {}
-        : {legacyFile: extra.legacyFile}),
+      ...(extra.legacyFile === undefined ? {} : {legacyFile: extra.legacyFile}),
     });
   }
 
@@ -316,9 +319,9 @@ describe('SkillStore', () => {
     // Empty: a file with no procedure is not a skill this build can load.
     await writeFile(join(root(), 'broken', 'SKILL.md'), '', 'utf8');
 
-    await expect(
-      store().save({...draft, name: 'Broken'}),
-    ).rejects.toThrow(/could not read/u);
+    await expect(store().save({...draft, name: 'Broken'})).rejects.toThrow(
+      /could not read/u,
+    );
     expect(await readFile(join(root(), 'broken', 'SKILL.md'), 'utf8')).toBe('');
   });
 

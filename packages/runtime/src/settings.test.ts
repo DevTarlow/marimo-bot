@@ -21,11 +21,7 @@ import {
 
 import {MAX_MEMORY_BYTES} from '@marimo/agent';
 
-import {
-  chooseModel,
-  readLegacyProfileSeed,
-  SettingsStore,
-} from './settings.js';
+import {chooseModel, readLegacyProfileSeed, SettingsStore} from './settings.js';
 
 describe('readLegacyProfileSeed', () => {
   let dir: string;
@@ -35,7 +31,12 @@ describe('readLegacyProfileSeed', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('keeps the workspace and prompt a pre-profile file held', async () => {
@@ -90,7 +91,12 @@ describe('SettingsStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -203,7 +209,12 @@ describe('SettingsStore, on a file from the provider era', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -369,7 +380,12 @@ describe('SettingsStore providers', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -539,7 +555,9 @@ describe('SettingsStore providers', () => {
    * list a picker could not draw anything from.
    */
   it('reads an empty stored list as one nobody has filled in', async () => {
-    await write({availableModels: {deepseek: [], gemini: ['gemini-3.6-flash']}});
+    await write({
+      availableModels: {deepseek: [], gemini: ['gemini-3.6-flash']},
+    });
     const settings = await store().load();
 
     expect(settings.availableModels.deepseek).toBeUndefined();
@@ -589,7 +607,12 @@ describe('SettingsStore memorySoftLimitBytes', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -652,7 +675,12 @@ describe('SettingsStore expandedSections', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -741,7 +769,12 @@ describe('SettingsStore disabledCommands', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -818,7 +851,12 @@ describe('SettingsStore setupSeen', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -886,7 +924,12 @@ describe('SettingsStore with no experience mode', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -918,7 +961,12 @@ describe('SettingsStore appearance', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -975,7 +1023,12 @@ describe('SettingsStore window', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -1066,7 +1119,12 @@ describe('settings from another build', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -1134,7 +1192,12 @@ describe('SettingsStore companion', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(): SettingsStore {
@@ -1231,7 +1294,12 @@ describe('the recall block', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('defaults to off, on an install with no settings file at all', async () => {

@@ -30,7 +30,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(dir, {recursive: true, force: true});
+  await rm(dir, {recursive: true, force: true, maxRetries: 5, retryDelay: 20});
 });
 
 describe('attaching files to a message', () => {
@@ -73,7 +73,9 @@ describe('attaching files to a message', () => {
     await writeFile(join(dir, 'elsewhere', 'secret.txt'), 'not yours\n');
     await symlink(join(dir, 'elsewhere', 'secret.txt'), join(root, 'link.txt'));
 
-    const {files, skipped} = await attachableFiles(root, [join(root, 'link.txt')]);
+    const {files, skipped} = await attachableFiles(root, [
+      join(root, 'link.txt'),
+    ]);
 
     expect(files).toEqual([]);
     expect(skipped[0]?.reason).toContain('Outside the space');
@@ -86,7 +88,9 @@ describe('attaching files to a message', () => {
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]),
     );
 
-    const {files, skipped} = await attachableFiles(root, [join(root, 'shot.png')]);
+    const {files, skipped} = await attachableFiles(root, [
+      join(root, 'shot.png'),
+    ]);
 
     expect(files).toEqual([]);
     expect(skipped[0]?.reason).toContain('not text');

@@ -44,7 +44,12 @@ describe('createTools', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function config(): AgentConfig {
@@ -69,7 +74,13 @@ describe('createTools', () => {
 
   it('offers the same catalogue in a stable order', () => {
     expect(
-      names(createTools(config(), {memory: memory(), model: 'deepseek-chat', provider: 'deepseek'})),
+      names(
+        createTools(config(), {
+          memory: memory(),
+          model: 'deepseek-chat',
+          provider: 'deepseek',
+        }),
+      ),
     ).toEqual([
       'current_time',
       'read_file',
@@ -99,7 +110,13 @@ describe('createTools', () => {
     expect(withProvider.indexOf('web_search')).toBe(9);
     expect(withProvider.indexOf('run_shell')).toBe(10);
     expect(
-      names(createTools(config(), {memory: memory(), model: 'deepseek-chat', provider: 'deepseek'})),
+      names(
+        createTools(config(), {
+          memory: memory(),
+          model: 'deepseek-chat',
+          provider: 'deepseek',
+        }),
+      ),
     ).not.toContain('web_search');
   });
 
@@ -163,7 +180,13 @@ describe('createTools', () => {
       }),
     };
     expect(
-      names(createTools(config(), {memory: memory(), model: 'deepseek-chat', provider: 'deepseek'})),
+      names(
+        createTools(config(), {
+          memory: memory(),
+          model: 'deepseek-chat',
+          provider: 'deepseek',
+        }),
+      ),
     ).not.toContain('list_todos');
 
     const withDesk = names(
@@ -213,7 +236,10 @@ describe('createTools', () => {
 
     expect(
       names(
-        createTools({...config(), enabledTools: ['read_file', 'save_skill']}, deps),
+        createTools(
+          {...config(), enabledTools: ['read_file', 'save_skill']},
+          deps,
+        ),
       ),
     ).toEqual(['read_file', 'save_skill']);
 
@@ -412,7 +438,12 @@ describe('the safe defaults', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** Every tool the host can build, with nothing optional left out. */
@@ -485,7 +516,12 @@ describe('the tool catalogue', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /*
@@ -628,7 +664,12 @@ describe('the capability presets', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** Every tool the host can build, with nothing optional left out. */

@@ -70,9 +70,7 @@ describe('memory paths', () => {
     );
     expect(
       resolvePersonMemoryFile('/home/u/.config/Marimo Bot/memory', 'research'),
-    ).toBe(
-      join('/home/u/.config/Marimo Bot/memory', 'research', 'memory.md'),
-    );
+    ).toBe(join('/home/u/.config/Marimo Bot/memory', 'research', 'memory.md'));
   });
 
   it('refuses a profile id that would escape the person folder', () => {
@@ -322,7 +320,12 @@ describe('MemoryStore, split by layer', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function store(profileId?: string): MemoryStore {
@@ -359,7 +362,10 @@ describe('MemoryStore, split by layer', () => {
   it('keeps a fact about the person across a change of folder', async () => {
     const first = store();
     await first.update({section: 'About the user', content: 'Has a dog'});
-    await first.update({section: 'Project pointers', content: 'State in TODO.md'});
+    await first.update({
+      section: 'Project pointers',
+      content: 'State in TODO.md',
+    });
 
     // A different project: new workspace root, same person directory.
     const otherRoot = await mkdtemp(join(process.cwd(), '.marimo-project-'));
@@ -372,13 +378,21 @@ describe('MemoryStore, split by layer', () => {
       expect(text).toContain('- Has a dog');
       expect(text).not.toContain('State in TODO.md');
     } finally {
-      await rm(otherRoot, {recursive: true, force: true});
+      await rm(otherRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
   it('reads the person half before the project half', async () => {
     const memory = store();
-    await memory.update({section: 'Project pointers', content: 'State in TODO.md'});
+    await memory.update({
+      section: 'Project pointers',
+      content: 'State in TODO.md',
+    });
     await memory.update({section: 'About the user', content: 'Has a dog'});
 
     const text = await memory.read();
@@ -428,14 +442,22 @@ describe('MemoryStore, split by layer', () => {
 
       expect(await there.read()).toContain('- No emoji');
     } finally {
-      await rm(otherRoot, {recursive: true, force: true});
+      await rm(otherRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
   it('counts both files in the size it reports', async () => {
     const memory = store();
     await memory.update({section: 'About the user', content: 'Has a dog'});
-    await memory.update({section: 'Project pointers', content: 'State in TODO.md'});
+    await memory.update({
+      section: 'Project pointers',
+      content: 'State in TODO.md',
+    });
 
     const merged = await memory.read();
     expect(await memory.bytes()).toBe(Buffer.byteLength(merged, 'utf8'));
@@ -470,12 +492,17 @@ describe('MemoryStore, split by layer', () => {
       expect(entries[0]?.scope).toBe('person');
       expect(entries[0]?.section).toBe('About the user');
       expect(entries[0]?.source).toBe('tool');
-      expect(Number.isNaN(new Date(entries[0]?.at ?? '').getTime())).toBe(false);
+      expect(Number.isNaN(new Date(entries[0]?.at ?? '').getTime())).toBe(
+        false,
+      );
     });
 
     it('says whether the user asked for the fact or agreed to a suggestion', async () => {
       const memory = store();
-      await memory.update({section: 'Notes', content: 'From a suggestion'}, 'review');
+      await memory.update(
+        {section: 'Notes', content: 'From a suggestion'},
+        'review',
+      );
 
       expect((await memory.provenance())[0]?.source).toBe('review');
     });
@@ -500,7 +527,10 @@ describe('MemoryStore, split by layer', () => {
 
     it('forgets the date of a bullet a correction removed', async () => {
       const memory = store();
-      await memory.update({section: 'Preferences and tone', content: 'Uses npm'});
+      await memory.update({
+        section: 'Preferences and tone',
+        content: 'Uses npm',
+      });
       await memory.update({
         section: 'Preferences and tone',
         content: 'Uses pnpm',
@@ -514,7 +544,10 @@ describe('MemoryStore, split by layer', () => {
     it('dates what survives a prune', async () => {
       const memory = store();
       await memory.update({section: 'About the user', content: 'Has a dog'});
-      await memory.update({section: 'Project pointers', content: 'State in TODO.md'});
+      await memory.update({
+        section: 'Project pointers',
+        content: 'State in TODO.md',
+      });
       const kept = (await memory.provenance()).find(
         (entry) => entry.text === 'Has a dog',
       )?.at;
@@ -559,9 +592,14 @@ describe('MemoryStore, split by layer', () => {
     it('describes both files in one list', async () => {
       const memory = store();
       await memory.update({section: 'About the user', content: 'Has a dog'});
-      await memory.update({section: 'Project pointers', content: 'State in TODO.md'});
+      await memory.update({
+        section: 'Project pointers',
+        content: 'State in TODO.md',
+      });
 
-      const scopes = (await memory.provenance()).map((entry) => entry.scope).sort();
+      const scopes = (await memory.provenance())
+        .map((entry) => entry.scope)
+        .sort();
       expect(scopes).toEqual(['person', 'workspace']);
     });
   });
@@ -569,12 +607,7 @@ describe('MemoryStore, split by layer', () => {
   describe('adoption of a file written before the split', () => {
     /** A workspace file in the old one-file layout. */
     async function seedOldLayout(text: string): Promise<void> {
-      const at = join(
-        workDir,
-        AGENT_DATA_DIR,
-        DEFAULT_PROFILE_ID,
-        'memory.md',
-      );
+      const at = join(workDir, AGENT_DATA_DIR, DEFAULT_PROFILE_ID, 'memory.md');
       await mkdir(join(workDir, AGENT_DATA_DIR, DEFAULT_PROFILE_ID), {
         recursive: true,
       });
@@ -680,7 +713,10 @@ describe('MemoryStore, split by layer', () => {
     it('routes each half of the document to its own file', async () => {
       const memory = store();
       await memory.update({section: 'About the user', content: 'Has a dog'});
-      await memory.update({section: 'Project pointers', content: 'old pointer'});
+      await memory.update({
+        section: 'Project pointers',
+        content: 'old pointer',
+      });
 
       const report = await memory.prune({
         content:
@@ -705,7 +741,10 @@ describe('MemoryStore, split by layer', () => {
     it('refuses to empty the person file for a document that never mentions it', async () => {
       const memory = store();
       await memory.update({section: 'About the user', content: 'Has a dog'});
-      await memory.update({section: 'Project pointers', content: 'old pointer'});
+      await memory.update({
+        section: 'Project pointers',
+        content: 'old pointer',
+      });
 
       const report = await memory.prune({
         content: '## Project pointers\n- State in docs/STATE.md\n',
@@ -737,7 +776,10 @@ describe('MemoryStore, split by layer', () => {
     it('keeps one backup beside each file it rewrote', async () => {
       const memory = store();
       await memory.update({section: 'About the user', content: 'Has a dog'});
-      await memory.update({section: 'Project pointers', content: 'old pointer'});
+      await memory.update({
+        section: 'Project pointers',
+        content: 'old pointer',
+      });
 
       await memory.prune({
         content:
@@ -762,7 +804,12 @@ describe('MemoryStore', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('reads an empty string before the file exists', async () => {
@@ -803,7 +850,12 @@ describe('MemoryStore', () => {
       await store.update({content: 'there'});
       expect(await store.read()).toContain('there');
     } finally {
-      await rm(other, {recursive: true, force: true});
+      await rm(other, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 

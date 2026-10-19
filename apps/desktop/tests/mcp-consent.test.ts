@@ -54,7 +54,12 @@ describe('a connector secret', () => {
 
   afterEach(async () => {
     await service.stop();
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function connector(overrides: Partial<McpServer> = {}): McpServer {

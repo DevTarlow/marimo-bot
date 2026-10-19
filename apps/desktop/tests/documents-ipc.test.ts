@@ -179,7 +179,12 @@ describe('the docs.* calls', () => {
 
   afterEach(async () => {
     await service.stop();
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('registers the one channel the preload calls', () => {

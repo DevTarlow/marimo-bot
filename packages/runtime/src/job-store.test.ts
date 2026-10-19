@@ -12,11 +12,7 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
 import {emptyJobs} from '@marimo/protocol';
 
-import {
-  DEFAULT_SCHEDULE,
-  JobStore,
-  PLACEHOLDER_JOB_NAME,
-} from './jobs.js';
+import {DEFAULT_SCHEDULE, JobStore, PLACEHOLDER_JOB_NAME} from './jobs.js';
 
 describe('JobStore', () => {
   let dir: string;
@@ -30,7 +26,12 @@ describe('JobStore', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('starts empty, with the rail closed', async () => {
@@ -534,7 +535,12 @@ describe('JobStore readability', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('reports no problem for a file that is simply not there', async () => {
@@ -559,7 +565,10 @@ describe('JobStore readability', () => {
   it('reports a file from a newer build rather than calling it empty', async () => {
     await writeFile(
       file,
-      JSON.stringify({version: 9, jobs: {jobs: [], open: false, openJobId: null}}),
+      JSON.stringify({
+        version: 9,
+        jobs: {jobs: [], open: false, openJobId: null},
+      }),
       'utf8',
     );
     const {problem} = await store.loadChecked();
@@ -622,131 +631,138 @@ describe('JobStore readability', () => {
     expect(await readFile(`${file}.unreadable`, 'utf8')).toBe('half a doc');
   });
 
-/**
- * Claiming an occurrence is exclusive.
- *
- * This is what makes a job run once when two processes are watching the same
- * file — which is exactly the app and the headless runner. Without it both see
- * the occurrence as due, both advance the marker, and the user gets the same
- * scheduled message twice.
- */
-describe('JobStore claiming an occurrence', () => {
-  let dir: string;
-  let file: string;
-  let store: JobStore;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(process.cwd(), '.marimo-jobs-claim-'));
-    file = join(dir, 'jobs.json');
-    store = new JobStore({file});
-  });
-
-  afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
-  });
-
-  async function job(): Promise<{id: string; dueAt: string}> {
-    const {job: created} = await store.create({
-      name: 'Digest',
-      description: '',
-      sessionId: 's1',
-      profileId: 'p1',
-    });
-    // The store computes `dueAt` from the real clock; any real occurrence will
-    // do, because what is under test is the compare, not the schedule.
-    return {id: created.id, dueAt: created.dueAt ?? ''};
-  }
-
-  it('lets the first caller through and refuses the second', async () => {
-    const target = await job();
-
-    expect(await store.advanceDue(target.id, target.dueAt)).not.toBeNull();
-    expect(await store.advanceDue(target.id, target.dueAt)).toBeNull();
-  });
-
-  it('refuses a caller holding a marker that has already moved', async () => {
-    const target = await job();
-    await store.advanceDue(target.id, target.dueAt);
-
-    const now = await store.load();
-    const moved = now.jobs[0]?.dueAt ?? '';
-
-    // An older snapshot — a look that read the document before the write
-    // landed — must not be able to claim it a second time.
-    expect(await store.advanceDue(target.id, target.dueAt)).toBeNull();
-    // And the marker did move on rather than staying put.
-    expect(moved).not.toBe(target.dueAt);
-  });
-
-  it('answers null for a job that does not exist', async () => {
-    expect(await store.advanceDue('no-such-job', '2026-01-01T00:00:00.000Z')).toBeNull();
-  });
-
-  /*
-   * The other caller: retiring an occurrence that was missed while nothing was
-   * running. It claims against what it saw, and then skips *forward* — a job
-   * missed for a week should not step forward one occurrence per look until it
-   * catches up.
-   */
-  it('can skip ahead rather than advancing one occurrence at a time', async () => {
-    const target = await job();
-    const far = new Date(Date.parse(target.dueAt) + 30 * 24 * 3_600_000);
-
-    const advanced = await store.advanceDue(target.id, target.dueAt, {
-      after: far,
-    });
-
-    expect(advanced).not.toBeNull();
-    expect(Date.parse(advanced?.dueAt ?? '')).toBeGreaterThan(far.getTime());
-  });
-
-  /*
-   * The reason all of the above is not enough on its own.
+  /**
+   * Claiming an occurrence is exclusive.
    *
-   * Two stores over one file are what the app and the headless runner are to
-   * each other. Both read the document, both see the occurrence as due, and
-   * without exclusion both write: the compare-and-set is only as good as the
-   * read it compares against, and two processes can read the same stale value.
-   * The file lock around the read-modify-write is what makes the compare mean
-   * something, and this is the test that says so.
+   * This is what makes a job run once when two processes are watching the same
+   * file — which is exactly the app and the headless runner. Without it both see
+   * the occurrence as due, both advance the marker, and the user gets the same
+   * scheduled message twice.
    */
-  it('lets only one of two stores claim an occurrence', async () => {
-    const target = await job();
-    const other = new JobStore({file});
+  describe('JobStore claiming an occurrence', () => {
+    let dir: string;
+    let file: string;
+    let store: JobStore;
 
-    const [first, second] = await Promise.all([
-      store.advanceDue(target.id, target.dueAt),
-      other.advanceDue(target.id, target.dueAt),
-    ]);
-
-    expect([first, second].filter((entry) => entry !== null)).toHaveLength(1);
-  });
-
-  it('does not lose a write when two stores mutate at once', async () => {
-    // Two different jobs, two stores, at the same moment. Without the lock one
-    // read-modify-write lands on top of the other and a job loses its update.
-    const one = await job();
-    const two = await store.create({
-      name: 'Second',
-      description: '',
-      sessionId: 's2',
-      profileId: 'p1',
+    beforeEach(async () => {
+      dir = await mkdtemp(join(process.cwd(), '.marimo-jobs-claim-'));
+      file = join(dir, 'jobs.json');
+      store = new JobStore({file});
     });
-    const other = new JobStore({file});
 
-    await Promise.all([
-      store.advanceDue(one.id, one.dueAt),
-      other.advanceDue(two.job.id, two.job.dueAt ?? ''),
-    ]);
+    afterEach(async () => {
+      await rm(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
+    });
 
-    const after = await store.load();
-    const advanced = after.jobs.filter(
-      (entry) => entry.id !== one.id
-        ? entry.dueAt !== two.job.dueAt
-        : entry.dueAt !== one.dueAt,
-    );
-    // Both writes survived.
-    expect(advanced).toHaveLength(2);
+    async function job(): Promise<{id: string; dueAt: string}> {
+      const {job: created} = await store.create({
+        name: 'Digest',
+        description: '',
+        sessionId: 's1',
+        profileId: 'p1',
+      });
+      // The store computes `dueAt` from the real clock; any real occurrence will
+      // do, because what is under test is the compare, not the schedule.
+      return {id: created.id, dueAt: created.dueAt ?? ''};
+    }
+
+    it('lets the first caller through and refuses the second', async () => {
+      const target = await job();
+
+      expect(await store.advanceDue(target.id, target.dueAt)).not.toBeNull();
+      expect(await store.advanceDue(target.id, target.dueAt)).toBeNull();
+    });
+
+    it('refuses a caller holding a marker that has already moved', async () => {
+      const target = await job();
+      await store.advanceDue(target.id, target.dueAt);
+
+      const now = await store.load();
+      const moved = now.jobs[0]?.dueAt ?? '';
+
+      // An older snapshot — a look that read the document before the write
+      // landed — must not be able to claim it a second time.
+      expect(await store.advanceDue(target.id, target.dueAt)).toBeNull();
+      // And the marker did move on rather than staying put.
+      expect(moved).not.toBe(target.dueAt);
+    });
+
+    it('answers null for a job that does not exist', async () => {
+      expect(
+        await store.advanceDue('no-such-job', '2026-01-01T00:00:00.000Z'),
+      ).toBeNull();
+    });
+
+    /*
+     * The other caller: retiring an occurrence that was missed while nothing was
+     * running. It claims against what it saw, and then skips *forward* — a job
+     * missed for a week should not step forward one occurrence per look until it
+     * catches up.
+     */
+    it('can skip ahead rather than advancing one occurrence at a time', async () => {
+      const target = await job();
+      const far = new Date(Date.parse(target.dueAt) + 30 * 24 * 3_600_000);
+
+      const advanced = await store.advanceDue(target.id, target.dueAt, {
+        after: far,
+      });
+
+      expect(advanced).not.toBeNull();
+      expect(Date.parse(advanced?.dueAt ?? '')).toBeGreaterThan(far.getTime());
+    });
+
+    /*
+     * The reason all of the above is not enough on its own.
+     *
+     * Two stores over one file are what the app and the headless runner are to
+     * each other. Both read the document, both see the occurrence as due, and
+     * without exclusion both write: the compare-and-set is only as good as the
+     * read it compares against, and two processes can read the same stale value.
+     * The file lock around the read-modify-write is what makes the compare mean
+     * something, and this is the test that says so.
+     */
+    it('lets only one of two stores claim an occurrence', async () => {
+      const target = await job();
+      const other = new JobStore({file});
+
+      const [first, second] = await Promise.all([
+        store.advanceDue(target.id, target.dueAt),
+        other.advanceDue(target.id, target.dueAt),
+      ]);
+
+      expect([first, second].filter((entry) => entry !== null)).toHaveLength(1);
+    });
+
+    it('does not lose a write when two stores mutate at once', async () => {
+      // Two different jobs, two stores, at the same moment. Without the lock one
+      // read-modify-write lands on top of the other and a job loses its update.
+      const one = await job();
+      const two = await store.create({
+        name: 'Second',
+        description: '',
+        sessionId: 's2',
+        profileId: 'p1',
+      });
+      const other = new JobStore({file});
+
+      await Promise.all([
+        store.advanceDue(one.id, one.dueAt),
+        other.advanceDue(two.job.id, two.job.dueAt ?? ''),
+      ]);
+
+      const after = await store.load();
+      const advanced = after.jobs.filter((entry) =>
+        entry.id !== one.id
+          ? entry.dueAt !== two.job.dueAt
+          : entry.dueAt !== one.dueAt,
+      );
+      // Both writes survived.
+      expect(advanced).toHaveLength(2);
+    });
   });
-});
 });

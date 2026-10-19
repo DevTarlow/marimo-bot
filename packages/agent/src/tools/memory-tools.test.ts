@@ -96,7 +96,12 @@ describe('memory tools', () => {
   });
 
   afterEach(async () => {
-    await rm(workDir, {recursive: true, force: true});
+    await rm(workDir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('says the memory is empty before anything is written', async () => {
@@ -239,7 +244,11 @@ describe('memory tools', () => {
         createUpdateMemoryTool({
           memory,
           recall: recallHolding([
-            {section: 'Preferences and tone', text: 'They use npm.', score: 0.94},
+            {
+              section: 'Preferences and tone',
+              text: 'They use npm.',
+              score: 0.94,
+            },
           ]),
         }),
         {content: 'They have moved to pnpm.', section: 'Preferences and tone'},
@@ -273,10 +282,11 @@ describe('memory tools', () => {
       const output = await run(
         createUpdateMemoryTool({
           memory,
-          recall: recallHolding(
-            [{text: 'They use npm.', score: 0.99}],
-            {vectors: 1, index: true, behind: true},
-          ),
+          recall: recallHolding([{text: 'They use npm.', score: 0.99}], {
+            vectors: 1,
+            index: true,
+            behind: true,
+          }),
         }),
         {content: 'They use pnpm.'},
       );
@@ -296,9 +306,7 @@ describe('memory tools', () => {
       const output = await run(
         createUpdateMemoryTool({
           memory,
-          recall: recallHolding([
-            {text: 'They use npm.', score: 0.99},
-          ]),
+          recall: recallHolding([{text: 'They use npm.', score: 0.99}]),
         }),
         {
           content: 'They have moved to pnpm.',

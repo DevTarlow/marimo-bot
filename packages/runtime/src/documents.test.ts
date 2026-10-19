@@ -59,7 +59,12 @@ describe('DocumentService', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** A file in the space, written by the test rather than by the service. */
@@ -559,7 +564,12 @@ describe('AgentRuntime documents', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   it('refuses a space nobody has, in a sentence', async () => {

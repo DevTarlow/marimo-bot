@@ -29,7 +29,11 @@ import {
 } from './store.js';
 import type {IndexData, IndexModel} from './store.js';
 
-const MODEL: IndexModel = {repo: 'unsloth/embeddinggemma-2-GGUF', revision: 'rev2', dims: 4};
+const MODEL: IndexModel = {
+  repo: 'unsloth/embeddinggemma-2-GGUF',
+  revision: 'rev2',
+  dims: 4,
+};
 
 describe('the index files', () => {
   let dir: string;
@@ -39,7 +43,12 @@ describe('the index files', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   function data(overrides: Partial<IndexData> = {}): IndexData {
@@ -75,7 +84,9 @@ describe('the index files', () => {
 
     expect(read?.file.records).toEqual(written.file.records);
     expect(read?.file.builtAt).toBe('2026-01-01T00:00:00.000Z');
-    expect(Array.from(read?.vectors ?? [])).toEqual(Array.from(written.vectors));
+    expect(Array.from(read?.vectors ?? [])).toEqual(
+      Array.from(written.vectors),
+    );
   });
 
   it('says there is no index rather than failing when there is none', async () => {
@@ -97,7 +108,9 @@ describe('the index files', () => {
   it('refuses an index built by another model, when it is told which to expect', async () => {
     await writeIndex(dir, data());
     const file = JSON.parse(
-      await (await import('node:fs/promises')).readFile(join(dir, INDEX_FILE), 'utf8'),
+      await (
+        await import('node:fs/promises')
+      ).readFile(join(dir, INDEX_FILE), 'utf8'),
     ) as {count: number; model: {revision: string}};
     file.model.revision = 'something-else';
     await writeFile(join(dir, INDEX_FILE), JSON.stringify(file), 'utf8');
@@ -116,7 +129,9 @@ describe('the index files', () => {
   it('refuses a version it does not know, newer or older', async () => {
     await writeIndex(dir, data());
     const raw = JSON.parse(
-      await (await import('node:fs/promises')).readFile(join(dir, INDEX_FILE), 'utf8'),
+      await (
+        await import('node:fs/promises')
+      ).readFile(join(dir, INDEX_FILE), 'utf8'),
     ) as Record<string, unknown>;
     raw['version'] = INDEX_VERSION + 1;
     await writeFile(join(dir, INDEX_FILE), JSON.stringify(raw), 'utf8');

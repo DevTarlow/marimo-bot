@@ -30,7 +30,12 @@ describe('resetInstall', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** One of everything a real install leaves behind. */
@@ -119,9 +124,24 @@ describe('resetInstall', () => {
       expect(await readdir(model)).toEqual(['weights.gguf']);
       expect(await readdir(home)).toEqual(['notes.md']);
     } finally {
-      await rm(space, {recursive: true, force: true});
-      await rm(model, {recursive: true, force: true});
-      await rm(home, {recursive: true, force: true});
+      await rm(space, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
+      await rm(model, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
+      await rm(home, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 

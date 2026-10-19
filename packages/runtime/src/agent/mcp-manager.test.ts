@@ -30,7 +30,10 @@ const ECHO = fileURLToPath(
   new URL('../../../agent/test-fixtures/echo-mcp-server.mjs', import.meta.url),
 );
 const COLLIDE = fileURLToPath(
-  new URL('../../../agent/test-fixtures/collide-mcp-server.mjs', import.meta.url),
+  new URL(
+    '../../../agent/test-fixtures/collide-mcp-server.mjs',
+    import.meta.url,
+  ),
 );
 
 function server(overrides: Partial<McpServer> = {}): McpServer {
@@ -53,7 +56,10 @@ function manager(overrides: Partial<McpManagerOptions> = {}) {
   const statuses: Array<{id: string; status: McpStatus}> = [];
 
   const instance = new McpManager({
-    readSecrets: async (): Promise<McpResolvedSecrets> => ({env: {}, headers: {}}),
+    readSecrets: async (): Promise<McpResolvedSecrets> => ({
+      env: {},
+      headers: {},
+    }),
     // Short enough that a test which does wait does not wait long.
     retryDelaysMs: [10, 100, 1_000],
     now: () => clock,
@@ -545,7 +551,12 @@ describe('a connector secret the runner cannot open', () => {
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true});
+    await rm(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 20,
+    });
   });
 
   /** The runner's manager: the window's class, over a store with no cipher. */
@@ -569,7 +580,9 @@ describe('a connector secret the runner cannot open', () => {
   });
 
   it('comes up when the user stored the secret readable', async () => {
-    await writeSecret(`plaintext:${Buffer.from('a-token').toString('base64')}\n`);
+    await writeSecret(
+      `plaintext:${Buffer.from('a-token').toString('base64')}\n`,
+    );
 
     const {instance} = runnerManager();
     try {
@@ -581,7 +594,9 @@ describe('a connector secret the runner cannot open', () => {
   });
 
   it('is reported as unreadable instead of being dialled without it', async () => {
-    await writeSecret(`encrypted:${Buffer.from('a-token').toString('base64')}\n`);
+    await writeSecret(
+      `encrypted:${Buffer.from('a-token').toString('base64')}\n`,
+    );
 
     const {instance} = runnerManager();
     try {

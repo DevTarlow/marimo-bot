@@ -107,9 +107,9 @@ describe('uploadBotAvatar', () => {
       const changed = await uploadBotAvatar(join(dir, 'avatars'), 'Bot.Id');
 
       expect(changed).toBe(true);
-      expect(
-        await readFile(join(dir, 'avatars', 'bot.id.png'), 'utf8'),
-      ).toBe('one png');
+      expect(await readFile(join(dir, 'avatars', 'bot.id.png'), 'utf8')).toBe(
+        'one png',
+      );
       // The aspect ratio is preserved rather than stretched to a square.
       expect(image.resize).toHaveBeenCalledWith({
         width: 512,
@@ -117,7 +117,12 @@ describe('uploadBotAvatar', () => {
         quality: 'best',
       });
     } finally {
-      await rm(dir, {recursive: true, force: true});
+      await rm(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 
@@ -129,14 +134,19 @@ describe('uploadBotAvatar', () => {
         filePaths: [],
       } as never);
 
-      await expect(
-        uploadBotAvatar(join(dir, 'avatars'), 'bot'),
-      ).resolves.toBe(false);
+      await expect(uploadBotAvatar(join(dir, 'avatars'), 'bot')).resolves.toBe(
+        false,
+      );
       await expect(
         readFile(join(dir, 'avatars', 'bot.png'), 'utf8'),
       ).rejects.toThrow();
     } finally {
-      await rm(dir, {recursive: true, force: true});
+      await rm(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     }
   });
 });

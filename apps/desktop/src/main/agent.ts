@@ -960,7 +960,15 @@ export class AgentService {
 
   /** Reads a conversation back and proposes what is worth remembering. */
   async reviewMemory(profileId: string, sessionId: string) {
-    return await this.runtime.reviewMemory(profileId, sessionId);
+    try {
+      await this.runtime.migrateLegacy(profileId, sessionId);
+    } catch {
+      // A conversation that cannot migrate has nothing v2 can review.
+    }
+    if (!(await this.harnessHasLog(sessionId))) {
+      return [];
+    }
+    return (await this.runtime.harness().reviewMemory(sessionId)).proposals;
   }
 
   /**
@@ -1706,21 +1714,18 @@ export class AgentService {
     return {accepted: false};
   }
 
-  abort(profileId: string, sessionId: string): {aborted: boolean} {
+  abort(_profileId: string, sessionId: string): {aborted: boolean} {
     /*
      * Abort answers synchronously, so it cannot ask the log which engine owns
      * this conversation. Trying the v2 turn first is safe: it answers false when
      * it has nothing running, and the v1 path is then the fallback.
      */
-    if (this.runtime.harness().abort(sessionId)) {
-      return {aborted: true};
-    }
-    return {aborted: this.runtime.abort(profileId, sessionId)};
+    return {aborted: this.runtime.harness().abort(sessionId)};
   }
 
   /** Whether any agent is mid-turn. */
   isBusy(): boolean {
-    return this.runtime.isBusy();
+    return this.runtime.harness().isRunningAny();
   }
 
   /**

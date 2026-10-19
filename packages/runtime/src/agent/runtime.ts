@@ -1990,21 +1990,11 @@ export class AgentRuntime {
 
   /** Whether any agent has a turn in flight. */
   isBusy(): boolean {
-    for (const host of this.hosts.values()) {
-      if (host.isBusy()) {
-        return true;
-      }
-    }
-    return false;
+    return this.harness().isRunningAny();
   }
 
   /** Which agent is mid-turn, for a caller that has to say something about it. */
   busyProfile(): string | undefined {
-    for (const [profileId, host] of this.hosts) {
-      if (host.isBusy()) {
-        return profileId;
-      }
-    }
     return undefined;
   }
 

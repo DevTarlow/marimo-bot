@@ -790,6 +790,16 @@ export class HarnessRuntime {
     return this.states.get(sessionId)?.engine.isRunning(sessionId) ?? false;
   }
 
+  /** Whether any v2 conversation is mid-turn. */
+  isRunningAny(): boolean {
+    for (const [sessionId, state] of this.states) {
+      if (state.engine.isRunning(sessionId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The facts the sidebar needs that the v1 index does not have for a v2 chat.
    *

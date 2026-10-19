@@ -50,4 +50,28 @@ describe('the v2 core boundary', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  /**
+   * The old host is being deleted, not quietly re-adopted.
+   *
+   * A v2 module that imports it would make the default turn path depend on the
+   * thing the rebuild is replacing, and the dependency would be invisible until
+   * somebody tried to remove a method from it.
+   */
+  it('does not import the old host', async () => {
+    const root = process.cwd();
+    const files = [
+      ...(await sourceFiles(join(root, 'src', 'engine'))),
+      ...(await sourceFiles(join(root, 'src', 'harness'))),
+      ...(await sourceFiles(join(root, 'src', 'context'))),
+    ];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const source = await readFile(file, 'utf8');
+      if (/from\s+['"][^'"]*\/host\//u.test(source)) {
+        offenders.push(relative(root, file));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });

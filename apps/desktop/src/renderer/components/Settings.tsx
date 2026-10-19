@@ -52,6 +52,7 @@ import type {
   SkillDraft,
   SkillHistoryEntry,
   StoredSkill,
+  UpdateCheck,
 } from '@marimo/protocol';
 
 import {
@@ -1369,6 +1370,8 @@ export function Settings({
           already in flight can land after the folder is emptied, and a
           `settings.json` that comes back is a reset that silently undid itself.
         */}
+        <Updates opened={opened} onToggle={fold} />
+
         <ResetMarimo
           opened={opened}
           onToggle={fold}
@@ -2684,5 +2687,73 @@ function BotIconChoices({
         )}
       </div>
     </div>
+  );
+}
+
+function Updates({
+  opened,
+  onToggle,
+}: {
+  opened: ReadonlySet<string>;
+  onToggle: (title: string, expanded: boolean) => void;
+}): React.JSX.Element {
+  const [result, setResult] = useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const check = async (): Promise<void> => {
+    setChecking(true);
+    setProblem(null);
+    try {
+      setResult(await window.marimo.call('updates.check', {}));
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <SettingsSection title="Updates" opened={opened} onToggle={onToggle}>
+      <p className="settings-muted">
+        This build checks the published releases only when you ask. It does not
+        download or install an update; a new version is a link you choose to
+        open.
+      </p>
+      <div className="settings-row">
+        <button
+          type="button"
+          className="button button-quiet"
+          disabled={checking}
+          onClick={() => {
+            void check();
+          }}
+        >
+          {checking ? 'Checking…' : 'Check for updates'}
+        </button>
+      </div>
+      {problem !== null ? (
+        <p className="settings-muted">{problem}</p>
+      ) : result === null ? null : result.error !== undefined ? (
+        <p className="settings-muted">{result.error}</p>
+      ) : result.available ? (
+        <p className="settings-muted">
+          {result.latestVersion} is available; this build is{' '}
+          {result.currentVersion}.{' '}
+          {result.url === undefined ? null : (
+            <a href={result.url} target="_blank" rel="noreferrer">
+              Read the release
+            </a>
+          )}
+        </p>
+      ) : (
+        <p className="settings-muted">
+          This build is {result.currentVersion}
+          {result.latestVersion === undefined
+            ? '.'
+            : `, and ${result.latestVersion} is the latest published release.`}
+        </p>
+      )}
+    </SettingsSection>
   );
 }

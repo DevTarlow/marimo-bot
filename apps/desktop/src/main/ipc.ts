@@ -26,6 +26,8 @@ import {
 import type {OpenDialogOptions} from 'electron';
 
 import {agentCallSchemas, IPC_CALL_CHANNEL, PROVIDERS} from '@marimo/protocol';
+
+import {checkForUpdates} from './updates.js';
 import type {
   AgentCallMethod,
   AgentCallParams,
@@ -631,6 +633,9 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
       await agent().saveSkill(params.draft, params.id),
     'sessions.usage': async (params) =>
       await agent().sessionUsage(params.profileId, params.sessionId),
+
+    'updates.check': async () =>
+      await checkForUpdates({currentVersion: app.getVersion()}),
 
     'harness.restore': async (params) => {
       await agent().restoreHarness(params.profileId, params.hash);

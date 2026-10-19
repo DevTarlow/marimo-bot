@@ -442,6 +442,15 @@ replace: the file tools and the editor are two doors to the same Space files.
 Jobs in particular cannot move yet: a v2-created job would point at a conversation
 the old scheduler runs, so the job tools stay off in v2 until the runner does.
 
+## Updates
+
+Settings has an explicit release check. It asks the public latest-release
+endpoint only when the button is pressed, compares the tag with this build's
+version, and offers a link to the release notes. It does not download or install
+anything: automatic installation needs a signed feed, and release signing and
+installers are outside this rebuild. Calling this "auto-update" would be a promise
+the build cannot keep.
+
 ## What is not in scope
 
 - Hosted multi-tenant accounts, a server, team Spaces.

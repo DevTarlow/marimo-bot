@@ -1908,6 +1908,23 @@ export interface CompactResult {
  * `engine` says which answer this is rather than a zero pretending to be a
  * measurement.
  */
+/**
+ * The answer to an explicit "check for updates", not an automatic check.
+ *
+ * The app has no signed feed and no installer pipeline in this build, so this
+ * answers what the latest published release is and where to read it; it does not
+ * download or install anything. Absent `error` means the feed answered.
+ */
+export interface UpdateCheck {
+  currentVersion: string;
+  latestVersion?: string;
+  available: boolean;
+  url?: string;
+  notes?: string;
+  checkedAt: string;
+  error?: string;
+}
+
 export interface SessionUsage {
   engine: 'v1' | 'v2';
   turns: number;
@@ -3219,6 +3236,7 @@ export const agentCallSchemas = {
     profileId: z.string().min(1),
     sessionId: z.string().min(1),
   }),
+  'updates.check': z.object({}),
   'sessions.compact': z.object({
     profileId: z.string().min(1),
     sessionId: z.string().min(1),
@@ -3630,6 +3648,7 @@ export interface AgentCallResults {
   'harness.report': HarnessReport;
   'harness.restore': {restored: true};
   'sessions.usage': SessionUsage;
+  'updates.check': UpdateCheck;
   'sessions.delete': {deleted: boolean};
   /**
    * What was attached and what was refused, with the folder both were judged

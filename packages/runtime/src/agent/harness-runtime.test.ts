@@ -605,6 +605,24 @@ describe('HarnessRuntime', () => {
     expect(await runtime.transcript('s1', profileId)).toHaveLength(4);
   });
 
+  it('gives the recall indexer a v2 conversation', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hi there.'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(runtime.run(profileId, 's1', 'Hello.'));
+    const conversation = await runtime.conversationFor(profileId, 's1');
+    expect(conversation.title).toBe('Hello.');
+    expect(conversation.events).toHaveLength(2);
+    expect(conversation.events[0]).toMatchObject({
+      author: 'user',
+      content: {parts: [{text: 'Hello.'}]},
+    });
+    expect(conversation.events[1]?.author).toBe('Marimo Bot');
+    expect(conversation.events[1]?.content.parts[0]?.text).toBe('Hi there.');
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

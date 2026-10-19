@@ -189,12 +189,38 @@ export class AgentService {
        * see either. Called lazily by the indexer, which is why closing over
        * `this.runtime` before it exists is safe.
        */
-      listConversations: async (profileId) =>
-        (await this.runtime.listSessions(profileId)).map((session) => ({
-          sessionId: session.id,
-          title: session.title,
-          eventCount: session.messageCount,
-        })),
+      listConversations: async (profileId) => {
+        const harness = this.runtime.harness();
+        const sessions = await this.runtime.listSessions(profileId);
+        return await Promise.all(
+          sessions.map(async (session) => {
+            if (!(await harness.hasLog(session.id))) {
+              return {
+                sessionId: session.id,
+                title: session.title,
+                eventCount: session.messageCount,
+              };
+            }
+            try {
+              const conversation = await harness.conversationFor(
+                profileId,
+                session.id,
+              );
+              return {
+                sessionId: session.id,
+                title: conversation.title || session.title,
+                eventCount: conversation.events.length,
+              };
+            } catch {
+              return {
+                sessionId: session.id,
+                title: session.title,
+                eventCount: session.messageCount,
+              };
+            }
+          }),
+        );
+      },
       readConversation: async (profileId, sessionId) =>
         await this.runtime.conversationFor(profileId, sessionId),
       decodeMedia: async (path, kind) => await this.decodeMedia(path, kind),

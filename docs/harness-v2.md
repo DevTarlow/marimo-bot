@@ -419,6 +419,14 @@ tool that answers "nothing available". The result keeps the v1 honesty notes —
 what was searched, a size cap, a stale file — because a short list that reads as
 "the folder holds only this" is the failure those notes exist for.
 
+The conversation corpus reads v2 logs too. `AgentRuntime.conversationFor` answers
+a v2 session from its transcript, and the rail's recall listing uses that
+transcript's visible-message count as the indexer's watermark. That count is not
+the sidebar's user-message count: using the latter would make the watermark skip
+assistant-only stretches, or stop indexing a conversation whose v2 transcript is
+longer than its user turns. A task's posted result and an addressed participant's
+reply are indexed as the words they are.
+
 The companion uses the same conversation. A v2 session now carries a turn
 instruction — the length block the moss asks for — and stores it on
 `turn.started` so an approval resumed after a restart is answered in the voice

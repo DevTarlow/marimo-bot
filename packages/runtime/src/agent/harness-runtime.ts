@@ -494,6 +494,44 @@ export class HarnessRuntime {
     return {compacted: true};
   }
 
+  /**
+   * One conversation in the shape the recall indexer reads.
+   *
+   * The indexer wants the title and a flat list of visible user/assistant
+   * events. It gets the transcript, so a task's posted result and an addressed
+   * participant's reply are indexed as the words they are, and it gets the same
+   * event count the indexer will slice against — not the sidebar's user-message
+   * count, which would make the watermark skip assistant-only stretches.
+   */
+  async conversationFor(
+    profileId: string,
+    sessionId: string,
+  ): Promise<{
+    title: string;
+    events: Array<{
+      author?: string;
+      content: {parts: Array<{text: string}>};
+    }>;
+  }> {
+    const info = await this.sessionInfo(sessionId);
+    const messages = await this.transcript(sessionId, profileId);
+    const profiles = await this.options.profiles.profiles();
+    const events = messages
+      .filter((message) => message.text.trim().length > 0)
+      .map((message) => {
+        const author =
+          message.role === 'user'
+            ? 'user'
+            : (profiles.find((profile) => profile.id === message.agentId)
+                ?.name ?? 'assistant');
+        return {
+          author,
+          content: {parts: [{text: message.text}]},
+        };
+      });
+    return {title: info.title ?? '', events};
+  }
+
   async participants(profileId: string, sessionId: string): Promise<string[]> {
     await this.assertOwner(sessionId, profileId);
     return participantsIn(await this.store.read(sessionId));

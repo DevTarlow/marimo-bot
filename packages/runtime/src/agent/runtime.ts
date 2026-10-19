@@ -36,7 +36,6 @@ import {
   SKILLS,
 } from '@marimo/agent';
 import type {
-  AdkEvent,
   AgentConfig,
   DelegationResult,
   DeskService,
@@ -1657,7 +1656,22 @@ export class AgentRuntime {
   async conversationFor(
     profileId: string,
     sessionId: string,
-  ): Promise<{title: string; events: AdkEvent[]}> {
+  ): Promise<{
+    title: string;
+    events: import('../recall/conversations.js').ConversationEvent[];
+  }> {
+    /*
+     * A v2 conversation lives in its own log. The recall indexer asks this same
+     * question for both engines, so answering it from the v2 transcript is what
+     * lets a rebuilt chat be found by meaning alongside an old one.
+     */
+    if (await this.harness().hasLog(sessionId)) {
+      const conversation = await this.harness().conversationFor(
+        profileId,
+        sessionId,
+      );
+      return conversation;
+    }
     const host = await this.ensureHost(profileId);
     const events = await host.eventsFor(sessionId);
     const summary = (await host.listSessions(profileId)).find(

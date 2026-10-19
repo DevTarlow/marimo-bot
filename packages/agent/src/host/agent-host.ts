@@ -95,6 +95,13 @@ import {RepeatedToolCallPlugin} from './tool-loop-plugin.js';
 export interface AgentHostOptions {
   sessionsDir: string;
   /**
+   * The session service this host shares with the runtime's index.
+   *
+   * One instance means one write queue over `sessions/index.json`; two instances
+   * would each believe their own lock covered a file the other is rewriting.
+   */
+  sessionService?: FileSessionService;
+  /**
    * Where the person-level half of memory lives — one folder per profile.
    *
    * Absent means both halves share the workspace file, which is what this app did
@@ -534,9 +541,11 @@ export class AgentHost {
 
   constructor(options: AgentHostOptions) {
     this.options = options;
-    this.sessionService = new FileSessionService({
-      rootDir: options.sessionsDir,
-    });
+    this.sessionService =
+      options.sessionService ??
+      new FileSessionService({
+        rootDir: options.sessionsDir,
+      });
     this.appName = options.appName ?? AgentHost.APP_NAME;
     this.userId = options.userId ?? AgentHost.USER_ID;
     this.config = options.config;

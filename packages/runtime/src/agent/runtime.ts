@@ -20,6 +20,7 @@
  * settings change that arrived mid-turn would abort the turn the user is
  * watching.
  */
+import {randomUUID} from 'node:crypto';
 import {rm} from 'node:fs/promises';
 import {dirname} from 'node:path';
 
@@ -29,6 +30,7 @@ import {
   capabilityPresets,
   describeTools,
   MAX_MEMORY_BYTES,
+  FileSessionService,
   MemoryStore,
   resolvePersonMemoryFile,
   runReview,
@@ -43,6 +45,7 @@ import type {
   JobService,
   RecallLookup,
   McpToolsetSource,
+  SessionIndexEntry,
   PendingGate,
   Skill,
   WebSearchProvider,
@@ -58,6 +61,7 @@ import {
   DEFAULT_DREAM_KEEP_LOGS,
   DEFAULT_DREAM_RESULT_BYTES,
   DRAFT_BOT_TOOL,
+  MAIN_AGENT_NAME,
 } from '@marimo/protocol';
 import type {BotDraft, ProviderId, SessionPurpose} from '@marimo/protocol';
 import type {
@@ -199,6 +203,8 @@ export class AgentRuntime {
   private harnessRuntime: HarnessRuntime | undefined;
   /** The frozen specs every v2 turn has run under, by hash. */
   private readonly harnessVersions: HarnessVersionStore;
+  /** The one session index every host shares, so its write queue is real. */
+  private readonly sessionIndex: FileSessionService;
   private readonly settingsStore: SettingsStore;
   private readonly profileStore: ProfileStore;
   /**
@@ -252,6 +258,9 @@ export class AgentRuntime {
   constructor(private readonly options: AgentRuntimeOptions) {
     this.harnessVersions = new HarnessVersionStore({
       rootDir: options.paths.harnessVersions,
+    });
+    this.sessionIndex = new FileSessionService({
+      rootDir: options.paths.sessions,
     });
     this.settingsStore = new SettingsStore(options.paths.settings);
     this.dreamStore = new DreamStore({
@@ -668,13 +677,12 @@ export class AgentRuntime {
     const file = await this.profileStore.remove(profileId);
 
     /*
-     * After the profile write, so a refusal above leaves the bot whole. The host
-     * is asked for the id rather than resolved from the profile — it holds the
-     * session service, and deleting a conversation has never needed a profile to
+     * After the profile write, so a refusal above leaves the bot whole. The index
+     * answers the ids; deleting a conversation has never needed a profile to
      * exist.
      */
-    const host = await this.ensureHost(profileId);
-    const conversations = await host.deleteSessionsForProfile(profileId);
+    const conversations =
+      await this.sessionIndex.deleteSessionsForProfile(profileId);
     for (const sessionId of conversations) {
       await this.dreamStore.forget(sessionId);
       await this.proposals.forget(sessionId);
@@ -1309,12 +1317,12 @@ export class AgentRuntime {
     sessionId: string,
     workspaceId: string | null,
   ): Promise<SessionSummary> {
-    const host = await this.ensureHost(profileId);
-    return await host.setSessionWorkspace(
+    await this.assertIndexOwned(sessionId, profileId);
+    const entry = await this.sessionIndex.setSessionWorkspace(
       sessionId,
       workspaceId ?? undefined,
-      profileId,
     );
+    return summaryOf(requireEntry(entry, sessionId));
   }
 
   /**
@@ -1335,8 +1343,12 @@ export class AgentRuntime {
     sessionId: string,
     model: AgentModel | null,
   ): Promise<SessionSummary> {
-    const host = await this.ensureHost(profileId);
-    return await host.setSessionModel(sessionId, model ?? undefined, profileId);
+    await this.assertIndexOwned(sessionId, profileId);
+    const entry = await this.sessionIndex.setSessionModel(
+      sessionId,
+      model ?? undefined,
+    );
+    return summaryOf(requireEntry(entry, sessionId));
   }
 
   /**
@@ -1366,8 +1378,12 @@ export class AgentRuntime {
     sessionId: string,
     agentIds: string[],
   ): Promise<SessionSummary> {
-    const host = await this.ensureHost(profileId);
-    return await host.setParticipants(sessionId, agentIds, profileId);
+    await this.assertIndexOwned(sessionId, profileId);
+    const entry = await this.sessionIndex.setSessionParticipants(
+      sessionId,
+      agentIds,
+    );
+    return summaryOf(requireEntry(entry, sessionId));
   }
 
   /**
@@ -1400,8 +1416,9 @@ export class AgentRuntime {
     sessionId: string,
     title: string,
   ): Promise<SessionSummary> {
-    const host = await this.ensureHost(profileId);
-    return await host.renameSession(sessionId, title, profileId);
+    await this.assertIndexOwned(sessionId, profileId);
+    const entry = await this.sessionIndex.renameSession(sessionId, title);
+    return summaryOf(requireEntry(entry, sessionId));
   }
 
   /**
@@ -1424,8 +1441,13 @@ export class AgentRuntime {
 
   /** Deletes a conversation, aborting a run in it if there is one. */
   async deleteSession(profileId: string, sessionId: string): Promise<void> {
-    const host = await this.ensureHost(profileId);
-    await host.deleteSession(sessionId, profileId);
+    await this.assertIndexOwned(sessionId, profileId);
+    this.hosts.get(profileId)?.abort(sessionId);
+    await this.sessionIndex.deleteSession({
+      appName: MAIN_AGENT_NAME,
+      userId: 'local',
+      sessionId,
+    });
     /*
      * And its discovery tree, for the reason the recall index drops its vectors:
      * a record of what the agent did in a conversation must not outlive the
@@ -1459,14 +1481,17 @@ export class AgentRuntime {
     profileId: string,
     sessionId: string,
   ): Promise<SessionPurpose | undefined> {
-    const host = await this.ensureHost(profileId);
-    return await host.sessionPurpose(sessionId);
+    await this.assertIndexOwned(sessionId, profileId);
+    return (await this.sessionIndex.getIndexEntry(sessionId))?.purpose;
   }
 
   async listSessions(profileId?: string): Promise<SessionSummary[]> {
     const profile = profileId ?? (await this.profileStore.activeProfile()).id;
-    const host = await this.ensureHost(profile);
-    return await host.listSessions(profile);
+    const entries = await this.sessionIndex.getIndex();
+    return entries
+      .filter((entry) => entry.profileId === profile)
+      .map(summaryOf)
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   }
 
   /**
@@ -1492,10 +1517,9 @@ export class AgentRuntime {
     if (!profile) {
       return undefined;
     }
-    const host = await this.ensureHost(profileId);
-    return await host.createSession(
-      title,
+    return await this.createIndexedSession(
       profileId,
+      title,
       await this.spaceFor(profile, spaceId),
     );
   }
@@ -1523,14 +1547,11 @@ export class AgentRuntime {
           'switched off for it. Turn it on in Settings and try again.',
       );
     }
-    const host = await this.ensureHost(profileId);
-    const purpose: SessionPurpose = 'bot-builder';
-    return await host.createSession(
-      'Making a bot',
+    return await this.createIndexedSession(
       profileId,
+      'Making a bot',
       await this.spaceFor(profile),
-      undefined,
-      purpose,
+      'bot-builder',
     );
   }
 
@@ -2161,6 +2182,63 @@ export class AgentRuntime {
     );
   }
 
+  /** One conversation's index entry, if this bot owns it. */
+  private async assertIndexOwned(
+    sessionId: string,
+    profileId: string,
+  ): Promise<SessionIndexEntry> {
+    const entry = await this.sessionIndex.getIndexEntry(sessionId);
+    if (entry === undefined || entry.profileId !== profileId) {
+      throw new Error(`Unknown session: ${sessionId}`);
+    }
+    return entry;
+  }
+
+  /**
+   * Starts a conversation in the index, without a host.
+   *
+   * A conversation is a file and a row; nothing here needs a model, a tool or a
+   * connector. The state fields are the ones the host wrote, so a session made
+   * by this path is indistinguishable from one made before it.
+   */
+  private async createIndexedSession(
+    profileId: string,
+    title: string | undefined,
+    workspaceId: string | undefined,
+    purpose?: SessionPurpose,
+  ): Promise<SessionSummary> {
+    const state: Record<string, unknown> = {profileId};
+    if (title !== undefined && title.length > 0) {
+      state['title'] = title;
+    }
+    if (workspaceId !== undefined) {
+      state['workspaceId'] = workspaceId;
+    }
+    if (purpose !== undefined) {
+      state['purpose'] = purpose;
+    }
+    const session = await this.sessionIndex.createSession({
+      appName: MAIN_AGENT_NAME,
+      userId: 'local',
+      sessionId: randomUUID(),
+      state,
+    });
+    const entry = await this.sessionIndex.getIndexEntry(session.id);
+    if (entry !== undefined) {
+      return summaryOf(entry);
+    }
+    const now = new Date().toISOString();
+    return {
+      id: session.id,
+      title: title ?? 'New chat',
+      createdAt: now,
+      updatedAt: now,
+      messageCount: 0,
+      ...(workspaceId === undefined ? {} : {workspaceId}),
+      ...(purpose === undefined ? {} : {purpose}),
+    };
+  }
+
   private async ensureHost(profileId: string): Promise<AgentHost> {
     const existing = this.hosts.get(profileId);
     if (existing) {
@@ -2176,6 +2254,7 @@ export class AgentRuntime {
     const services = (await this.options.services?.(profileId)) ?? {};
     const host = new AgentHost({
       sessionsDir: this.options.paths.sessions,
+      sessionService: this.sessionIndex,
       /*
        * Where the half of memory that is about the *person* lives. Under user
        * data rather than in a folder, because that is what makes it survive
@@ -2405,5 +2484,34 @@ function refusal(sessionId: string, problem: string): AgentUiEvent {
     messageId: '',
     code: 'not-configured',
     message: problem,
+  };
+}
+
+
+function requireEntry(
+  entry: SessionIndexEntry | undefined,
+  sessionId: string,
+): SessionIndexEntry {
+  if (entry === undefined) {
+    throw new Error(`Unknown session: ${sessionId}`);
+  }
+  return entry;
+}
+
+/** The index's row, in the shape the window reads. */
+function summaryOf(entry: SessionIndexEntry): SessionSummary {
+  return {
+    id: entry.id,
+    title: entry.title,
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    messageCount: entry.messageCount,
+    ...(entry.workspaceId === undefined ? {} : {workspaceId: entry.workspaceId}),
+    ...(entry.source === undefined ? {} : {source: entry.source}),
+    ...(entry.purpose === undefined ? {} : {purpose: entry.purpose}),
+    ...(entry.model === undefined ? {} : {model: entry.model}),
+    ...(entry.agentIds !== undefined && entry.agentIds.length > 1
+      ? {agentIds: entry.agentIds}
+      : {}),
   };
 }

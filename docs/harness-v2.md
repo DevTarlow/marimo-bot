@@ -317,8 +317,11 @@ search, web search and fetch, jobs, bot drafting, direct @ addressing,
 rename/delete, compaction, and the companion's turn instruction. Documents are
 the runtime's own service on both engines.
 
-What is still old: v1 conversations and same-conversation helper delegation
-where the helper can raise a gate the parent resumes. V2 also caps the replayed
+What is still old: v1 turns and same-conversation helper delegation where the
+helper can raise a gate the parent resumes. The session index itself is now a
+shared runtime service: creating, listing, renaming, moving, deleting and reading
+a v2 chat no longer builds the old host, and a new chat is identified from its
+index row rather than by asking the host for an empty transcript. V2 also caps the replayed
 history at a hard ceiling and says when it did; that remains a safety net behind
 the explicit summary.
 

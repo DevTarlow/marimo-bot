@@ -675,11 +675,61 @@ describe('a helper that needs approval', () => {
 
     expect(resumed).toBe('Written.');
     expect(messages).toHaveLength(2);
-    // The decision alone, and no second copy of the task: repeating it would read
-    // as the user asking again, and would put the first attempt back in front of
-    // the helper as something to redo.
+    // With no gate store to read, the fallback carries the task as well as the
+    // decision. A helper is built with `includeContents: 'none'`, so a resume
+    // that repeated nothing would wake up with nothing to do — which is exactly
+    // how it came to ask the person what the task was.
     expect(textOf(messages[1]!)).toContain('The user approved this');
-    expect(textOf(messages[1]!)).not.toContain('write it');
+    expect(textOf(messages[1]!)).toContain('write it');
+  });
+
+  /*
+   * The path the host uses: the session can name the call the helper stopped on,
+   * so the resume is a confirmation response for *that* call. ADK binds it to the
+   * original call and executes it, which is what lets the helper carry on rather
+   * than re-plan and re-ask.
+   */
+  it('resumes the exact call the helper parked on when the gate can be read', async () => {
+    const messages: Content[] = [];
+    const gates: AgentGate[] = [{callId: 'gate-1', tool: 'write_file'}];
+    const deps: AgentDelegation = {
+      start: async () => ({
+        agentId: 'researcher',
+        author: 'researcher',
+        name: 'Researcher',
+        run: (request) => {
+          messages.push(request.newMessage);
+          return (async function* () {
+            const confirmed = (request.newMessage.parts ?? []).some(
+              (part) => part.functionResponse?.id === 'gate-1',
+            );
+            yield confirmed
+              ? saying('researcher', 'Written.')
+              : saying('researcher', 'I need to write a file.');
+          })();
+        },
+      }),
+      pendingGates: async () =>
+        messages.length === 1 ? [{callId: 'gate-1', tool: 'write_file'}] : [],
+      helperGates: async () => (messages.length === 1 ? gates : []),
+    };
+
+    const parked = await call(deps, 'write it', context({raised: []}));
+    expect(parked).toMatch(/Waiting for your approval/u);
+
+    const resumed = await call(deps, 'write it', context({confirmed: true}));
+
+    expect(resumed).toBe('Written.');
+    expect(messages).toHaveLength(2);
+    expect(messages[1]!.parts).toEqual([
+      {
+        functionResponse: {
+          id: 'gate-1',
+          name: 'adk_request_confirmation',
+          response: {confirmed: true},
+        },
+      },
+    ]);
   });
 
   it('reports a declined request as the helper’s outcome', async () => {

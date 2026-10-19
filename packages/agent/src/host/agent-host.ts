@@ -1839,6 +1839,13 @@ export class AgentHost {
           callId: gate.callId,
           tool: gate.tool,
         })),
+      helperGates: async (sessionId, author) => {
+        const events = await this.sessionService.listEvents(sessionId);
+        return gatesAskedBy(events, author).map((gate) => ({
+          callId: gate.callId,
+          tool: gate.tool,
+        }));
+      },
       ...(this.options.onDelegateEvent === undefined
         ? {}
         : {onEvent: this.options.onDelegateEvent}),
@@ -2632,12 +2639,15 @@ function confirmationResponse(callId: string, decision: GateDecision): Part {
  * window reloaded, and pressing Approve on it would ask ADK to confirm a call
  * belonging to a turn that is over.
  *
- * *Starting* is the load-bearing word, and a delegated helper is the case that
- * shows why. Its own run is a second invocation inside its parent's turn, so the
- * log alternates: the parent's id, the helper's, then the parent's again as the
- * turn unwinds. An id that has already named an invocation is a turn resuming
- * rather than a new one beginning, and the gates it is carrying stay live — which
- * is what lets a helper's card survive the rest of its parent's turn.
+ * That rule is what keeps a delegated helper from asking the user twice. The
+ * helper's run is a second invocation inside its parent's turn; when the parent's
+ * own id appears again it is raising the `ask_agent` card, and *that* is the
+ * question the user is being asked. The child's gate is still in the log —
+ * `gatesAskedBy` is how the parent's tool finds it and answers the exact call the
+ * user just decided about — but it is not a second card. An earlier version kept
+ * a gate whose invocation id it had seen before, on the theory that the parent
+ * was "resuming"; ADK gives a resume a new invocation id, so what that kept was
+ * the child's dead card beside the parent's live one.
  *
  * Note the shape of a real approval: the question is asked in one invocation and
  * answered in the *next* one, because resuming is a new turn carrying the
@@ -2652,17 +2662,6 @@ export function pendingGatesIn(events: readonly AdkEvent[]): PendingGate[] {
   let invocation: string | undefined;
   let asked = new Map<string, PendingGate>();
   let answered = new Set<string>();
-  /*
-   * Every invocation the log has already named.
-   *
-   * The rule below is "a new invocation abandons the last turn's gates", and the
-   * word doing the work is *new*. A delegated helper runs inside its parent's
-   * turn, which means the parent's invocation is suspended, the helper's begins,
-   * and then the parent's own name appears again as the log unwinds — an id that
-   * has been seen before is a turn *resuming*, not a new one asking something
-   * else, and clearing on it would take down the card the helper had just put up.
-   */
-  const seen = new Set<string>();
 
   for (const event of events) {
     /*
@@ -2676,13 +2675,9 @@ export function pendingGatesIn(events: readonly AdkEvent[]): PendingGate[] {
     }
 
     if (event.invocationId !== undefined && event.invocationId !== invocation) {
-      const resuming = seen.has(event.invocationId);
       invocation = event.invocationId;
-      seen.add(event.invocationId);
-      if (!resuming) {
-        asked = new Map();
-        answered = new Set();
-      }
+      asked = new Map();
+      answered = new Set();
     }
 
     for (const part of event.content?.parts ?? []) {
@@ -2708,6 +2703,59 @@ export function pendingGatesIn(events: readonly AdkEvent[]): PendingGate[] {
 
       // Any response settles its call, whatever it answers: a refusal is an
       // answer, and so is a tool result that came back after approval.
+      const response = part.functionResponse;
+      if (response?.id) {
+        answered.add(response.id);
+      }
+    }
+  }
+
+  return [...asked.values()].filter((gate) => !answered.has(gate.callId));
+}
+
+/**
+ * The gates *one agent* has asked and not yet been answered, wherever they sit.
+ *
+ * This is deliberately not `pendingGatesIn`. That answers "what is the newest
+ * invocation waiting on", which after a helper parks is the parent's `ask_agent`
+ * card, not the child's call. The parent's tool needs the child's call alone, so
+ * it can answer it with the decision the user just made: ADK resumes a gated call
+ * by finding the confirmation named in the newest message, binding it to the
+ * original call in the session and executing it. A sentence could not do that,
+ * which is why the helper used to wake up, re-plan and ask again.
+ *
+ * Gates are matched to responses across the whole log rather than by invocation:
+ * the child's gate outlives the child's invocation, and the parent's click is a
+ * different invocation entirely. Answers are read from every author because the
+ * confirmation response is written as the user's.
+ */
+export function gatesAskedBy(
+  events: readonly AdkEvent[],
+  author: string,
+): PendingGate[] {
+  const asked = new Map<string, PendingGate>();
+  const answered = new Set<string>();
+
+  for (const event of events) {
+    if (isCompactedEvent(event)) {
+      continue;
+    }
+    for (const part of event.content?.parts ?? []) {
+      const call = part.functionCall;
+      if (
+        event.author === author &&
+        call?.name === REQUEST_CONFIRMATION_FUNCTION_CALL_NAME &&
+        call.id
+      ) {
+        const gate = readGate(call.args);
+        asked.set(call.id, {
+          callId: call.id,
+          tool: gate.tool,
+          args: gate.args,
+          hint: gate.hint,
+          askedAt: new Date(event.timestamp).toISOString(),
+        });
+      }
       const response = part.functionResponse;
       if (response?.id) {
         answered.add(response.id);

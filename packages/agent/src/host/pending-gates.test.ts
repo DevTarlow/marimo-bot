@@ -14,7 +14,7 @@
 import {describe, expect, it} from 'vitest';
 
 import type {AdkEvent} from '../sessions/file-session-service.js';
-import {pendingGatesIn} from './agent-host.js';
+import {gatesAskedBy, pendingGatesIn} from './agent-host.js';
 import {buildCompactedEvent} from './compaction.js';
 
 const GATE = 'adk_request_confirmation';
@@ -29,6 +29,15 @@ function event(
     timestamp: 1_700_000_000_000,
     content: {parts},
   } as unknown as AdkEvent;
+}
+
+/** The same, with the author a delegated helper's gate needs. */
+function from(
+  author: string,
+  invocationId: string,
+  ...parts: Array<Record<string, unknown>>
+): AdkEvent {
+  return {...event(invocationId, ...parts), author};
 }
 
 /** The call ADK makes when a tool needs approving. */
@@ -144,6 +153,62 @@ describe('pendingGatesIn', () => {
     ]);
 
     expect(gates.map((entry) => entry.callId)).toEqual(['call_2']);
+  });
+
+  /*
+   * The duplicate card, as it looked on screen: a helper parks on `write_file`,
+   * the parent raises its own `ask_agent` card, and both were drawn — the child's
+   * dead one and the parent's live one. The child's gate is still part of the
+   * conversation, but once the parent's invocation is the newest, the parent's
+   * card is the only question the user is being asked.
+   */
+  it('reports only the parent card when a helper has parked', () => {
+    const events = [
+      from('marimo', 'parent-1', {text: 'ask the helper'}),
+      from('helper', 'child-1', gate('child-gate', 'write_file', {path: 'a'})),
+      from(
+        'marimo',
+        'parent-1',
+        gate('parent-gate', 'ask_agent', {agent: 'Writer'}),
+      ),
+    ];
+
+    expect(pendingGatesIn(events).map((entry) => entry.callId)).toEqual([
+      'parent-gate',
+    ]);
+  });
+
+  /*
+   * And the parent's tool still needs the child's call, because that is the one
+   * ADK can execute with the user's decision. The two questions have different
+   * answers, which is why there are two readers rather than one with a flag.
+   */
+  it('still finds the helper gate the parent card is about', () => {
+    const events = [
+      from('marimo', 'parent-1', {text: 'ask the helper'}),
+      from('helper', 'child-1', gate('child-gate', 'write_file', {path: 'a'})),
+      from(
+        'marimo',
+        'parent-1',
+        gate('parent-gate', 'ask_agent', {agent: 'Writer'}),
+      ),
+    ];
+
+    expect(gatesAskedBy(events, 'helper').map((entry) => entry.callId)).toEqual(
+      ['child-gate'],
+    );
+  });
+
+  it('stops reporting a helper gate once the decision answered it', () => {
+    expect(
+      gatesAskedBy(
+        [
+          from('helper', 'child-1', gate('child-gate', 'write_file')),
+          from('user', 'parent-2', answer('child-gate')),
+        ],
+        'helper',
+      ),
+    ).toEqual([]);
   });
 
   /*

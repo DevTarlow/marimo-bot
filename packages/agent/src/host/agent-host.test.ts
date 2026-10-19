@@ -2565,47 +2565,46 @@ describe('a conversation with a helper agent', () => {
    * stops at its gate, and the call raises a card of its own through
    * `requestConfirmation`, so the conversation ends with nothing dangling for the
    * provider to refuse. The second is the click, which resumes this tool; it
-   * re-enters the helper with the decision and returns the helper's answer.
+   * answers the helper's own gate with the confirmation ADK binds to the call it
+   * stopped on, so the approved `write_file` actually runs.
+   *
+   * That last part is what the sentence version could not do: it told the helper
+   * "the user approved" without the task or the pending call, so the helper
+   * re-planned, re-asked, and the file was never written.
    */
   it('raises the helper’s approval in the conversation and finishes it', async () => {
+    await writeFile(join(workDir, 'notes.txt'), 'old');
+
     fake = await startFakeDeepSeek((messages) => {
       if (!isHelper(messages)) {
         // The lead's second turn is the one carrying the tool result.
         return messages.some((message) => message['role'] === 'tool')
           ? textChunks('All clear.')
-          : askCall('call_ask', 'clear the logs');
+          : askCall('call_ask', 'write the note');
       }
       /*
-       * The helper's runs are told apart by what they carry, not by what the
-       * model said: the first is the task, and the second is the confirmation
-       * answering the gate — which is the only thing in it, because a resume
-       * repeats nothing.
+       * The helper's first request proposes the gated write. The second is what
+       * the runner asks for after the approved call has executed — it carries the
+       * tool result, which is the only thing that can tell the helper to stop.
        */
-      const resumed = messages.some(
-        (message) =>
-          message['role'] === 'user' &&
-          JSON.stringify(message['content'] ?? '').includes(
-            'The user approved',
-          ),
-      );
-      return resumed
-        ? textChunks('Cleared.')
-        : toolCallChunks('call_shell', 'run_shell', {
-            command: 'rm -rf the logs',
+      return messages.some((message) => message['role'] === 'tool')
+        ? textChunks('Written.')
+        : toolCallChunks('call_write', 'write_file', {
+            path: 'notes.txt',
+            content: 'new',
           });
     });
 
     const host = createTestHost(fake.baseUrl);
     const session = (await host.createSession()).id;
 
-    const parked = await collect(host.run(session, 'clear the logs'));
+    const parked = await collect(host.run(session, 'write the note'));
     expect(typesOf(parked)).not.toContain('turn.failed');
 
     /*
-     * One card the window draws, raised by the parent's own call, naming what the
-     * helper wants. The helper's own gate is stored beside it — the child's runner
-     * is what resumes from that one — but it is the same decision, and the window
-     * groups the two under one stream.
+     * One card, raised by the parent's own call. The helper's gate is in the log
+     * beside it — that is the call the click will resume — but it is not a second
+     * question, and it must not reach the window's pending list.
      */
     const card = parked.find((event) => event.type === 'approval.request');
     expect(card).toMatchObject({tool: 'ask_agent'});
@@ -2614,7 +2613,10 @@ describe('a conversation with a helper agent', () => {
     ).toContain('Researcher');
     expect(
       card?.type === 'approval.request' ? card.hint : '',
-    ).toContain('run_shell');
+    ).toContain('write_file');
+    expect((await host.pendingGates(session)).map((gate) => gate.tool)).toEqual([
+      'ask_agent',
+    ]);
 
     /*
      * The click. Resuming is a new turn carrying the confirmation, exactly as it
@@ -2633,7 +2635,10 @@ describe('a conversation with a helper agent', () => {
       .filter((event) => event.type === 'tool.finished')
       .map((event) => (event.type === 'tool.finished' ? event.result : ''))
       .join('\n');
-    expect(resumedResult).toContain('Cleared.');
+    expect(resumedResult).toContain('Written.');
+
+    // The approved call ran: the file the helper asked to replace is replaced.
+    expect(await readFile(join(workDir, 'notes.txt'), 'utf8')).toBe('new');
 
     // Every word the helper wrote is in the transcript, attributed to it — and
     // the lead's own summary is not.
@@ -2641,7 +2646,7 @@ describe('a conversation with a helper agent', () => {
     expect(
       messages.some(
         (message) =>
-          message.agentId === RESEARCHER.id && message.text.includes('Cleared.'),
+          message.agentId === RESEARCHER.id && message.text.includes('Written.'),
       ),
     ).toBe(true);
     expect(messages[messages.length - 1]?.agentId).toBeUndefined();

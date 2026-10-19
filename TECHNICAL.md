@@ -691,9 +691,9 @@ helper" into "your request failed" — and the host builds the helper from that
 profile, so it runs with its own identity, tools, skills, model and Space. Depth
 is one by construction rather than by a number compared at runtime: the host
 builds the helper *without* this tool, so recursion is not something a model can
-talk its way into. The bounds are 60 steps, five minutes, 8,000 characters with
-the cut stated, and three helpers per turn, because a helper is the one part of a
-turn the user cannot watch closely, which makes it the part that most needs a
+talk its way into. The bounds are 60 model turns, five minutes, 8,000 characters
+with the cut stated, and three helpers per turn, because a helper is the one part
+of a turn the user cannot watch closely, which makes it the part that most needs a
 ceiling. Its steps reach the window as the ordinary `tool.started` and
 `tool.finished` events, so its thread has work in it rather than a blank stretch
 and then a paragraph, and its words arrive out of band — the parent's turn is
@@ -710,19 +710,22 @@ resumes *this* tool. That is the one place the two sides can be joined: the card
 the user answered belongs to this call, and the work that has to carry on belongs
 to the helper.
 
-Resuming the child by confirmation response was tried first and does not hold: a
-confirmation is bound to the call that raised it, and the child's gate belongs to
-an invocation that has already ended by the time the user clicks, so the child
-re-asks and the loop never converges. The child is told the news in a sentence
-instead — approved, carry on; declined, stop and say what you had done — which is
-a retreat from what the ADK documentation suggests and the one form of it that
-cannot be misread. The child's own gate is still in the conversation beside the
-parent's card; that is what stopped the child, and it is not a second thing to
-answer. Keeping it live cost one rule in `pendingGatesIn`: an invocation id the
-log has already named is a turn *resuming*, not a new one asking something else,
-because the helper's invocation sits between its parent's two halves and the
-parent's own id appears again as the log unwinds. Clearing on that would take down
-the card the helper had just put up.
+The click then answers the helper's own gate rather than telling it the news. The
+host reads the helper's unanswered gate out of the session — `gatesAskedBy`, which
+is deliberately not the newest-invocation rule in `pendingGatesIn` — and sends ADK
+the confirmation response for *that* call; ADK binds it to the original call and
+executes it. That is what makes the approved `write_file` actually run. A sentence
+carrying only "the user approved" left the helper with no task and no pending
+call, so it re-planned, re-proposed the write and the loop never converged; the
+sentence now survives only as the fallback for a caller with no session to read,
+and it carries the task with it.
+
+The child's own gate stays in the log because it is the call the click resumes,
+but it is not a second question. Once the parent's invocation is the newest,
+`pendingGatesIn` reports only the parent's card. Treating an invocation id seen
+before as the parent "resuming" and keeping its gates was the duplicate-card bug:
+ADK gives a resume a new id, so what that kept was the child's dead card beside
+the parent's live one.
 
 ### A Role is seeded, and a Persona is the person's
 

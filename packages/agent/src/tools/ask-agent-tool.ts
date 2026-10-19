@@ -41,7 +41,10 @@
  * conversation beside it — the child's runner put it there, and that is what stops
  * the child mid-call — but it is not a second thing to answer.
  */
-import {FunctionTool} from '@google/adk';
+import {
+  FunctionTool,
+  REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+} from '@google/adk';
 import type {Context, ToolConfirmation} from '@google/adk';
 import type {Content} from '@google/genai';
 import {z} from 'zod';
@@ -176,6 +179,19 @@ export interface AgentDelegation {
   }) => Promise<AgentTools | {problem: string}>;
   /** The gates a conversation has been asked and not yet answered. */
   pendingGates: (sessionId: string) => Promise<AgentGate[]>;
+  /**
+   * The gates *one helper* has asked and not yet been answered.
+   *
+   * `pendingGates` answers "what is the newest turn waiting on", which after a
+   * helper parks is the parent's own `ask_agent` card — not the child's call.
+   * This asks the narrower question: which of the helper's calls did the user
+   * just decide about? Without it the resumed helper can only be told the news
+   * in a sentence, which is what made it re-plan (and re-ask) in the first place.
+   *
+   * Optional because the tool is also built in tests and in places that have no
+   * session store; the sentence is the fallback there.
+   */
+  helperGates?: (sessionId: string, author: string) => Promise<AgentGate[]>;
   /** How the helper's work reaches the window while the turn is suspended. */
   onEvent?: (event: AgentUiEvent) => void;
   limits?: Partial<AgentLimits>;
@@ -345,6 +361,15 @@ async function runAgent(
     task,
   });
 
+  /*
+   * What the helper is woken with. When the user has decided about its gate,
+   * that is the confirmation response for the call it stopped on — the same
+   * shape ADK resumes any gated call with — rather than a sentence describing
+   * the decision. A sentence is only the fallback for a store that cannot say
+   * which gate the helper was waiting on.
+   */
+  const resume = await resumeMessage(deps, sessionId, helper, decision);
+
   let steps = 0;
   let answer = '';
   /** Whether the turn being read has already reached the window as deltas. */
@@ -367,7 +392,7 @@ async function runAgent(
   try {
     for await (const event of helper.run({
       sessionId,
-      newMessage: messageFor(task, decision),
+      newMessage: resume ?? messageFor(task, decision),
       signal: controller.signal,
     })) {
       /*
@@ -525,35 +550,86 @@ async function runAgent(
 }
 
 /**
- * What the helper is sent: its task, or what the user decided about its card.
+ * What the helper is sent when there is no gate to resume: its task, or the
+ * decision on a gate whose id the store could not supply.
  *
- * A sentence rather than a confirmation response, and that is a deliberate
- * retreat from what the ADK documentation suggests. Resuming a *child* by
- * function response was tried and does not hold: a confirmation is bound to the
- * call that raised it, and a helper's gate belongs to an invocation that has
- * already ended by the time the user clicks — the child re-asks, and the loop
- * never converges. What the child needs is not a protocol message but the news,
- * and a sentence is the one form of it that cannot be misread.
- *
- * It does mean the helper is told *what was approved* rather than being resumed
- * mid-call, so a helper that had several steps planned should be written a task
- * that survives being interrupted. The tool's description says as much.
+ * The task is repeated on the decision path as well. A helper is built with
+ * `includeContents: 'none'` — it is told it cannot see the conversation — so a
+ * resumed run carrying only "the user approved" would have lost the thing it was
+ * approved to do. That is exactly the failure this fallback now avoids: the
+ * helper woke up, listed the workspace, and asked what the task was.
  */
-function messageFor(task: string, decision: ToolConfirmation | undefined): Content {
+function messageFor(
+  task: string,
+  decision: ToolConfirmation | undefined,
+): Content {
   if (decision === undefined) {
     return {role: 'user', parts: [{text: task}]};
   }
+  const news = decision.confirmed
+    ? 'The user approved this. Carry on and finish the task, then report the ' +
+      'result.'
+    : 'The user declined this. Stop what you were doing and say what you had ' +
+      'done so far.';
+  return {role: 'user', parts: [{text: `${news}\n\nYour task:\n${task}`}]};
+}
+
+/**
+ * The confirmation response that wakes a helper on the exact call it stopped on.
+ *
+ * ADK's confirmation flow scans the session for the `adk_request_confirmation`
+ * call named by the newest user message, binds it to the original call, and
+ * executes it with the user's decision. That is the one path that lets the helper
+ * *carry on* rather than start over: the approved `write_file` runs, its result
+ * is in the conversation, and the model answers from it.
+ *
+ * This is why the gate id is read from the session rather than remembered in
+ * this tool: the click is a new invocation, and invariant 1 says the stored
+ * conversation is the state machine. A helper build can be replaced between the
+ * park and the resume, and a process can restart; the gate in the log survives
+ * both.
+ *
+ * `undefined` means there is nothing to resume — no decision, no store to read
+ * the helper's gates from, or a gate that was already answered — and the caller
+ * falls back to the sentence.
+ */
+async function resumeMessage(
+  deps: AgentDelegation,
+  sessionId: string,
+  helper: AgentTools,
+  decision: ToolConfirmation | undefined,
+): Promise<Content | undefined> {
+  if (decision === undefined || deps.helperGates === undefined) {
+    return undefined;
+  }
+  let gates: AgentGate[];
+  try {
+    gates = await deps.helperGates(sessionId, helper.author);
+  } catch {
+    /*
+     * A conversation that cannot be read is not a reason to end the parent's
+     * turn. The sentence still carries the task, so the helper can carry on even
+     * without the exact call to resume.
+     */
+    return undefined;
+  }
+  if (gates.length === 0) {
+    return undefined;
+  }
   return {
     role: 'user',
-    parts: [
-      {
-        text: decision.confirmed
-          ? 'The user approved this. Carry on and finish the task, then report ' +
-            'the result.'
-          : 'The user declined this. Stop what you were doing and say what you ' +
-            'had done so far.',
+    parts: gates.map((gate) => ({
+      functionResponse: {
+        id: gate.callId,
+        name: REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+        response: {
+          confirmed: decision.confirmed,
+          ...(decision.payload === undefined
+            ? {}
+            : {payload: decision.payload}),
+        },
       },
-    ],
+    })),
   };
 }
 

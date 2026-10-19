@@ -165,14 +165,18 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     sat waiting for it would leave the model's own call unanswered — an assistant
     message with no result, which every provider refuses on the next request and
     not only that turn (invariant 3). So `ask_agent` raises a card of its own with
-    `requestConfirmation`, the click resumes *it*, and it tells the helper what
-    was decided in a sentence and runs it again. Resuming the child with a
-    confirmation response was tried first and does not hold: a confirmation is
-    bound to the call that raised it, and the child's gate belongs to an
-    invocation that has already ended by the time the user clicks. The child's
-    own card is still in the log, which is what stopped the child; invariant 2 has
-    the sibling rule that keeps it from being cleared — an invocation id the log
-    has already named is a turn *resuming*, not a new one asking something else.
+    `requestConfirmation`, and the click resumes *it*. The parent's tool then
+    reads the helper's own unanswered gate out of the session (`gatesAskedBy`,
+    deliberately not the newest-invocation `pendingGatesIn`) and sends ADK the
+    confirmation response for *that* call, so the approved tool actually executes
+    instead of the helper being told the news and asked to redo it. A sentence is
+    only the fallback for a caller with no session to read, and it carries the
+    task — a helper is built with no prior history, so "the user approved" alone
+    is a task it has lost. The child's gate stays in the log because it is the
+    call the click resumes, but it is not a second question: once the parent's
+    invocation is the newest, `pendingGatesIn` reports only the parent's card.
+    Treating an invocation id seen before as "resuming" and keeping its gates was
+    the duplicate-card bug; ADK gives a resume a new id.
 20. **An editor write is refused against a stale revision, and the draft is
     kept.** Nothing versioned stands behind a file the app does not own (see
     "Documents"), so a write carries the revision it was based on — size and

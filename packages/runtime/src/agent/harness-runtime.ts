@@ -26,6 +26,7 @@ import {
   SKILLS,
   TurnBusyError,
   TurnEngine,
+  composeHarnessInstruction,
   participantsIn,
   pendingGatesFromLog,
   resolveHarness,
@@ -76,6 +77,8 @@ export interface HarnessRuntimeOptions {
   store?: EventStore;
   /** Injected by tests; the app asks the profile's own model. */
   reviewer?: (prompt: string) => Promise<string>;
+  /** Injected by tests; the app asks a bot's own model. */
+  answerer?: (prompt: string) => Promise<string>;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -275,6 +278,32 @@ export class HarnessRuntime {
 
   isRunning(sessionId: string): boolean {
     return this.states.get(sessionId)?.engine.isRunning(sessionId) ?? false;
+  }
+
+  /**
+   * The facts the sidebar needs that the v1 index does not have for a v2 chat.
+   *
+   * A v2 conversation's title and message count live in its own log, not the
+   * ADK index. The list is merged from here so a group does not look like one
+   * bot and a chat does not look empty after a reload.
+   */
+  async sessionInfo(sessionId: string): Promise<{
+    title?: string;
+    messageCount: number;
+    agentIds: string[];
+  }> {
+    const events = await this.store.read(sessionId);
+    const title = events
+      .filter((event) => event.type === 'session.created')
+      .at(-1)?.title;
+    const messageCount = events.filter(
+      (event) => event.type === 'user.message',
+    ).length;
+    return {
+      ...(title === undefined ? {} : {title}),
+      messageCount,
+      agentIds: participantsIn(events),
+    };
   }
 
   async transcript(
@@ -541,8 +570,74 @@ export class HarnessRuntime {
         signal,
         memory: prepared.memory,
         skills,
+        delegate: async ({agent, task}) =>
+          await this.askAgent(profileId, agent, task),
       }),
     });
+  }
+
+  /**
+   * A second bot's answer, with its own instructions and memory and no tools.
+   *
+   * Deliberately not a turn: it has no session, no log, no approval card and no
+   * ability to act. That keeps a bot-to-bot question from becoming a second
+   * writer in the conversation, and it is honest about what the answer is — an
+   * opinion, not work done.
+   */
+  async askAgent(
+    ownerProfileId: string,
+    agent: string,
+    task: string,
+  ): Promise<{ok: boolean; result: string}> {
+    try {
+      const profiles = await this.options.profiles.profiles();
+      const wanted = agent.trim().toLowerCase();
+      const target = profiles.find(
+        (profile) =>
+          profile.id !== ownerProfileId &&
+          (profile.id === agent ||
+            profile.name.trim().toLowerCase() === wanted),
+      );
+      if (target === undefined) {
+        return {
+          ok: false,
+          result: `There is no bot called "${agent}". The roster has: ${profiles
+            .filter((profile) => profile.id !== ownerProfileId)
+            .map((profile) => profile.name)
+            .join(', ')}.`,
+        };
+      }
+      const owner = profiles.find((profile) => profile.id === ownerProfileId);
+      const prepared = await this.prepare(target.id);
+      /*
+       * No skill index here. The bot being asked has no tools, so advertising a
+       * skill it cannot load would be the prompt claiming a capability the turn
+       * does not have. Memory and identity are enough for an opinion.
+       */
+      const instruction = composeHarnessInstruction(prepared.harness, {
+        memory: await prepared.memory.readForPrompt(),
+      });
+      const prompt = [
+        instruction,
+        '',
+        `${owner?.name ?? 'Another bot'} is asking you, in the same workspace:`,
+        task,
+        '',
+        'Answer for the person. You cannot use tools in this exchange, so say what you know and what you would need.',
+      ].join('\n');
+      const answer = (
+        await (this.options.answerer?.(prompt) ??
+          this.askOnce(prepared, prompt))
+      ).trim();
+      return answer.length === 0
+        ? {ok: false, result: `"${target.name}" did not answer.`}
+        : {ok: true, result: answer};
+    } catch (error) {
+      return {
+        ok: false,
+        result: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**

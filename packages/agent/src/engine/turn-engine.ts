@@ -160,7 +160,7 @@ export class TurnEngine {
       const turnId = this.createId();
 
       const opening: SessionEvent[] = [];
-      if (before.length === 0) {
+      if (!before.some((event) => event.type === 'session.created')) {
         opening.push({
           ...this.stamp(params.sessionId),
           type: 'session.created',

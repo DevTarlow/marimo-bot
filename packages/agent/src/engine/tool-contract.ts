@@ -40,6 +40,16 @@ export interface SkillToolService {
   save(input: SkillSaveInput): Promise<{name: string; updated: boolean}>;
 }
 
+export interface DelegationRequest {
+  agent: string;
+  task: string;
+}
+
+export interface DelegationResult {
+  ok: boolean;
+  result: string;
+}
+
 export interface ToolContext {
   workspaceRoot: string;
   signal: AbortSignal;
@@ -47,6 +57,8 @@ export interface ToolContext {
   memory?: MemoryStore;
   /** Present only when this profile may load and save skills. */
   skills?: SkillToolService;
+  /** Present only when this runtime can reach another bot. */
+  delegate?: (request: DelegationRequest) => Promise<DelegationResult>;
 }
 
 export interface ToolDefinition<Args = unknown> {
@@ -61,6 +73,8 @@ export interface ToolDefinition<Args = unknown> {
   requiresMemory?: boolean;
   /** A tool that needs skills is absent when the profile has no library. */
   requiresSkills?: boolean;
+  /** A tool that needs another bot is absent when delegation is unavailable. */
+  requiresDelegate?: boolean;
   execute(args: Args, context: ToolContext): Promise<ToolOutcome>;
 }
 

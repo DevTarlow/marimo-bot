@@ -337,11 +337,21 @@ resolves that bot's harness, tools, model and memory, records the reply with its
 record the answering agent too, so a restart resumes the bot that asked rather
 than the owner.
 
-This is direct addressing, not delegation. A bot cannot hand work to another bot
-yet; the old `ask_agent` path still owns that, along with scheduled jobs, group
-sessions that predate the v2 log and the companion. The v2 participant list is
-not merged into the sidebar summaries on reload, so a v2 group may look like one
-bot until its next turn is opened. Those are the next pieces of Phase 3.
+There is also an `ask_agent` tool. It asks another bot for its answer with that
+bot's own Role, Persona and memory, in a single model call with no tools and no
+session. That is a conversation, not a delegation of work: the asking bot gets
+an opinion or a specialty, not a file written or a command run. The old
+`ask_agent` path still owns tool-using delegation, scheduled jobs, group sessions
+that predate the v2 log and the companion.
+
+The sidebar merges a v2 session's own title, message count and membership over
+the v1 index entry, so a reloaded group does not look like one bot and a chat
+does not look empty. Those reads are per v2 session; a large install pays for
+them only on the sessions that have a v2 log.
+
+Not yet in Phase 3: a delegated bot that can use tools and raise its own
+approval cards, asynchronous tasks, and merging delegated work into the parent
+transcript.
 
 ## What is not in scope
 

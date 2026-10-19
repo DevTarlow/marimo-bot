@@ -1266,7 +1266,26 @@ export class AgentService {
   }
 
   async listSessions(profileId?: string): Promise<SessionSummary[]> {
-    return await this.runtime.listSessions(profileId);
+    const sessions = await this.runtime.listSessions(profileId);
+    if (profileId === undefined) {
+      return sessions;
+    }
+    const harness = this.runtime.harness();
+    return await Promise.all(
+      sessions.map(async (session) => {
+        if (!(await harness.hasLog(session.id))) {
+          return session;
+        }
+        const info = await harness.sessionInfo(session.id);
+        const {agentIds: _previous, ...rest} = session;
+        return {
+          ...rest,
+          ...(info.title === undefined ? {} : {title: info.title}),
+          messageCount: info.messageCount,
+          ...(info.agentIds.length > 1 ? {agentIds: info.agentIds} : {}),
+        };
+      }),
+    );
   }
 
   async createSession(

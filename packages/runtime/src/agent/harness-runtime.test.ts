@@ -110,11 +110,13 @@ function runtimeFrom(
   deps: RuntimeDeps,
   driverFactory: () => TurnDriver,
   reviewer?: (prompt: string) => Promise<string>,
+  answerer?: (prompt: string) => Promise<string>,
 ): HarnessRuntime {
   return new HarnessRuntime({
     ...deps,
     driverFactory,
     ...(reviewer === undefined ? {} : {reviewer}),
+    ...(answerer === undefined ? {} : {answerer}),
   });
 }
 
@@ -295,6 +297,55 @@ describe('HarnessRuntime', () => {
     expect(
       String(events[0]?.type === 'turn.failed' ? events[0].message : ''),
     ).toContain('not in this conversation');
+  });
+
+  it('answers the sidebar with a v2 title, count and membership', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hello'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const other = await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: [],
+    });
+    const runtime = runtimeFrom(deps, () => driver);
+    await runtime.setParticipants(profileId, 's1', [profileId, other.id]);
+    await collect(runtime.run(profileId, 's1', 'A first question'));
+
+    expect(await runtime.sessionInfo('s1')).toMatchObject({
+      title: 'A first question',
+      messageCount: 1,
+      agentIds: [profileId, other.id],
+    });
+  });
+
+  it('asks another bot with its own instructions and memory', async () => {
+    const {deps, profileId} = await setup();
+    const other = await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: [],
+    });
+    let seen = '';
+    const runtime = runtimeFrom(
+      deps,
+      () => new ScriptedDriver([]),
+      undefined,
+      async (prompt) => {
+        seen = prompt;
+        return 'Tabs are better.';
+      },
+    );
+    const answer = await runtime.askAgent(profileId, 'Reader', 'Tabs or spaces?');
+    expect(answer).toEqual({ok: true, result: 'Tabs are better.'});
+    expect(seen).toContain('You are Reader.');
+    expect(seen).toContain('Tabs or spaces?');
+
+    const missing = await runtime.askAgent(profileId, 'Nobody', 'Hello?');
+    expect(missing.ok).toBe(false);
+    expect(missing.result).toContain('Nobody');
+    expect(other.id).not.toBe(profileId);
   });
 
   it('proposes a memory from a conversation and remembers it was read', async () => {

@@ -2020,9 +2020,9 @@ function HarnessCard({
     <div className="harness-report">
       <div className="settings-row">
         <p className="settings-muted">
-          New conversations run on the rebuilt engine. A conversation that
-          already has a v1 history stays on v1, so the two counts can both be
-          non-zero.
+          Every conversation runs on the rebuilt engine. A chat from an older
+          build is brought forward when you open or continue it, so the v1 count
+          only covers conversations not opened since the rebuild.
         </p>
         <button
           type="button"

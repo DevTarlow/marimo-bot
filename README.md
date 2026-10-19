@@ -9,11 +9,11 @@
 > [!WARNING]
 > Marimo Bot is under construction. It changes often, and some changes are breaking: what one build saved, the next may rewrite or refuse. Keep your own copies of anything you care about.
 
-I built Marimo Bot to sit on your computer and work inside a folder you choose. It can read and write the files there, remember what matters, and keep a few helpers, called bots, for the work you repeat.
+I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-So the app can read the files in a project without you copying them anywhere, and a chat you start in one folder stays with that folder.
+The current build runs every conversation on a rebuilt engine. A chat made by an older build is brought forward when you open or continue it. There is no switch between engines, and no second engine left to fall back to.
 
-It runs on your computer, not in a browser. There is no account with us. You bring the model: a service you already use, or a llama.cpp server on your own machine.
+The app runs on your computer, not in a browser. There is no account with us. You bring the model: a service you already use, or a llama.cpp server on your own machine.
 
 The chat window and the moss ball share one conversation, so a question you ask from the corner of the screen is waiting in the window when you open it, and the folder you were working in comes back with it.
 
@@ -27,6 +27,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 
 - Work in a folder, not a chat that forgets where it is.
 - Make bots for writing, research, code or whatever you repeat.
+- Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
 - Keep a memory that follows you between folders.
 - Find a file by what it was about, not the exact words.
 - Schedule a job and close the window.
@@ -35,11 +36,11 @@ The chat window and the moss ball share one conversation, so a question you ask 
 ## On this page
 
 - [What it can do](#what-it-can-do)
+- [The engine](#the-engine)
 - [Bots](#bots)
 - [Skills](#skills)
 - [Memory](#memory)
 - [Recall](#recall-find-by-meaning)
-- [Dream-RSI](#dream-rsi)
 - [Jobs](#jobs)
 - [The companion](#the-companion)
 - [Models and keys](#models-and-keys)
@@ -53,31 +54,29 @@ The chat window and the moss ball share one conversation, so a question you ask 
 
 ### The folder you work in
 
-A Space is just a folder.
+A Space is a folder.
 
 The app can read and write the files in it, and nowhere else. Load a folder and the app files every chat you start there under that Space.
 
-On a fresh install the app makes you one: `Marimo`, inside your home folder, and starts you there. That is a project of its own rather than your whole home directory, which is what the app used to start on. Load another folder whenever your work already lives somewhere else.
+On a fresh install the app creates `Marimo`, inside your home folder, and starts you there. That is a project of its own rather than your whole home directory. Load another folder whenever your work already lives somewhere else.
 
-Because the work happens in the folder you chose, it lands in the same place as the rest of your project, and you can open the files with the editor or tools you already use.
+The work lands in the same place as the rest of your project, so you can open the files with the editor or tools you already use.
 
-The Documents drawer lists the markdown files already in that folder. You can edit them there, and the bot sees your changes. If a bot writes a markdown file, it appears in the drawer.
+### Documents
 
-If a file has changed while you had it open, the app will not overwrite it. It keeps your draft and asks which version wins.
+The Documents drawer lists the markdown files already in the folder. You can edit them there, and the bot sees your changes. If a bot writes a markdown file, it appears in the drawer.
 
-The app refuses the save because a quiet overwrite would replace the version on disk, and it cannot know which one you meant to keep.
+If a file changed while you had it open, the app will not overwrite it. It keeps your draft and asks which version wins. A quiet overwrite would replace the version on disk, and the app cannot know which one you meant to keep.
 
-You can save a chat as a document, with the messages under the author's name.
-
-The app writes a new file straight away, while overwriting one asks first.
+You can save a chat as a document, with the messages under the author's name. A new file is written straight away; overwriting one asks first.
 
 ### Bots
 
 What kind of work do you repeat? A bot is for the work you do again and again.
 
-A bot is a helper with its own name, instructions, tools, memory and chats. You can make one for writing, one for research, one for code.
+A bot has its own name, instructions, tools, memory and chats. You can make one for writing, one for research, one for code.
 
-Every bot has a Role and a Persona. The Role is the app's job description: what the bot is for and the rules every bot follows. The Persona is yours: its character, the job in your own words and how you want it to talk to you. The app reads the Persona after the Role, so your words win on tone, but the Persona cannot give a bot a tool it was not given, because the tool list is separate and the operating rules come last. The app can restore the Role, but it will not reset the Persona on its own.
+Every bot has a Role and a Persona. The Role is the app's job description: what the bot is for and the rules every bot follows. The Persona is yours: its character, the job in your own words and how you want it to talk to you. The app reads the Persona after the Role, so your words win on tone, but the Persona cannot give a bot a tool it was not given. The tool list is separate, and the operating rules come last. The app can restore the Role, but it will not reset the Persona on its own.
 
 There are three ways to make one.
 
@@ -87,13 +86,11 @@ There are three ways to make one.
 
 All three end in the same place, so you can pick a starter role when one fits, build it step by step when you want to choose every part, or talk it through with Marimo when you would rather answer questions than fill in a form.
 
-Bots sit at the top of the sidebar, and picking one shows its chats. Settings has its Role, Persona, tools and Space.
+Bots sit at the top of the sidebar, and picking one shows its chats. Settings has its Role, Persona, tools and Space. The icon can be one of five shipped pictures, or one you upload.
 
-The icon can be one of five shipped pictures, or one you upload.
+Several bots can share a chat, so type `@` to put a question to one of them. Marimo Bot can also hand work to a bot. The helper runs with that bot's tools in the same chat. If it needs permission, the card appears there, and the helper continues after you approve.
 
-Several bots can share a chat, so type `@` to put a question to one of them. If you let it, Marimo Bot can hand work to a bot. The answer comes back in the same chat under the bot's name, and any approval is asked there.
-
-Removing a bot asks first, and it takes the bot's chats, jobs and memory with it. Files it wrote in your Spaces stay, and the last bot stays too, because something has to answer.
+Removing a bot asks first. It takes the bot's chats, jobs and memory with it. Files it wrote in your Spaces stay, and the last bot stays too, because something has to answer.
 
 ### Skills
 
@@ -105,6 +102,8 @@ Settings has a **Skills** card. Write one there, or copy a folder into the skill
 
 A bot can also write one. Turn on **save_skill** under what the bot can do, then ask it to remember a way of working, or run **Learn a skill** from the `+` menu after a conversation. It writes the skill, shows you what it is about to save, and switches it on for that bot when you approve.
 
+Settings keeps earlier versions of each skill and lets you restore one. A skill you overwrite is still the user's markdown, so the older copies are there when the new wording turns out worse.
+
 ### Long conversations
 
 When a chat gets long, the app replaces the older part with a summary so the model can keep going, and the conversation keeps every message.
@@ -113,13 +112,13 @@ When a chat gets long, the app replaces the older part with a summary so the mod
 
 ### Memory
 
-A fact about you follows you between Spaces, while a note about how a project is set up stays with that project, and the app keeps them apart.
+A fact about you follows you between Spaces, while a note about how a project is set up stays with that project. The app keeps the two apart.
 
 What does it remember? Settings lists every line and when it was written. If an answer is wrong, choose **Not quite**, and it records the correction and proposes it the next time the bot reads the chat.
 
-Memory has a soft limit, so the bot is told when it gets close and can prune what no longer matters.
+A review also reads a conversation after it goes quiet and proposes facts worth keeping. The suggestions wait in Settings until you accept or dismiss them.
 
-The memory file is plain markdown, so you can read it without the app.
+Memory has a soft limit, so the bot is told when it gets close and can prune what no longer matters. The memory file is plain markdown, so you can read it without the app.
 
 ### Recall: find by meaning
 
@@ -131,27 +130,7 @@ Recall is off until you turn it on. The first time you turn it on, the app downl
 
 What does it search? You choose files, memory, past chats and media. When a Space is loaded, the index, a list of numbers the app can search, stays inside it.
 
-What was it about? A result shows how close the match is and whether the file has changed since it was indexed.
-
-After the download, Recall runs on your machine, so your searches stay local.
-
-### Dream-RSI
-
-Dream-RSI records how the bot decided: for each turn, it writes which tools the bot was offered, which it called, the arguments and the result. It keeps one file per chat.
-
-Nothing is sent anywhere.
-
-Dream-RSI is off by default, and the two settings are about how the bot searches. The exploration weight is how willing it is to try a tool it has not used before. The pruning threshold is when it stops offering a tool that keeps failing. The default prunes nothing.
-
-Why would you want that? To compare settings on your own work instead of guessing.
-
-The card also shows the replay command:
-
-```bash
-pnpm --filter @marimo/desktop replay:dream
-```
-
-The replay reads the recorded turns and tries other settings on them. It does not call a model or spend a token. It can show what a setting would have hidden, but it cannot show what would have happened next, because the bot chose each step from the result of the one before it, and a different setting changes that result.
+A result shows how close the match is and whether the file has changed since it was indexed. After the download, Recall runs on your machine, so your searches stay local.
 
 ### Jobs
 
@@ -161,17 +140,27 @@ Schedule a task, like a summary every morning. Closing the window does not quit 
 
 The sidebar has a switch called Keep jobs running when the app is closed. It installs a small background worker so a timer can wake it and run due jobs.
 
-The worker is a small copy of the app that can run due jobs while the window is closed, and it takes turns with the app so the two never write to one chat at the same time.
+The worker is a small copy of the app that runs due jobs while the window is closed, and it takes turns with the app so the two never write to one chat at the same time.
 
-Then it goes back to sleep until the next job is due.
+Then it goes back to sleep until the next job is due. To quit, use the tray menu.
 
-To quit, use the tray menu.
+A job started in an older conversation is brought forward before its run. If the app cannot read that conversation, the job fails with a sentence rather than falling back to the old engine.
 
 ### The companion
 
 The moss ball is another way into the same conversation. It floats above your other windows with its own chat bar.
 
 Settings lets you choose how long its answers are, how many messages float above it, whether it stays on top, and whether you can click through it to the window behind.
+
+### The engine
+
+New conversations run on the v2 harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
+
+A conversation made by an older build is migrated when you open it, send to it, answer its card or compact it. Its visible words and membership come with it. A waiting card becomes a card on the new engine with the original call, tool and arguments, so it can still be answered. The old engine's log is left where it is, and the move is one way.
+
+The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, memory suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and model as they were. It leaves the Space, the icon and memory alone.
+
+There is no environment variable or setting that keeps a conversation on the old engine. An old chat that cannot be read reports that instead of opening a second engine.
 
 ## Models and keys
 
@@ -182,7 +171,7 @@ No chat model is included, so you choose the service that answers.
 
 **Fetch Models** asks the service what it serves. Until you ask, the app lists the names it ships with.
 
-Which model should a bot use? That is yours to decide: a model is a service and a name. The app stores both because the same name can mean different things at different services, which is why a bot can have its own model and a single chat can use another one.
+Which model should a bot use? That is yours to decide: a model is a service and a name. The app stores both because the same name can mean different things at different services. A bot can have its own model, and a single chat can use another one.
 
 ### Connectors
 
@@ -198,17 +187,17 @@ Keys go in your operating system's password vault, the keychain, when there is o
 
 Where do your words go? The answer depends on the service you chose: a local llama.cpp server keeps them on your machine or your network, while an online service gets them under your account.
 
-The app's other network traffic comes from the things you ask for. A web search sends the query to DuckDuckGo. A connector talks to the server you set up. **Fetch Models** asks the provider what it serves. Recall downloads its engine and model once.
+The app's other network traffic comes from the things you ask for. A web search sends the query to DuckDuckGo. A connector talks to the server you set up. **Fetch Models** asks the provider what it serves. Recall downloads its engine and model once. **Check for updates** asks GitHub for the latest release only when you press it.
 
 The app keeps its own data in one folder. On Linux that is `~/.config/Marimo Bot`. Your chats, the Spaces you loaded and your settings are there. Keys are in the keychain, except a key you let a background job read, which is in that folder instead.
 
-But the app's own data is not your project, and the two live in different folders on purpose. A Space's files stay where you put them.
+The app's own data is not your project, and the two live in different folders on purpose. A Space's files stay where you put them.
 
 A command, or a save over a file that already exists, waits for your answer. The app writes a new file without asking. A scheduled job that hits an approval stays paused, and the request survives a restart.
 
 Every tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all.
 
-Recall and Dream-RSI are off until you turn them on. Neither sends its record anywhere.
+Recall is off until you turn it on, and it sends its record nowhere. This build does not record Dream-RSI traces.
 
 Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. There is no undo.
 
@@ -262,21 +251,22 @@ The app stays in the tray and a scheduled job keeps going. You quit from the tra
 
 ### Can I change a bot later?
 
-Yes, Settings has its Role, Persona, tools, model, Space and icon.
+Yes, Settings has its Role, Persona, tools, model, Space and icon. The Harness card can also restore an earlier version of them.
 
 ### Does it send my work anywhere?
 
-Only where you ask it to: an online model receives the conversation you send it, a web search receives the query, and a connector receives what it is asked to do, while Recall downloads its engine and model once and then keeps its index and searches on your machine.
+Only where you ask it to: an online model receives the conversation you send it, a web search receives the query, and a connector receives what it is asked to do. Recall downloads its engine and model once, then keeps its index and searches on your machine. The update check contacts GitHub only when you press the button.
 
 ### What is not finished?
 
-See the next section for the short answer: Windows and macOS installers, auto update, and Discord and the notes and to-do tools.
+See the next section for the short answer: Windows and macOS installers, automatic updating, and Discord and the notes and to-do tools.
 
 ## What is not finished
 
 - The Windows and macOS installers are written but not built. Only the Linux AppImage has been run.
-- There is no auto update. A new version is a file you download again.
+- There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
+- Dream-RSI trace recording is not part of this build.
 - The app checks the Recall download against a fingerprint, but there is no signature to prove where it came from. No other model is downloaded.
 
 ## Requirements
@@ -288,7 +278,7 @@ Will it run on my machine? These are the things it needs.
 - An account and a key with an online service, if that is what you picked. A llama.cpp server needs no key.
 - If you run llama.cpp on this machine, close games and video editors before starting it. The model and the game want the same video memory.
 
-The app carries no chat model, so you can change services without downloading a new one, while Recall is the only model the app runs itself and only after you turn it on.
+The app carries no chat model, so you can change services without downloading a new one. Recall is the only model the app runs itself, and only after you turn it on.
 
 Go build your next thing with it.
 

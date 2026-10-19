@@ -230,6 +230,27 @@ export class AdkDriver implements TurnDriver {
           author: 'user',
           content: {role: 'user', parts: [{text: event.text}]},
         });
+      case 'task.result': {
+        /*
+         * A task's posted result is part of the conversation's history. It is a
+         * model message from the other bot, prefixed so the parent can tell it
+         * from its own words; without it a later question about the task has no
+         * answer in the window's context.
+         */
+        const prefix = event.ok ? '' : 'The task is waiting or failed: ';
+        return createEvent({
+          ...base,
+          author: event.agentName,
+          content: {
+            role: 'model',
+            parts: [
+              {
+                text: `[Task result from ${event.agentName}]\n${prefix}${event.text}`,
+              },
+            ],
+          },
+        });
+      }
       case 'assistant.message': {
         const parts: Part[] = [];
         if (event.reasoning !== undefined && event.reasoning.length > 0) {

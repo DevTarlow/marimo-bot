@@ -175,6 +175,18 @@ export const participantsChangedSchema = z.object({
   by: z.string().min(1),
 });
 
+export const taskResultSchema = z.object({
+  ...base,
+  type: z.literal('task.result'),
+  /** The task conversation the result came from. */
+  taskSessionId: z.string().min(1),
+  agentId: z.string().min(1),
+  agentName: z.string().min(1),
+  ok: z.boolean(),
+  /** The task's final words, capped by the runtime before they get here. */
+  text: z.string(),
+});
+
 export const summarySchema = z.object({
   ...base,
   type: z.literal('summary'),
@@ -196,6 +208,7 @@ export const sessionEventSchema = z.discriminatedUnion('type', [
   turnCompletedSchema,
   turnFailedSchema,
   turnAbortedSchema,
+  taskResultSchema,
   sessionRenamedSchema,
   sessionModelSchema,
   sessionMovedSchema,

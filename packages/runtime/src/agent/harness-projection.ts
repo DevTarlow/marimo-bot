@@ -202,6 +202,16 @@ export function transcriptFromEvents(
         };
         messages.push(current);
         break;
+      case 'task.result':
+        current = {
+          id: event.id,
+          role: 'assistant',
+          agentId: event.agentId,
+          text: event.text,
+          createdAt: event.at,
+        };
+        messages.push(current);
+        break;
       case 'tool.call': {
         if (current === undefined) {
           current = {

@@ -458,6 +458,7 @@ describe('HarnessRuntime', () => {
 
   it('starts a task in its own conversation and returns immediately', async () => {
     const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Starting.'}, {type: 'done'}],
       [{type: 'step'}, {type: 'message', text: 'The task is done.'}, {type: 'done'}],
     ]);
     const {deps, profileId} = await setup();
@@ -475,26 +476,30 @@ describe('HarnessRuntime', () => {
         return {id: 'task-1', title};
       },
     });
+    await collect(runtime.run(profileId, 's1', 'Start.'));
     const started = await runtime.startTask(
       profileId,
       'Reader',
       'Read the folder.',
+      's1',
     );
     expect(started.ok).toBe(true);
     expect(started.result).toContain('Read the folder.');
     expect(openedFor).toBe(other.id);
 
-    let answer = '';
+    let posted = '';
     for (let attempt = 0; attempt < 50; attempt += 1) {
-      const transcript = await runtime.transcript('task-1', other.id);
-      answer =
-        transcript.find((message) => message.role === 'assistant')?.text ?? '';
-      if (answer.length > 0) {
+      const transcript = await runtime.transcript('s1', profileId);
+      posted =
+        transcript.find(
+          (message) => message.agentId === other.id,
+        )?.text ?? '';
+      if (posted.length > 0) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
-    expect(answer).toBe('The task is done.');
+    expect(posted).toBe('The task is done.');
   });
 
   it('proposes a memory from a conversation and remembers it was read', async () => {

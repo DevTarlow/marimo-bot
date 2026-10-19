@@ -827,7 +827,7 @@ export class HarnessRuntime {
               delegate: async ({agent, task}) =>
                 await this.askAgent(profileId, agent, task),
               delegateTask: async ({agent, task}) =>
-                await this.startTask(profileId, agent, task),
+                await this.startTask(profileId, agent, task, sessionId),
             }),
       }),
     });
@@ -853,6 +853,7 @@ export class HarnessRuntime {
     ownerProfileId: string,
     agent: string,
     task: string,
+    parentSessionId?: string,
   ): Promise<{ok: boolean; result: string}> {
     if (this.options.createSession === undefined) {
       return {ok: false, result: 'Tasks are not available in this turn.'};
@@ -883,13 +884,19 @@ export class HarnessRuntime {
         };
       }
       this.taskSessions.add(created.id);
-      void this.drainTask(target.id, created.id, task);
+      void this.drainTask(
+        ownerProfileId,
+        parentSessionId,
+        target,
+        created.id,
+        task,
+      ).catch(() => undefined);
       const title = created.title ?? task;
       return {
         ok: true,
         result:
           `Started "${title}" for ${target.name} in its own conversation. ` +
-          'Open it to watch the work or answer an approval; this thread will not wait.',
+          'It will post the result here when it finishes; open that conversation to answer an approval.',
       };
     } catch (error) {
       return {
@@ -900,18 +907,75 @@ export class HarnessRuntime {
   }
 
   private async drainTask(
-    profileId: string,
-    sessionId: string,
+    ownerProfileId: string,
+    parentSessionId: string | undefined,
+    target: AgentProfile,
+    taskSessionId: string,
     task: string,
   ): Promise<void> {
+    let failure: string | undefined;
     try {
-      for await (const _event of this.run(profileId, sessionId, task)) {
-        // The task's own log and the window's listener carry the events.
+      for await (const event of this.run(target.id, taskSessionId, task)) {
+        if (event.type === 'turn.failed') {
+          failure = event.message;
+        }
       }
-    } catch {
-      // A task that fails leaves its failure in its own conversation; the parent
-      // has already moved on and has nowhere to put it.
+    } catch (error) {
+      failure = error instanceof Error ? error.message : String(error);
     }
+    if (parentSessionId === undefined || parentSessionId === taskSessionId) {
+      return;
+    }
+
+    let ok = failure === undefined;
+    let text = failure ?? '';
+    if (ok) {
+      const gates = await this.pendingGates(taskSessionId);
+      if (gates.length > 0) {
+        ok = false;
+        text =
+          'The task stopped for approval in its own conversation. Open it to continue; this result is the stopping point.';
+      } else {
+        const transcript = await this.transcript(taskSessionId, target.id);
+        text =
+          [...transcript]
+            .reverse()
+            .find(
+              (message) =>
+                message.role === 'assistant' && message.text.length > 0,
+            )?.text ?? '';
+        if (text.length === 0) {
+          ok = false;
+          text = 'The task finished without an answer.';
+        }
+      }
+    }
+    const clipped =
+      text.length > 4_000
+        ? `${text.slice(0, 4_000)}
+
+[the posted result was truncated at 4,000 characters; the task conversation has the rest]`
+        : text;
+    const parent = await this.store.read(parentSessionId).catch(() => []);
+    const created = parent.find((event) => event.type === 'session.created');
+    if (
+      created?.type !== 'session.created' ||
+      created.profileId !== ownerProfileId
+    ) {
+      return;
+    }
+    const event: import('@marimo/agent').SessionEvent = {
+      id: randomUUID(),
+      sessionId: parentSessionId,
+      at: new Date().toISOString(),
+      type: 'task.result',
+      taskSessionId,
+      agentId: target.id,
+      agentName: target.name,
+      ok,
+      text: clipped,
+    };
+    await this.store.append(parentSessionId, [event]).catch(() => undefined);
   }
 
   async askAgent(

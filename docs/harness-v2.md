@@ -385,8 +385,11 @@ an opinion or a specialty, not a file written or a command run.
 For work, there is `start_task`. It opens a conversation for the other bot and
 runs a real v2 turn there — its own tools, memory, log and approval cards — and
 returns immediately. The parent is told where the work is; a task that stops for
-approval waits in its own chat, not in the thread that started it. The tool is
-absent from a task's own tool set, so a task cannot start another task.
+approval waits in its own chat, not in the thread that started it. When it
+finishes, its answer is posted back as a `task.result` event, which reads in the
+parent's transcript as the other bot's message and is replayed in the parent's
+history. The tool is absent from a task's own tool set, so a task cannot start
+another task.
 
 The old `ask_agent` path still serves v1 conversations and its same-conversation
 helper gate. The v2 task is deliberately a different shape: own writer, own
@@ -397,10 +400,9 @@ the v1 index entry, so a reloaded group does not look like one bot and a chat
 does not look empty. Those reads are per v2 session; a large install pays for
 them only on the sessions that have a v2 log.
 
-Not yet in Phase 3: posting a task's result back into the parent thread (today
-the task's conversation is where the result lives), and a same-conversation
-helper that can raise a gate the parent resumes — the old host still owns that
-shape.
+Not yet in Phase 3: a same-conversation helper that can raise a gate the parent
+resumes — the old host still owns that shape. The v2 task is deliberately the
+other shape: its own conversation, its own writer, and a posted result.
 
 ## Phase 4: recall
 

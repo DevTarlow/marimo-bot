@@ -368,23 +368,6 @@ export {
   SettingsStore,
 } from './settings.js';
 
-/*
- * Dream-RSI's trees on disk, and the offline replay that reads them.
- *
- * The replay is exported from here rather than from the agent package because it
- * is the *file* half — reading a directory of conversations and reporting — while
- * the policy arithmetic stays in `@marimo/agent`, where it is shared with the
- * live turn. The CLI is the thinnest possible wrapper over these two.
- */
-export {DREAM_VERSION, DreamStore} from './dream-store.js';
-export type {DreamStoreOptions, LoadedTrees} from './dream-store.js';
-export {sweepDreamTrees, renderSweep} from './dream-replay.js';
-export type {
-  DreamReplayOptions,
-  DreamSweep,
-  DreamSweepRow,
-} from './dream-replay.js';
-
 /* Skills. */
 export {
   DuplicateSkillNameError,

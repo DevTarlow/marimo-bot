@@ -206,17 +206,8 @@ export {
   walkFiles,
 } from './tools/walk.js';
 export type {WalkOptions, WalkResult} from './tools/walk.js';
-export type {AgentConfig, DreamConfig} from './config.js';
-/*
- * Dream-RSI: the recorder, the step controller, and the offline replay.
- *
- * One `export *` rather than a list, because the module is one feature with a
- * documented boundary — see `dream/index.ts` — and a re-export list here would be
- * a second place to update whenever a policy primitive is added. The filesystem
- * is deliberately not part of it: the recorder takes a sink, and the runtime owns
- * the path.
- */
-export * from './dream/index.js';
+export type {AgentConfig} from './config.js';
+
 export {iterateSseData} from './models/sse.js';
 export {
   normalizeSchema,

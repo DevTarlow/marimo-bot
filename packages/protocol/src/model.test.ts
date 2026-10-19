@@ -16,21 +16,14 @@
 import {describe, expect, it} from 'vitest';
 
 import {
-  DEFAULT_DREAM_EXPLORATION_WEIGHT,
-  DEFAULT_DREAM_KEEP_LOGS,
-  DEFAULT_DREAM_PRUNING_THRESHOLD,
   DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
-  DREAM_EXPLORATION_MAX,
-  DREAM_PRUNING_MIN,
   DEFAULT_MEMORY_REVIEW_EVENTS,
   defaultAppearance,
   defaultCompanionSettings,
   defaultDiscordSettings,
-  defaultDreamSettings,
   defaultProviders,
   defaultRecallSettings,
   defaultWindowState,
-  dreamSettingsSchema,
   PROVIDER_IDS,
   recallSettingsSchema,
   settingsPatchSchema,
@@ -163,71 +156,6 @@ describe('the recall settings', () => {
   });
 });
 
-/**
- * Dream-RSI's two numbers and the state they ship in.
- *
- * Asserted rather than left to whichever file builds them first, for the reason
- * the recall block is: the defaults *are* the feature's behaviour on a fresh
- * install, and a default that crept from "prune nothing" to "prune something"
- * would change how the agent answers without any test of the machinery noticing.
- */
-describe('the Dream-RSI settings', () => {
-  it('is off, and prunes nothing when it is on', () => {
-    expect(defaultDreamSettings()).toEqual({
-      enabled: false,
-      explorationWeight: DEFAULT_DREAM_EXPLORATION_WEIGHT,
-      // -1 is "prune nothing", and it is the safe direction: the failure mode of
-      // pruning too eagerly is invisible from the outside, while the failure mode
-      // of pruning too little is a slow turn.
-      pruningThreshold: DEFAULT_DREAM_PRUNING_THRESHOLD,
-      keepLogs: DEFAULT_DREAM_KEEP_LOGS,
-      resultBytes: 256,
-    });
-    expect(DEFAULT_DREAM_PRUNING_THRESHOLD).toBe(DREAM_PRUNING_MIN);
-  });
-
-  it('is part of the settings document', () => {
-    expect(settingsSchema.shape.dream).toBeDefined();
-    expect(
-      settingsSchema.safeParse({...settingsShape(), dream: undefined}).success,
-    ).toBe(false);
-  });
-
-  /*
-   * A window that moved the exploration slider must not have to send the other
-   * four fields back — a stale copy of them is exactly what must not win.
-   */
-  it('accepts a patch touching one field of the block', () => {
-    const parsed = settingsPatchSchema.safeParse({
-      dream: {pruningThreshold: 0},
-    });
-
-    expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.dream).toEqual({pruningThreshold: 0});
-  });
-
-  it('refuses a value outside the range the policy can use', () => {
-    const base = defaultDreamSettings();
-    expect(
-      dreamSettingsSchema.safeParse({...base, explorationWeight: -1}).success,
-    ).toBe(false);
-    expect(
-      dreamSettingsSchema.safeParse({
-        ...base,
-        explorationWeight: DREAM_EXPLORATION_MAX + 1,
-      }).success,
-    ).toBe(false);
-    expect(
-      dreamSettingsSchema.safeParse({...base, pruningThreshold: -2}).success,
-    ).toBe(false);
-    // A block that does not validate is replaced whole by the settings store, so
-    // a typo here costs the block rather than every other preference the user
-    // has — which is the reason it is a block at all.
-    expect(dreamSettingsSchema.safeParse({...base, keepLogs: 0}).success).toBe(
-      false,
-    );
-  });
-});
 function settingsShape(): Record<string, unknown> {
   return {
     appearance: defaultAppearance(),
@@ -248,6 +176,5 @@ function settingsShape(): Record<string, unknown> {
     memorySoftLimitBytes: DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
     memoryReviewEvents: DEFAULT_MEMORY_REVIEW_EVENTS,
     recall: defaultRecallSettings(),
-    dream: defaultDreamSettings(),
   };
 }

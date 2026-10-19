@@ -23,7 +23,6 @@ import {
   appearanceSchema,
   companionSettingsSchema,
   defaultAppearance,
-  defaultDreamSettings,
   defaultProviders,
   defaultRecallSettings,
   defaultCompanionSettings,
@@ -32,7 +31,6 @@ import {
   defaultWindowState,
   defaultDiscordSettings,
   discordSettingsSchema,
-  dreamSettingsSchema,
   providerIdSchema,
   recallSettingsSchema,
   settingsPatchSchema,
@@ -111,12 +109,6 @@ export function defaultStoredSettings(): StoredSettings {
     // Recall off: it downloads a model and starts an engine, and neither is
     // something a fresh install should do without being asked.
     recall: defaultRecallSettings(),
-    // Dream-RSI off for the same reason, and a stronger one: turning it on makes
-    // the app write down every tool call the agent makes — its arguments and the
-    // head of its result — which is a record of somebody's work that did not
-    // exist before. Not a secret, and it never leaves the machine, but it is
-    // theirs to agree to rather than a default they discover.
-    dream: defaultDreamSettings(),
     /*
      * The setup flow has not run: a file that says nothing is either a fresh
      * install or one from a build before the flow existed, and both want to be
@@ -282,18 +274,6 @@ export class SettingsStore {
             rawObject['recall'],
           ),
           /*
-           * And Dream-RSI, filled the same way and for the same reason. It is
-           * also the block where getting this wrong would be quietest: a
-           * hand-edited exploration weight that failed the whole settings parse
-           * would reset every other preference *and* land on `enabled: false`, so
-           * a user's recording would appear to have switched itself off.
-           */
-          dream: fillBlock(
-            dreamSettingsSchema,
-            defaults.dream,
-            rawObject['dream'],
-          ),
-          /*
            * The provider block, filled one provider at a time rather than whole.
            *
            * Deeper than `fillBlock` because the block holds a sub-object per
@@ -354,9 +334,6 @@ export class SettingsStore {
       const recall = defined.recall
         ? {...current.recall, ...definedOnly(defined.recall)}
         : current.recall;
-      const dream = defined.dream
-        ? {...current.dream, ...definedOnly(defined.dream)}
-        : current.dream;
       /*
        * The provider block is merged per provider, not per block.
        *
@@ -374,7 +351,6 @@ export class SettingsStore {
         companion,
         appearance,
         recall,
-        dream,
         providers,
       });
       const stored: StoredSettings = {

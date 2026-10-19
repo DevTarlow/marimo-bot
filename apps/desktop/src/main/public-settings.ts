@@ -29,8 +29,6 @@ export interface SettingsFacts {
   providerKeys: Partial<Record<ProviderId, boolean>>;
   /** Whether this machine can encrypt a key at rest. */
   encryptionAvailable: boolean;
-  /** The last discovery-log write that failed, if one did. */
-  dreamProblem?: string;
   profiles: AgentProfile[];
   activeProfileId: string;
 }
@@ -55,9 +53,6 @@ export function settingsForWindow(facts: SettingsFacts): PublicSettings {
      * papered over — see `AvailableModels`.
      */
     availableModels: facts.settings.availableModels,
-    ...(facts.dreamProblem === undefined
-      ? {}
-      : {dreamProblem: facts.dreamProblem}),
     profiles: facts.profiles,
     activeProfileId: facts.activeProfileId,
   };

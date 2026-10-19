@@ -84,7 +84,6 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool                                                                                                                                                                                                                                                                                            |
-| Done        | Dream-RSI: off by default, a turn's search recorded as a tree of what was offered, proposed and run, and a command that re-decides those turns under other settings without a model                                                                                                                                                                                                                                                                                                                                                |
 | In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## Why it is built this way
@@ -351,92 +350,6 @@ The store holds the user's words verbatim and bounded, and it is scoped to the
 profile, because one agent being told it was wrong about a deployment is not a
 fact about the other one. It reads leniently so a corrupt file still opens the
 window, and it moves that file aside before writing rather than over it.
-
-### Dream-RSI: the search is recorded, so it can be re-decided offline
-
-A turn is a search. The model proposes a tool call, the controller decides whether
-it may be taken, the tool answers, and the turn either continues or ends. For a
-long time only the last of those was visible: the transcript shows one path
-through the work and has no way to represent the actions that were considered and
-refused, so "which tools should this turn have been offered" was not a question
-anybody could ask.
-
-Dream-RSI is the three pieces that make it askable. It is off until the user turns
-it on, and off means absent rather than discouraged: no recorder is constructed,
-and the runner is given the repeat-only plugin it has always had.
-
-**The recorder writes a tree, and a proposal is not a call.** `dream/recorder.ts`
-emits a `turn` node per model request, a `propose` node per call the model asked
-for, and a `call` node per call that ran, linked by `parentId`. Splitting those last
-two is the whole point: between them sits the entire policy, so collapsing them
-loses the only measurement the feature has — a withheld action would be
-indistinguishable from one the model never thought of. Trees are appended as whole
-snapshots rather than mutated in place, so a process killed mid-turn leaves a
-readable prefix rather than a truncated object; the turn most worth replaying is
-the one that crashed.
-
-**The controller is pure, and that is load-bearing.** `dream/search.ts` is
-`SearchPolicy`: UCB1 over an action's visit count and mean reward, an explicit
-exploration weight, and a pruning threshold. It takes history as an argument
-rather than reading it from anywhere, which is what lets the live turn and the
-offline replay call the _same function_ — so a setting measured offline is the
-setting that runs live, by construction rather than by two implementations kept in
-step. Every temptation to make the score cleverer had to survive that constraint,
-which is why the reward is an arithmetic function of the recorded result rather
-than a model's opinion of it: a reward that needs a model cannot be recomputed
-from a log, and a replay that cannot recompute it is either impossible or a liar.
-
-The action's statistics and the repeat rule are deliberately separate numbers.
-`visits` counts calls that ran, and drives the reward estimate; `attempts` counts
-proposals whether or not they ran, and drives the loop breaker inherited from
-`RepeatedToolCallPlugin`. Confusing them is a real bug rather than a tidiness
-question — `read_file` three times on three different files is a model doing its
-job, and one counter cannot tell that from a loop. A withheld call is counted as an
-attempt and _not_ as a visit, because counting a refusal as a zero-reward visit
-would make pruning self-reinforcing: the evidence for pruning an action would be
-the pruning itself.
-
-**Pruning removes the tool from the menu.** It is applied through ADK's
-`beforeToolSelection`, so a pruned tool is not merely refused — it is absent, and
-the model spends no tokens proposing it and the turn spends no round trip saying
-no. `beforeToolCallback` is the safety net beneath it, catching a call already in
-flight and the repeat rule, which is about a specific call rather than a tool set.
-The default threshold prunes nothing, and that direction is deliberate: the failure
-mode of pruning too eagerly is invisible from the outside — the agent answers from
-less than it could have, competently and wrongly — while the failure mode of
-pruning too little is a slow turn. With the file and shell tools in the menu, the
-choice between actions is real, which is what makes the threshold worth measuring
-rather than decorative.
-
-**The log records the world, not what one policy approved of.** The `offered` set
-on a step node is the _unfiltered_ tool set. Recording the narrowed set would be
-the obvious thing and it would quietly make the replay useless: a pruned tool would
-be absent from its own history, so no candidate threshold could ever be evaluated
-against it. Off-policy evaluation needs the whole action space the turn had.
-
-**The replay reports what a setting would have withheld, and refuses to report an
-outcome.** `pnpm --filter @marimo/desktop replay:dream` reads the logs, re-decides
-every recorded step under a grid of weights and thresholds, and prints a table —
-with no model call and no tool call, because every number comes from a log that
-already exists. Withheld actions, and how many of those the model actually reached
-for, are counts in that log. What would have happened _next_ is not: the model
-chose each step from the result of the one before it, so withholding a step changes
-the conversation, and the recorded continuation is the one that happened under the
-old settings. The output says so in its own words rather than leaving a reader to
-assume the numbers are a prediction.
-
-One consequence is worth stating because it bounds what a threshold can do. The
-first step of a turn has no history, so every action on the menu is untried and
-saves every threshold — the first call always happens. A setting can save the
-second and third attempts, never the first, which is why the honest pitch is "the
-turn stops sooner" rather than "the turn does not go wrong".
-
-**The card reports the last write, not the last error message.** The trees are
-written from inside a tool callback, where a full disk must not fail the turn — so
-the store keeps the last failure and the card in Settings says so while it is true.
-It is a status rather than a one-shot notice because the card is drawn from a
-settings payload the window reads for its own reasons, and a message that cleared
-on read could be swallowed by a read nobody was showing the card for.
 
 ### One settings screen, and one grant behind it
 

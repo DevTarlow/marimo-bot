@@ -135,7 +135,6 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     const settings = await service.settings();
     const profiles = await service.profiles();
     const readiness = await providerReadiness(service);
-    const dreamProblem = service.dreamProblem();
 
     return settingsForWindow({
       settings,
@@ -147,7 +146,6 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
        * know before it offers a field whose storage will refuse it.
        */
       encryptionAvailable: safeStorageCipher.available(),
-      ...(dreamProblem === undefined ? {} : {dreamProblem}),
       profiles: profiles.profiles,
       activeProfileId: profiles.activeProfileId,
     });

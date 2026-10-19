@@ -142,20 +142,6 @@ export interface AppPaths {
    */
   legacySkills: string;
   /**
-   * The discovery trees: one document per conversation, holding the turns'
-   * parent-child records of what the agent tried.
-   *
-   * A directory rather than a file, unlike almost everything else here, because
-   * the unit a reader wants is one conversation — the replay asks "what would
-   * these settings have done to this work" — and a single document would be
-   * rewritten in full on every recorded step. One file per conversation keeps
-   * each write small and makes deleting a conversation's record a rename.
-   *
-   * Only ever written when the user turns Dream-RSI on; an install that never
-   * does never creates the directory.
-   */
-  dreamDir: string;
-  /**
    * Where a brand-new profile may work.
    *
    * A folder of the app's own inside the person's home directory, created on the
@@ -237,7 +223,6 @@ export function resolveAppPaths(
     appLock: join(userData, 'app.lock'),
     skills: join(userData, 'skills'),
     legacySkills: join(userData, 'skills.json'),
-    dreamDir: join(userData, 'trees'),
     defaultWorkspace: join(home, DEFAULT_SPACE_FOLDER),
     formerDefaultWorkspace: home,
   };

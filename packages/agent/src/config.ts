@@ -123,32 +123,4 @@ export interface AgentConfig {
    * this changes, and the next request already carries the new skill.
    */
   userSkills?: readonly Skill[];
-  /**
-   * Dream-RSI: whether to record this turn's search tree, and how to search it.
-   *
-   * Absent means off, and off means the recorder is never constructed and the
-   * repeat-only plugin is registered — which is the state a user who has not
-   * asked for the feature runs in, byte for byte. The requirement that a
-   * capability the user turned off be *absent* rather than discouraged is why
-   * this is one optional field rather than an `enabled` flag inside an object
-   * that is always present: there is nothing to check and nothing to get wrong.
-   *
-   * The log's own settings — where the trees are written, how many to keep — are
-   * deliberately not here. They are facts about the store, and the host that
-   * records is handed a sink by whoever owns the file, exactly as it is handed a
-   * `sessionsDir`.
-   */
-  dream?: DreamConfig;
-}
-
-/**
- * The two weights the step controller runs under.
- *
- * The settings block from the protocol satisfies this structurally, so the
- * resolver passes one straight through rather than building a copy that could
- * drift from the document the user edited.
- */
-export interface DreamConfig {
-  explorationWeight: number;
-  pruningThreshold: number;
 }

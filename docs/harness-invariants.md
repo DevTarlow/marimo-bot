@@ -8,8 +8,9 @@ without the code that enforces it.
 The old code is deleted only when every row says **ported** and the full suite is
 green. The status column is updated in the same commit as the test. The old
 `AgentHost` and its tests are gone; 18, 19, 29 and 30 are ported. Invariant 28 is
-retired rather than ported: v2 deliberately records no Dream-RSI trace, so there
-is no trace file to be local, capped or deletable.
+retired rather than ported: Dream-RSI was removed, so there is no trace file to be
+local, capped or deletable. The learning loop records what a turn cost on its
+own terminal event instead.
 
 | #   | Invariant                                                                    | V1 home                                              | V2 test target                                                                                                                                                                                                                       | Status |
 | --- | ---------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |

@@ -55,7 +55,6 @@ import {
   BOT_AVATAR_PRESETS,
   DEFAULT_AGENT_PERSONA,
   DEFAULT_AGENT_ROLE,
-  DEFAULT_DREAM_KEEP_LOGS,
   DRAFT_BOT_TOOL,
   MAIN_AGENT_NAME,
 } from '@marimo/protocol';
@@ -91,7 +90,6 @@ import {reviewDelay} from '@marimo/agent';
 import type {AppPaths} from '../paths.js';
 import {avatarFile} from '../paths.js';
 import {DocumentService} from '../documents.js';
-import {DreamStore} from '../dream-store.js';
 import {ProfileStore} from '../profiles.js';
 import type {ProfileFile} from '../profiles.js';
 import {FeedbackStore} from '../feedback.js';
@@ -216,25 +214,6 @@ export class AgentRuntime {
   private readonly proposals: MemoryProposalStore;
   /** What the user said about the agent's own answers. */
   private readonly feedbackStore: FeedbackStore;
-  /**
-   * The discovery trees, when the user has Dream-RSI on.
-   *
-   * Built unconditionally and asked for nothing until a config enables it, which
-   * is the shape the recall service has from the other side: the *store* costs a
-   * path join, while the capability does not exist until a setting says so. Were
-   * it built inside the settings read instead, the object a host holds its sink
-   * from could change identity between one turn and the next.
-   */
-  private readonly dreamStore: DreamStore;
-  /**
-   * The tree cap, as of the last settings read.
-   *
-   * Cached because the store asks for it on every write and the answer comes from
-   * a settings document that is already being read once per turn. A field rather
-   * than a second read, so a turn's writes cannot disagree with the config that
-   * turn is running under.
-   */
-  private cachedDreamKeepLogs = DEFAULT_DREAM_KEEP_LOGS;
 
   constructor(private readonly options: AgentRuntimeOptions) {
     this.harnessVersions = new HarnessVersionStore({
@@ -244,13 +223,6 @@ export class AgentRuntime {
       rootDir: options.paths.sessions,
     });
     this.settingsStore = new SettingsStore(options.paths.settings);
-    this.dreamStore = new DreamStore({
-      dir: options.paths.dreamDir,
-      // Read per write rather than captured at construction: a user who lowers
-      // the cap in Settings should have the next turn's write trim the file, not
-      // the next launch.
-      keepLogs: () => this.cachedDreamKeepLogs,
-    });
     this.profileStore = new ProfileStore({
       file: options.paths.profiles,
       /*
@@ -652,7 +624,6 @@ export class AgentRuntime {
     const conversations =
       await this.sessionIndex.deleteSessionsForProfile(profileId);
     for (const sessionId of conversations) {
-      await this.dreamStore.forget(sessionId);
       await this.proposals.forget(sessionId);
       await this.harness().forgetLearningSession(sessionId);
     }
@@ -1220,31 +1191,12 @@ export class AgentRuntime {
       sessionId,
     });
     /*
-     * And its discovery tree, for the reason the recall index drops its vectors:
-     * a record of what the agent did in a conversation must not outlive the
-     * user's ability to see that conversation. Best effort — the deletion the
-     * user asked for has already happened, and a log that could not be moved
-     * aside is not a reason to report a failure that did not occur.
-     */
-    await this.dreamStore.forget(sessionId);
-    /*
      * And the memory reviewer's watermark for it, which nothing else moves: the
      * entry names a conversation that no longer exists, so leaving it is a file
      * that grows by one line per deleted chat and can never be read back.
      */
     await this.proposals.forget(sessionId);
     await this.harness().forgetLearningSession(sessionId);
-  }
-
-  /**
-   * The last discovery-log write that failed, or nothing.
-   *
-   * The window asks so the Dream-RSI card can stop claiming the agent is
-   * recording when it is not. A status rather than news: the card is redrawn from
-   * a payload the window reads for other reasons too.
-   */
-  dreamProblem(): string | undefined {
-    return this.dreamStore.problem();
   }
 
   /** Every conversation, or one agent's. */

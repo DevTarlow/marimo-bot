@@ -287,27 +287,6 @@ through `resolveInsideWorkspace`, the guard the agent's own file tools use, so
 `..`, an absolute path and a symlink that leaves the space are one refusal with
 one sentence.
 
-**The discovery trees are the third, and the one that is off until asked for.**
-`trees/<sessionId>.json` holds one conversation's turns as parent-child records
-of what the agent tried, written only when Dream-RSI is on — so a fresh install
-creates no such directory and a user who never turns it on leaves no trace of the
-feature. Versioned, read through the shared reader, its write path asserting and
-quarantining like the rest; the one difference is that a tree which fails to
-validate is *dropped* rather than failing the read, because losing one turn beats
-losing a conversation's history to one malformed entry. A conversation's file is
-moved aside when the conversation is deleted, for the reason the recall index
-drops its vectors: a record of what the agent did must not outlive the user's
-ability to see the conversation it is about.
-
-**Dream-RSI's cross-document rule is that the recorded policy is the truth.**
-Every tree stores the two weights it ran under, and the replay reports a baseline
-only when every turn agrees — so a log recorded under two different settings
-says so rather than averaging them into a control no turn ever ran with. That is
-deliberate: `settings.json` can change after a turn is recorded, so reading the
-*current* weights as the baseline would mark a row as "what actually happened"
-from a file that had nothing to do with it. When you add a field to the policy,
-put it in the tree and not only in settings.
-
 **Memory is the one document that is not versioned, and there are two of them.**
 `memory.md` is plain markdown a user edits by hand, so a version field would be a
 lie about a file the app does not own; the split between the person's half (under

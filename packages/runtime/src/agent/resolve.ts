@@ -223,24 +223,6 @@ export async function resolveAgentConfig(
       ...(options.skills !== undefined && options.skills.length > 0
         ? {userSkills: options.skills.map(toAgentSkill)}
         : {}),
-      /*
-       * Dream-RSI, present only when the user turned it on.
-       *
-       * Read here rather than checked inside the host, so that "off" is the
-       * absence of the field and there is no branch anywhere that could run the
-       * recorder against a settings block nobody agreed to. The two weights
-       * travel whole because they are what the controller runs under, and the
-       * log's own fields — how many trees to keep, how many bytes of a result —
-       * stay with the store that acts on them.
-       */
-      ...(settings.dream.enabled
-        ? {
-            dream: {
-              explorationWeight: settings.dream.explorationWeight,
-              pruningThreshold: settings.dream.pruningThreshold,
-            },
-          }
-        : {}),
     },
   };
 }

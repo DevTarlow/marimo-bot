@@ -73,7 +73,6 @@ import {BotAvatar} from './BotAvatar.js';
 import {BotIconGrid} from './BotIconGrid.js';
 import {BotMenu} from './BotMenu.js';
 import {Connectors} from './Connectors.js';
-import {Dream} from './Dream.js';
 import {Learning} from './Learning.js';
 import {Memory} from './Memory.js';
 import {ModelPicker} from './ModelPicker.js';
@@ -1354,20 +1353,6 @@ export function Settings({
           servers={loaded.settings.mcpServers}
           statuses={loaded.statuses}
           encryptionAvailable={loaded.settings.encryptionAvailable}
-          opened={opened}
-          onToggle={fold}
-          onChange={() => {
-            void load();
-          }}
-        />
-
-        {/*
-          Dream-RSI — see the note at the top of its own file. Last in the dialog
-          because it is the thing fewest people will want, and a capability
-          nobody has turned on should not push the ones they have further up the
-          screen.
-        */}
-        <Dream
           opened={opened}
           onToggle={fold}
           onChange={() => {

@@ -30,7 +30,7 @@
 import {BasePlugin, REQUEST_CONFIRMATION_FUNCTION_CALL_NAME} from '@google/adk';
 import type {BaseTool, Context} from '@google/adk';
 
-import {callFingerprint} from '../dream/call-fingerprint.js';
+import {callFingerprint} from './call-fingerprint.js';
 
 /**
  * The call number that is refused rather than run.

@@ -384,17 +384,6 @@ export class AgentService {
     return await this.runtime.settings();
   }
 
-  /**
-   * The last discovery-log write that failed, or nothing.
-   *
-   * Read by the settings payload the Dream-RSI card is drawn from. A card that
-   * says "recording" while every write is failing is worse than no card at all,
-   * and this is the only place that knows.
-   */
-  dreamProblem(): string | undefined {
-    return this.runtime.dreamProblem();
-  }
-
   async start(): Promise<void> {
     await this.applyMcpServers();
     await this.claimJobs();

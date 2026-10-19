@@ -36,10 +36,18 @@ import type {
 import type {ProfileStore} from './profiles.js';
 import {normaliseName} from './skills.js';
 import type {SkillStore} from './skills.js';
+import type {SkillUsageStore} from './skill-usage.js';
 
 export interface RuntimeSkillServiceOptions {
   skills: SkillStore;
   profiles: ProfileStore;
+  /**
+   * Which skills were actually loaded, for the maintenance proposals.
+   *
+   * Optional because a service built without it is still a service: the usage
+   * record is how the library gets *tidier*, not how it works.
+   */
+  usage?: SkillUsageStore;
 }
 
 export class RuntimeSkillService {
@@ -172,6 +180,14 @@ export class RuntimeSkillService {
     const granted = await this.grantedForProfile(profileId);
     const wanted = normaliseName(rawName);
     const skill = granted.find((entry) => entry.name === wanted);
+    if (skill !== undefined) {
+      /*
+       * Not awaited, and the failure is dropped: a load that worked is not a
+       * worse load because its counter could not be written, and the turn is
+       * waiting on this answer.
+       */
+      void this.options.usage?.record(skill.id).catch(() => undefined);
+    }
     return {
       ...(skill === undefined ? {} : {skill}),
       names: granted.map((entry) => entry.name),

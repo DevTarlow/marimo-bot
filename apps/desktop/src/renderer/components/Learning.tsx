@@ -65,7 +65,10 @@ export function Learning({
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const listed = await window.marimo.call('learning.proposals', {});
+      const listed = await window.marimo.call(
+        'learning.proposals',
+        profileId === undefined ? {} : {profileId},
+      );
       setInbox(listed);
       setProblem(null);
       if (profileId !== undefined) {

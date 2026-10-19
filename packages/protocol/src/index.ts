@@ -2909,6 +2909,29 @@ export function emptyLearningFile(): LearningFile {
   return {version: 1, proposals: [], lessons: []};
 }
 
+/**
+ * How often each skill has been loaded, for the maintenance proposals.
+ *
+ * A second small document rather than a field in the learning file, because a
+ * load is not a proposal: it is a fact about use, and the queue is a list of
+ * decisions. Both live under `learning/` because both are about improving the
+ * bot rather than about the person's work.
+ */
+export const skillUsageEntrySchema = z.object({
+  count: z.number().int().nonnegative(),
+  /** When it was last loaded, ISO. */
+  lastAt: z.string().min(1),
+});
+
+export const skillUsageFileSchema = z.object({
+  version: z.literal(1),
+  /** Skill id to how many times it was loaded and when last. */
+  loads: z.record(z.string(), skillUsageEntrySchema),
+});
+
+export type SkillUsage = z.infer<typeof skillUsageEntrySchema>;
+export type SkillUsageFile = z.infer<typeof skillUsageFileSchema>;
+
 /* -------------------------------------------------------------------------- */
 /* Calls: renderer -> main                                                     */
 /* -------------------------------------------------------------------------- */
@@ -3578,7 +3601,15 @@ export const agentCallSchemas = {
    * *suggestions*, not about documents. A component that had to merge a memory
    * queue and a grant queue would be the second place that knows the difference.
    */
-  'learning.proposals': z.object({}),
+  'learning.proposals': z.object({
+    /**
+     * The bot whose library to check for housekeeping, when the window knows it.
+     *
+     * Opening the inbox is what asks the question; a background timer would spend
+     * writes discovering that nobody is looking.
+     */
+    profileId: z.string().min(1).optional(),
+  }),
   /**
    * Answers any proposal. A grant writes the profile; a memory fact writes
    * memory; a refusal records a lesson in both cases.

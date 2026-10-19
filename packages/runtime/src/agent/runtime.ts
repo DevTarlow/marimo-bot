@@ -901,7 +901,9 @@ export class AgentRuntime {
   }
 
   async removeSkill(id: string): Promise<StoredSkill[]> {
-    return await this.skillService.remove(id);
+    const after = await this.skillService.remove(id);
+    await this.harness().forgetSkillUsage(id);
+    return after;
   }
 
   /** The earlier bodies of one skill, for the Settings history view. */

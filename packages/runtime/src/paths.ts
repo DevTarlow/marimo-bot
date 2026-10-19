@@ -89,6 +89,14 @@ export interface AppPaths {
    */
   learningProposals: string;
   /**
+   * How often each skill has been loaded, and when last.
+   *
+   * Its own small document rather than a field in `SKILL.md`: the skill is the
+   * user's markdown, and the app's bookkeeping does not belong in a file they may
+   * edit by hand.
+   */
+  skillUsage: string;
+  /**
    * The half of memory that is about the person rather than the project.
    *
    * One folder per profile under here, each holding a `memory.md`, mirroring the
@@ -223,6 +231,7 @@ export function resolveAppPaths(
     jobs: join(userData, 'jobs.json'),
     memoryProposals: join(userData, 'memory-proposals.json'),
     learningProposals: join(userData, 'learning', 'proposals.json'),
+    skillUsage: join(userData, 'learning', 'skill-usage.json'),
     personMemoryDir: join(userData, 'memory'),
     feedback: join(userData, 'feedback.json'),
     appLock: join(userData, 'app.lock'),

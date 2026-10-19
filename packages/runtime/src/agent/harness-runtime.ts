@@ -35,6 +35,7 @@ import {
   pendingGatesFromLog,
   harnessHash,
   resolveHarness,
+  isAlwaysInjected,
   runReview,
   type AgentConfig,
   type EventStore,
@@ -53,6 +54,7 @@ import type {MemoryProposal} from '@marimo/protocol';
 import {FeedbackStore} from '../feedback.js';
 import {LearningProposalStore} from '../learning-proposals.js';
 import {MemoryProposalStore} from '../memory-proposals.js';
+import {SkillUsageStore} from '../skill-usage.js';
 import type {AppPaths} from '../paths.js';
 import {FileEventStore} from '../events/file-event-store.js';
 import type {HarnessVersionStore} from '../harness-versions.js';
@@ -69,6 +71,26 @@ import {
   projectTurn,
   transcriptFromEvents,
 } from './harness-projection.js';
+
+/**
+ * How long a granted skill may go unloaded before the inbox proposes retiring
+ * it.
+ *
+ * Long enough that a monthly procedure survives fifty-nine days of not being
+ * needed, short enough that a skill saved for one task does not sit in every
+ * prompt for a year. The proposal is not a deletion, so being wrong costs one
+ * click.
+ */
+const MAINTENANCE_AFTER_DAYS = 60;
+
+function formatSize(bytes: number): string {
+  return `${String(Math.max(1, Math.round(bytes / 1024)))} KB`;
+}
+
+function clip(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > 80 ? `${trimmed.slice(0, 77)}...` : trimmed;
+}
 
 export class HarnessRuntimeError extends Error {
   constructor(message: string) {
@@ -170,6 +192,7 @@ export class HarnessRuntime {
   private readonly skillService: RuntimeSkillService;
   private readonly proposals: MemoryProposalStore;
   private readonly learning: LearningProposalStore;
+  private readonly skillUsage: SkillUsageStore;
   private readonly feedback: FeedbackStore;
   private readonly states = new Map<string, SessionState>();
   /** ADK sessions left parked on a helper gate, keyed by parent session. */
@@ -187,9 +210,13 @@ export class HarnessRuntime {
       legacyFile: options.paths.legacySkills,
       reserved: SKILLS.map((skill) => skill.name),
     });
+    this.skillUsage = new SkillUsageStore({
+      file: options.paths.skillUsage,
+    });
     this.skillService = new RuntimeSkillService({
       skills: this.skillStore,
       profiles: options.profiles,
+      usage: this.skillUsage,
     });
     this.proposals = new MemoryProposalStore({
       file: options.paths.memoryProposals,
@@ -1042,11 +1069,20 @@ export class HarnessRuntime {
    * the two stores' different shapes from leaking into a component that only
    * wants a list of decisions.
    */
-  async learningProposals(): Promise<{
+  async learningProposals(profileId?: string): Promise<{
     proposals: LearningProposal[];
     memory: MemoryProposal[];
     lessons: LearningLesson[];
   }> {
+    /*
+     * Opening the inbox is also the moment to look for housekeeping the bot
+     * could do. It is on demand rather than a background timer because the
+     * evidence is the library itself — size, age, use — and a card nobody has
+     * opened should not spend writes discovering that.
+     */
+    if (profileId !== undefined) {
+      await this.proposeMaintenance(profileId).catch(() => undefined);
+    }
     const [learning, memory, lessons] = await Promise.all([
       this.learning.load(),
       this.proposals.load(),
@@ -1107,6 +1143,9 @@ export class HarnessRuntime {
     if (proposal.kind === 'grant') {
       return await this.applyGrant(proposal);
     }
+    if (proposal.kind === 'maintenance') {
+      return await this.applyMaintenance(proposal);
+    }
     return {
       ok: false,
       problem: 'That kind of change cannot be applied yet.',
@@ -1124,6 +1163,171 @@ export class HarnessRuntime {
 
   async forgetLearningProfile(profileId: string): Promise<void> {
     await this.learning.forgetProfile(profileId);
+  }
+
+  /** Forgets a removed skill's load count, so a reused id does not inherit it. */
+  async forgetSkillUsage(skillId: string): Promise<void> {
+    await this.skillUsage.forget(skillId);
+  }
+
+  /**
+   * Looks for housekeeping the bot could do, and writes it down as proposals.
+   *
+   * Two candidates, both from the library rather than from a model: memory that
+   * is over the limit it was given, and a granted skill that has not been loaded
+   * in a long time. They are proposals because both are removals — a fact or a
+   * procedure the person may still want — and because deleting is exactly the
+   * kind of change this app asks about.
+   *
+   * Best effort. A library that cannot be read is not a reason to fail the
+   * inbox; it is a reason to show what is already waiting.
+   */
+  private async proposeMaintenance(profileId: string): Promise<void> {
+    const profile = (await this.options.profiles.profiles()).find(
+      (candidate) => candidate.id === profileId,
+    );
+    if (profile === undefined) {
+      return;
+    }
+
+    const memory = await this.memoryStoreFor(profile);
+    const bytes = await memory.bytes();
+    if (bytes > memory.softLimitBytes) {
+      const provenance = await memory.provenance();
+      /*
+       * Only the layers retrieval is allowed to narrow. `Preferences and tone`,
+       * `Boundaries` and `Environment and conventions` ride along whole whatever
+       * the question was; a fact in one of those is a rule, and proposing to
+       * forget a rule because the file is full is the wrong trade.
+       */
+      const candidates = provenance
+        .filter((entry) => !isAlwaysInjected(entry.section))
+        .sort((left, right) => left.at.localeCompare(right.at))
+        .slice(0, 2);
+      for (const entry of candidates) {
+        await this.learning.record({
+          kind: 'maintenance',
+          action: 'prune-memory',
+          target: entry.text,
+          ...(entry.section.length === 0 ? {} : {section: entry.section}),
+          profileId,
+          sessionId: null,
+          evidence: [],
+          reason:
+            `Memory is ${formatSize(bytes - memory.softLimitBytes)} over the ` +
+            `${formatSize(memory.softLimitBytes)} you asked it to keep. This is ` +
+            'one of the oldest facts in a layer that is not always injected.',
+          summary: `Forget "${clip(entry.text)}"`,
+        });
+      }
+    }
+
+    const granted = await this.skillService.grantedForProfile(profileId);
+    if (granted.length === 0) {
+      return;
+    }
+    const usage = await this.skillUsage.load();
+    const now = this.options.now?.().getTime() ?? Date.now();
+    for (const skill of granted) {
+      const entry = usage.loads[skill.id];
+      const last = entry === undefined ? undefined : Date.parse(entry.lastAt);
+      const stale =
+        entry === undefined ||
+        last === undefined ||
+        Number.isNaN(last) ||
+        now - last > MAINTENANCE_AFTER_DAYS * 86_400_000;
+      if (!stale) {
+        continue;
+      }
+      await this.learning.record({
+        kind: 'maintenance',
+        action: 'disable-skill',
+        target: skill.name,
+        profileId,
+        sessionId: null,
+        evidence: [],
+        reason:
+          entry === undefined || last === undefined || Number.isNaN(last)
+            ? 'It has never been loaded since this app started counting.'
+            : `It was last loaded ${String(
+                Math.max(1, Math.floor((now - last) / 86_400_000)),
+              )} days ago.`,
+        summary: `Stop offering "${skill.name}"`,
+      });
+    }
+  }
+
+  /** The memory store for one profile, without building a model or a host. */
+  private async memoryStoreFor(profile: AgentProfile): Promise<MemoryStore> {
+    const settings = await this.options.settings.load();
+    const workspaces = await this.options.workspaces.load();
+    const spaceId = profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
+    const workspaceRoot =
+      workspaceRootFor(workspaces, spaceId) ??
+      this.options.paths.defaultWorkspace;
+    return new MemoryStore({
+      workspaceRoot,
+      personMemoryRoot: this.options.paths.personMemoryDir,
+      profileId: profile.id,
+      ...(settings.memorySoftLimitBytes === undefined
+        ? {}
+        : {softLimitBytes: settings.memorySoftLimitBytes}),
+    });
+  }
+
+  /**
+   * Applies housekeeping.
+   *
+   * A memory prune removes one bullet, not the file: the proposal named the
+   * fact, and the person approved that fact. A skill is switched off rather than
+   * deleted, because the file is theirs and "stop offering this" is not "destroy
+   * this".
+   */
+  private async applyMaintenance(
+    proposal: import('@marimo/protocol').MaintenanceProposal,
+  ): Promise<{ok: boolean; problem?: string; applied?: string}> {
+    const profile = (await this.options.profiles.profiles()).find(
+      (candidate) => candidate.id === proposal.profileId,
+    );
+    if (profile === undefined) {
+      return {ok: false, problem: 'That bot no longer exists.'};
+    }
+
+    if (proposal.action === 'disable-skill') {
+      if (!profile.enabledSkills.includes(proposal.target)) {
+        await this.learning.remove(proposal.id);
+        return {ok: true, applied: 'It was already switched off.'};
+      }
+      await this.options.profiles.update(profile.id, {
+        enabledSkills: profile.enabledSkills.filter(
+          (name) => name !== proposal.target,
+        ),
+      });
+      await this.learning.remove(proposal.id);
+      return {
+        ok: true,
+        applied: `Stopped offering "${proposal.target}". The skill is still on disk.`,
+      };
+    }
+
+    const memory = await this.memoryStoreFor(profile);
+    const current = await memory.read();
+    const lines = current.split('\n');
+    const wanted = proposal.target.trim();
+    const kept = lines.filter((line) => {
+      const match = /^\s*[-*]\s+(.*?)\s*$/u.exec(line);
+      return !(match !== null && match[1] === wanted);
+    });
+    if (kept.length === lines.length) {
+      await this.learning.remove(proposal.id);
+      return {
+        ok: false,
+        problem: 'That fact is no longer in memory; nothing was removed.',
+      };
+    }
+    await memory.prune({content: kept.join('\n'), reason: proposal.reason});
+    await this.learning.remove(proposal.id);
+    return {ok: true, applied: 'Forgot it.'};
   }
 
   /** Writes a capability into the profile, which is the only way one is granted. */

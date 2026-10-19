@@ -959,8 +959,8 @@ export class AgentService {
   }
 
   /** The unified learning inbox: facts, grants and refusals. */
-  async learningProposals() {
-    return await this.runtime.harness().learningProposals();
+  async learningProposals(profileId?: string) {
+    return await this.runtime.harness().learningProposals(profileId);
   }
 
   /** Answers any proposal; a grant writes the profile only here. */

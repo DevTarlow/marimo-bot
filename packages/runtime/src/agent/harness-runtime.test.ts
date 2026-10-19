@@ -20,6 +20,7 @@ import {WorkspaceStore} from '../workspaces.js';
 import {HarnessRuntime} from './harness-runtime.js';
 import {HarnessVersionStore} from '../harness-versions.js';
 import {LearningProposalStore} from '../learning-proposals.js';
+import {SkillStore} from '../skills.js';
 
 const roots: string[] = [];
 
@@ -678,6 +679,80 @@ describe('HarnessRuntime', () => {
     expect(await runtime.sessionInfo('builder-1')).toMatchObject({
       purpose: 'bot-builder',
     });
+  });
+
+  /*
+   * Maintenance is proposed from the library rather than from a model: memory
+   * that is over the limit it was given, and a skill nobody loads. Both are
+   * proposals because both are removals, and both are applied by removing one
+   * thing rather than by rewriting the library.
+   */
+  it('proposes forgetting the oldest prunable fact when memory is over its limit', async () => {
+    const {deps, profileId} = await setup();
+    const memory = new MemoryStore({
+      workspaceRoot: join(deps.paths.userData, 'space'),
+      personMemoryRoot: deps.paths.personMemoryDir,
+      profileId,
+    });
+    await memory.write(
+      [
+        '## Notes',
+        ...Array.from(
+          {length: 300},
+          (_value, index) =>
+            `- fact number ${String(index)} ${'x'.repeat(40)}`,
+        ),
+      ].join('\n'),
+    );
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+
+    const inbox = await runtime.learningProposals(profileId);
+    const proposal = inbox.proposals.find(
+      (entry) =>
+        entry.kind === 'maintenance' && entry.action === 'prune-memory',
+    );
+    expect(proposal).toBeTruthy();
+    if (proposal === undefined || proposal.kind !== 'maintenance') {
+      throw new Error('expected a maintenance proposal');
+    }
+
+    const answer = await runtime.resolveLearningProposal(proposal.id, true);
+    expect(answer.ok).toBe(true);
+    expect(await memory.read()).not.toContain(proposal.target);
+  });
+
+  it('proposes retiring a granted skill that has never been loaded', async () => {
+    const {deps, profileId} = await setup();
+    const skills = new SkillStore({root: deps.paths.skills});
+    await skills.save({
+      name: 'unused-skill',
+      description: 'Never loaded.',
+      instructions: 'Do nothing.',
+    });
+    await deps.profiles.update(profileId, {enabledSkills: ['unused-skill']});
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+
+    const inbox = await runtime.learningProposals(profileId);
+    const proposal = inbox.proposals.find(
+      (entry) =>
+        entry.kind === 'maintenance' && entry.action === 'disable-skill',
+    );
+    expect(proposal).toBeTruthy();
+    if (proposal === undefined || proposal.kind !== 'maintenance') {
+      throw new Error('expected a maintenance proposal');
+    }
+
+    const answer = await runtime.resolveLearningProposal(proposal.id, true);
+    expect(answer.ok).toBe(true);
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.enabledSkills).not.toContain('unused-skill');
+    // Switched off, not deleted: the file is the person's.
+    expect((await skills.load()).map((skill) => skill.name)).toContain(
+      'unused-skill',
+    );
   });
 
   /*

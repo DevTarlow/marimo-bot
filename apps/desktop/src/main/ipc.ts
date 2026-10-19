@@ -451,7 +451,8 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'memory.resolve': async (params) =>
       await agent().resolveMemoryProposal(params.proposalId, params.accept),
 
-    'learning.proposals': async () => await agent().learningProposals(),
+    'learning.proposals': async (params) =>
+      await agent().learningProposals(params.profileId),
 
     'learning.resolve': async (params) =>
       await agent().resolveLearningProposal(params.proposalId, params.accept),

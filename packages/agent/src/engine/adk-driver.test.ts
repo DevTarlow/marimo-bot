@@ -593,6 +593,46 @@ describe('AdkDriver', () => {
     expect(texts).not.toContain('The old answer.');
   });
 
+  it('replays a task result as the other bot’s message', async () => {
+    const model = new ScriptedLlm([[text('Noted.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const prior = history(
+      userMessage('t0', 'Check the folder.'),
+      {
+        id: 'task-1',
+        sessionId: 's1',
+        at: '2026-01-01T00:00:00.000Z',
+        type: 'task.result',
+        taskSessionId: 'task-session',
+        agentId: 'reader',
+        agentName: 'Reader',
+        ok: true,
+        text: 'The folder has three notes.',
+      },
+      userMessage('t1', 'And now?'),
+    );
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't2',
+        profileId: 'writer',
+        text: 'Now.',
+        harness: harness(),
+        history: prior,
+        signal: new AbortController().signal,
+      }),
+    );
+    const texts = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '');
+    expect(
+      texts.some((value) =>
+        value.includes('Task result from Reader'),
+      ),
+    ).toBe(true);
+    expect(texts.some((value) => value.includes('three notes'))).toBe(true);
+  });
+
   it('rebuilds prior tool history without duplicating the current message', async () => {
     const model = new ScriptedLlm([[text('Again.')]]);
     const driver = new AdkDriver({resolveModel: () => model});

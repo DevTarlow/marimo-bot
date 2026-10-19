@@ -823,15 +823,11 @@ export class AgentRuntime {
   /**
    * How full this agent's memory is, for the size control in Settings.
    *
-   * The file size comes from the agent's own store when one is live, so the bar
-   * and the agent's warning are measuring the same file. The *limit* comes from
-   * settings rather than from the host: a host is handed its configuration at the
-   * start of a turn, so a live one is still holding the previous limit in the
-   * moment after the slider moves — and a control that snapped back to its old
-   * value while the user was looking at it reads as a control that did not save.
-   *
-   * A profile with no host yet reads the file directly. Building one to answer
-   * would mean dialling an MCP server to draw a bar.
+   * The file size comes from the same memory store the agent reads, so the bar
+   * and the agent's warning measure the same file. The limit comes from settings
+   * rather than from a built host, so a slider that moves while a turn is live is
+   * the value the control shows. Nothing here builds a host, because answering a
+   * question about size must not dial an MCP server.
    *
    * The hard cap is a constant of the store rather than a setting, so it is
    * reported from there instead of being recomputed here.
@@ -839,16 +835,6 @@ export class AgentRuntime {
   async memoryUsage(profileId?: string): Promise<MemoryUsage> {
     const settings = await this.settingsStore.load();
     const id = profileId ?? (await this.profileStore.activeProfile()).id;
-    const host = this.hosts.get(id);
-    if (host) {
-      return {
-        bytes: await host.memoryBytes(),
-        limitBytes: settings.memorySoftLimitBytes,
-        capBytes: MAX_MEMORY_BYTES,
-        reviewEvents: settings.memoryReviewEvents,
-      };
-    }
-
     const profile = await this.profileFor(id);
     /*
      * The current folder, not the open conversation's: this answers a question

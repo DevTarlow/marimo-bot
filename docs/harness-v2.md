@@ -320,8 +320,9 @@ the runtime's own service on both engines.
 A v1 conversation is brought forward on its next unaddressed send when it has no
 waiting card: its visible words are written into the canonical log and the turn
 continues on v2. The old ADK log is left where it is, and the migration is
-one-way. A conversation with a waiting gate, an addressed turn, or the
-`MARIMO_HARNESS_V1=1` escape stays on v1 for that path.
+one-way. A v1 group's membership comes with its words, so an addressed turn can
+continue on v2 too. A conversation with a waiting gate, or the
+`MARIMO_HARNESS_V1=1` escape, stays on v1 for that path.
 
 What is still old: v1 turns for those cases, and same-conversation helper
 delegation where the helper can raise a gate the parent resumes. The session

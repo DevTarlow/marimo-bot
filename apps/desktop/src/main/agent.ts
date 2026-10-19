@@ -1575,7 +1575,6 @@ export class AgentService {
      * turn or the escape hatch stays on v1.
      */
     if (
-      agentId === undefined &&
       process.env['MARIMO_HARNESS_V1'] !== '1' &&
       !(await this.harnessHasLog(sessionId))
     ) {

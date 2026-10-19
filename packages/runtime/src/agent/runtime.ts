@@ -1718,6 +1718,7 @@ export class AgentRuntime {
           ? {}
           : {spaceId: entry.workspaceId}),
         ...(entry.purpose === undefined ? {} : {purpose: entry.purpose}),
+        ...(entry.agentIds === undefined ? {} : {agentIds: entry.agentIds}),
         author: profile.name,
       },
       messages,

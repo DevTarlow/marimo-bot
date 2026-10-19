@@ -177,6 +177,42 @@ describe('AgentRuntime', () => {
     ]);
   });
 
+  it('brings a v1 group’s membership forward with its words', async () => {
+    const agent = runtime();
+    const summary = await agent.createSession(profileId);
+    const sessionId = summary?.id ?? '';
+    await agent.setParticipants(profileId, sessionId, [
+      profileId,
+      'another-bot',
+    ]);
+    const store = new FileSessionService({rootDir: paths.sessions});
+    const session = await store.getSession({
+      appName: 'marimo',
+      userId: 'local',
+      sessionId,
+    });
+    if (session === undefined) {
+      throw new Error('the session was not created');
+    }
+    await store.appendEvent({
+      session,
+      event: {
+        id: 'legacy-user',
+        author: 'user',
+        content: {role: 'user', parts: [{text: 'A group question.'}]},
+        timestamp: Date.now(),
+      } as unknown as AdkEvent,
+    });
+
+    expect(await agent.migrateLegacy(profileId, sessionId)).toBe(true);
+    expect(await agent.transcript(profileId, sessionId)).toMatchObject({
+      messages: [{text: 'A group question.'}],
+    });
+    expect(await agent.harness().sessionInfo(sessionId)).toMatchObject({
+      agentIds: [profileId, 'another-bot'],
+    });
+  });
+
   /*
    * The size control in Settings reads these three numbers. They come from the
    * agent's own store rather than from a second copy of the setting, which is

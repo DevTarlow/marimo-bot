@@ -409,6 +409,7 @@ export class HarnessRuntime {
       title: string;
       spaceId?: string;
       purpose?: 'bot-builder';
+      agentIds?: readonly string[];
       author: string;
     },
     messages: readonly TranscriptMessage[],
@@ -435,6 +436,16 @@ export class HarnessRuntime {
         ...(info.purpose === undefined ? {} : {purpose: info.purpose}),
       },
     ];
+    if (info.agentIds !== undefined && info.agentIds.length > 1) {
+      events.push({
+        id: randomUUID(),
+        sessionId,
+        at: first?.createdAt ?? new Date().toISOString(),
+        type: 'participants.changed',
+        agentIds: [...info.agentIds],
+        by: profileId,
+      });
+    }
     visible.forEach((message, index) => {
       const turnId = `legacy-${String(Math.floor(index / 2))}`;
       if (message.role === 'user') {

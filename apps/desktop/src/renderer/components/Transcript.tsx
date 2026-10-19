@@ -246,8 +246,7 @@ function Message({
    */
   author?: string;
   onFeedback?: (
-    messageId: string,
-    excerpt: string,
+    message: TranscriptMessage,
     correction?: string,
   ) => Promise<boolean>;
   onBotCreated?: (next: {
@@ -265,7 +264,16 @@ function Message({
    */
   const [correcting, setCorrecting] = useState(false);
   const [correction, setCorrection] = useState('');
-  const [noted, setNoted] = useState(false);
+  /*
+   * Stored, not just remembered. The old state started at false on every mount,
+   * so reopening a conversation offered to note an answer that had already been
+   * noted — and the second note was a second entry about one turn. The message is
+   * keyed by its id, so a refresh reuses this component: the local flag covers
+   * the click, and `markedWrong` covers a mark that arrived from another surface
+   * — the pet shares the conversation, and its note is the same note.
+   */
+  const [notedHere, setNotedHere] = useState(false);
+  const noted = notedHere || message.markedWrong === true;
 
   /*
    * What a compaction wrote, in place of the messages it replaced. Drawn as its
@@ -335,8 +343,8 @@ function Message({
               {/*
                * The one place the user can say an answer was wrong. Offered only
                * on a stored message and never on the live one: a turn still
-               * arriving is not one to judge, and the live bubble carries a
-               * turn id rather than the message id this records against.
+               * arriving is not one to judge, and the live bubble is not yet the
+               * message this note would be filed under.
                */}
               {onFeedback !== undefined && !noted && (
                 <button
@@ -360,13 +368,9 @@ function Message({
                 className="bubble-correction"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void onFeedback(
-                    message.id,
-                    message.text,
-                    correction,
-                  ).then((ok) => {
+                  void onFeedback(message, correction).then((ok) => {
                     if (ok) {
-                      setNoted(true);
+                      setNotedHere(true);
                       setCorrecting(false);
                       setCorrection('');
                     }
@@ -462,8 +466,7 @@ export function Transcript({
    * cannot do without would make every one of those carry a stub.
    */
   onFeedback?: (
-    messageId: string,
-    excerpt: string,
+    message: TranscriptMessage,
     correction?: string,
   ) => Promise<boolean>;
   /**

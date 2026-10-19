@@ -61,6 +61,8 @@ export interface NewFeedback {
   profileId: string;
   sessionId: string;
   messageId: string;
+  /** The turn the message was, when the caller knows it. See the schema. */
+  invocationId?: string;
   excerpt: string;
   correction?: string;
 }
@@ -118,6 +120,25 @@ export class FeedbackStore {
     return mine.slice(Math.max(0, mine.length - limit));
   }
 
+  /**
+   * One conversation's corrections, oldest first.
+   *
+   * Not narrowed by profile, unlike `forProfile`, because the question here is
+   * about a conversation rather than an agent: the window records a correction
+   * under the *active* profile, and a transcript read for the conversation's own
+   * owner would then miss a note the user plainly made on that very message. A
+   * session id is one conversation, and that is the narrower, more truthful scope
+   * for "was this answer marked wrong".
+   */
+  async forSession(
+    sessionId: string,
+    limit = MAX_FEEDBACK_ENTRIES,
+  ): Promise<FeedbackEntry[]> {
+    const file = await this.load();
+    const mine = file.entries.filter((entry) => entry.sessionId === sessionId);
+    return mine.slice(Math.max(0, mine.length - limit));
+  }
+
   /** Records one, dropping the oldest past the cap. */
   async record(entry: NewFeedback): Promise<FeedbackFile> {
     const correction = (entry.correction ?? '').trim().slice(0, 400);
@@ -127,6 +148,9 @@ export class FeedbackStore {
         profileId: entry.profileId,
         sessionId: entry.sessionId,
         messageId: entry.messageId,
+        ...(entry.invocationId === undefined
+          ? {}
+          : {invocationId: entry.invocationId}),
         excerpt: entry.excerpt.trim().slice(0, 400),
         correction,
         createdAt: this.now().toISOString(),

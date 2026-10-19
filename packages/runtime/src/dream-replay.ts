@@ -41,6 +41,7 @@ import {
 import type {ReplayReport} from '@marimo/agent';
 
 import type {DreamStore} from './dream-store.js';
+import {FeedbackStore} from './feedback.js';
 
 /**
  * One setting as it would have performed across every recorded turn.
@@ -95,6 +96,17 @@ export interface DreamReplayOptions {
   candidates: readonly SearchPolicySettings[];
   /** Restrict the replay to one conversation. */
   sessionId?: string;
+  /**
+   * The feedback document, when the caller has one.
+   *
+   * A path rather than a list of entries because it is a document this store's
+   * sibling owns, and a caller that had to parse it would be a second reader of
+   * the same file — the shape that lets one of them decide a corrupt document is
+   * empty and the other decide it is an error. Absent means the replay reports
+   * the log without the user's marks, which is what a run against a checkout
+   * that has never used the feature should look like.
+   */
+  feedbackFile?: string;
 }
 
 /**
@@ -121,10 +133,41 @@ export async function sweepDreamTrees(
     trees.push(...entry.trees.filter((tree) => !isAbandoned(tree)));
   }
 
+  /*
+   * What the user said about the answers those turns gave.
+   *
+   * Only entries that name an invocation can be joined: a tree has no message id,
+   * so a correction recorded before the window sent the turn is reported as
+   * missing rather than guessed at from a timestamp or an excerpt. A feedback
+   * document from a newer build is the one read that is *refused* — `load` throws
+   * for it — and the sentence goes into the report beside the trees' own
+   * problems, because a replay that silently dropped the marks would present a
+   * smaller sample as the whole one.
+   */
+  const markedWrong = new Set<string>();
+  if (options.feedbackFile !== undefined) {
+    try {
+      const feedback = await new FeedbackStore({
+        file: options.feedbackFile,
+      }).load();
+      for (const entry of feedback.entries) {
+        if (entry.invocationId !== undefined) {
+          markedWrong.add(entry.invocationId);
+        }
+      }
+    } catch (error) {
+      problems.push(
+        `feedback.json could not be read (${
+          error instanceof Error ? error.message : String(error)
+        }), so no turn is marked wrong in this report.`,
+      );
+    }
+  }
+
   const baseline = baselineOf(trees);
   const rows: DreamSweepRow[] = options.candidates.map((settings) => ({
     settings,
-    report: replayTrees(trees, settings),
+    report: replayTrees(trees, settings, markedWrong),
     baseline: baseline !== undefined && sameSettings(baseline, settings),
   }));
   const best = pickBest(rows);
@@ -292,5 +335,16 @@ export function renderSweep(sweep: DreamSweep): string {
       'under the old settings. Treat the return as "how much of the value already ' +
       'observed survives", not as a prediction.',
   );
+  /* Only when the sample carries a judgement: a paragraph explaining a column
+     that is not there is noise, and the log's other boundaries are already
+     stated above. */
+  if (sweep.rows.some((row) => row.report.totals.markedWrong > 0)) {
+    lines.push(
+      '"Marked wrong" is the user\'s own judgement about an answer, joined to ' +
+        'the turn by its invocation. It splits the sample and does not explain ' +
+        'it: an answer is usually wrong about what it said rather than about ' +
+        'which tool ran, so it is counted and never used to rank a setting.',
+    );
+  }
   return lines.join('\n');
 }

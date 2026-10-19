@@ -1829,6 +1829,28 @@ export interface TranscriptMessage {
   createdAt: string;
   error?: string;
   /**
+   * The turn this message is, as the discovery log names it.
+   *
+   * ADK titles each turn with an invocation id, and both the stored events and a
+   * recorded tree carry it — so it is the one name that lets a judgement about
+   * this answer ("that was wrong") be attached to what the agent actually did on
+   * the turn. The message id cannot do that: it is the first event's id, which
+   * the tree has never heard of.
+   *
+   * Absent on a user's message, on a compaction card, and on any stored event
+   * written before ADK stamped one.
+   */
+  invocationId?: string;
+  /**
+   * The user said this answer was wrong.
+   *
+   * The mark, not the words: what they typed is a correction in its own
+   * document. It rides the transcript so that reading a conversation again shows
+   * the same judgement the window made when it was recorded — a fact about the
+   * turn rather than a notice that lived in one component's state until reload.
+   */
+  markedWrong?: boolean;
+  /**
    * How many earlier messages this summary replaced.
    *
    * Present only on the one message a compaction wrote, and what makes the
@@ -2264,6 +2286,18 @@ export const feedbackEntrySchema = z.object({
   sessionId: z.string().min(1),
   /** The message that was wrong, for a reference the user can recognise. */
   messageId: z.string().min(1),
+  /**
+   * The turn that message was, which is the name the discovery log knows it by.
+   *
+   * Optional because entries recorded before this existed have only the message
+   * id, and the two are not the same name: a transcript message is titled with
+   * the ADK event's id while a recorded tree is keyed by the invocation. This is
+   * the join that lets the offline replay ask which of the turns it is scoring
+   * the user actually judged wrong — a question a log of tool calls cannot answer
+   * about itself. Absent is honest rather than a gap to be filled in later: the
+   * turn is genuinely unknown for an entry written before the window sent it.
+   */
+  invocationId: z.string().min(1).optional(),
   /** What the agent said, capped: enough to recognise, not enough to re-read. */
   excerpt: z.string().max(400),
   /** What the user said was right instead, when they said anything. */
@@ -3280,6 +3314,15 @@ export const agentCallSchemas = {
   'memory.feedback': z.object({
     sessionId: z.string().min(1),
     messageId: z.string().min(1),
+    /**
+     * The turn the message was, when the window knows it.
+     *
+     * Optional so that an old caller still records something rather than being
+     * refused for a field it has never had — but the current window always sends
+     * it, because without it the note cannot be joined to the turn's recorded
+     * tree and the offline replay cannot tell a wrong answer from a right one.
+     */
+    invocationId: z.string().min(1).optional(),
     /** What the agent said, as the window has it on screen. */
     excerpt: z.string().max(400),
     /** What was right instead, when they typed anything. */

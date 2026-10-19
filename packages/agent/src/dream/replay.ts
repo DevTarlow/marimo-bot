@@ -89,6 +89,17 @@ export interface ReplayTurnResult {
   /** Which tools were withheld, by name, for a reader who wants to see them. */
   withheldTools: string[];
   /**
+   * The user said this turn's answer was wrong.
+   *
+   * The only outcome in the report, and it is not inferred: it is read from the
+   * feedback document for this invocation. That makes it the one axis a replay
+   * can split its sample by without pretending to know what would have happened.
+   * It explains nothing on its own — a wrong answer is usually wrong about
+   * content, not about which tool ran — so the report counts it rather than
+   * ranking by it.
+   */
+  markedWrong?: boolean;
+  /**
    * Mean observed reward over the calls this setting would have allowed.
    *
    * `undefined` when it would have allowed none — a real possibility at a
@@ -121,6 +132,23 @@ export interface ReplayReport {
     withheldThatWereProposed: number;
     estimatedReturn: number;
     meanReward?: number;
+    /**
+     * Turns in the sample the user said were wrong.
+     *
+     * Counted rather than scored: a turn judged wrong is not a turn that deserved
+     * less reward, and folding it into the return would let one person's opinion
+     * about an answer move a policy that is about tool choice.
+     */
+    markedWrong: number;
+    /**
+     * Of the withheld actions, how many were on those turns.
+     *
+     * The number worth reading next to `withheld`: a setting that takes calls off
+     * the menu mostly on turns that went wrong is a different proposition from one
+     * that does it evenly, and this is the split that makes that visible without
+     * claiming the withholding was the cause.
+     */
+    withheldOnMarkedWrong: number;
   };
   /**
    * The settings the turns actually ran under, when the log agrees on one.
@@ -145,6 +173,7 @@ export interface ReplayReport {
 export function replayTurn(
   turn: RecordedTurn,
   settings: SearchPolicySettings,
+  markedWrong = false,
 ): ReplayTurnResult {
   const policy = new SearchPolicy(settings);
   const steps = turn.steps;
@@ -223,6 +252,7 @@ export function replayTurn(
     withheldTools,
     ...(allowed === 0 ? {} : {meanReward: estimatedReturn / allowed}),
     estimatedReturn,
+    ...(markedWrong ? {markedWrong: true} : {}),
   };
 }
 
@@ -285,10 +315,19 @@ function candidateStats(
   });
 }
 
-/** Replays every turn in a log under one set of settings. */
+/**
+ * Replays every turn in a log under one set of settings.
+ *
+ * `markedWrong` is the set of invocations the user judged wrong, and it is the
+ * only input here that did not come out of the recorded turn. It is passed in
+ * rather than read, because the simulator must stay importable by the live turn
+ * and by tests that have no feedback document — and because the mark is a fact
+ * about a *different* record, which this function has no business opening.
+ */
 export function replayTrees(
   trees: readonly DreamTree[],
   settings: SearchPolicySettings,
+  markedWrong: ReadonlySet<string> = new Set(),
 ): ReplayReport {
   const results: ReplayTurnResult[] = [];
   for (const tree of trees) {
@@ -308,6 +347,7 @@ export function replayTrees(
           steps,
         },
         settings,
+        markedWrong.has(tree.invocationId),
       ),
     );
   }
@@ -321,6 +361,8 @@ function totalsOf(turns: readonly ReplayTurnResult[]): ReplayReport['totals'] {
   let withheld = 0;
   let withheldThatWereProposed = 0;
   let estimatedReturn = 0;
+  let markedWrong = 0;
+  let withheldOnMarkedWrong = 0;
 
   for (const turn of turns) {
     observedSteps += turn.observedSteps;
@@ -328,6 +370,10 @@ function totalsOf(turns: readonly ReplayTurnResult[]): ReplayReport['totals'] {
     withheld += turn.withheld;
     withheldThatWereProposed += turn.withheldThatWereProposed;
     estimatedReturn += turn.estimatedReturn;
+    if (turn.markedWrong === true) {
+      markedWrong += 1;
+      withheldOnMarkedWrong += turn.withheld;
+    }
   }
 
   return {
@@ -337,6 +383,8 @@ function totalsOf(turns: readonly ReplayTurnResult[]): ReplayReport['totals'] {
     withheld,
     withheldThatWereProposed,
     estimatedReturn,
+    markedWrong,
+    withheldOnMarkedWrong,
     ...(replayedSteps === 0
       ? {}
       : {meanReward: estimatedReturn / replayedSteps}),
@@ -397,6 +445,16 @@ export function describeReport(report: ReplayReport): string {
     totals.meanReward === undefined
       ? 'no calls allowed'
       : `mean ${totals.meanReward.toFixed(2)}`,
+    /* Only when somebody has said something, because "0 marked wrong" on a log
+       nobody has judged would read as a verdict rather than as no data. */
+    ...(totals.markedWrong === 0
+      ? []
+      : [
+          `${totals.markedWrong} marked wrong` +
+            (totals.withheldOnMarkedWrong > 0
+              ? ` (${totals.withheldOnMarkedWrong} withheld there)`
+              : ''),
+        ]),
   ];
   return parts.join('  ');
 }

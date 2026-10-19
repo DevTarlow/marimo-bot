@@ -104,6 +104,13 @@ export async function replayDream(argv: readonly string[]): Promise<number> {
     store,
     candidates: grid(args),
     ...(args.sessionId === undefined ? {} : {sessionId: args.sessionId}),
+    /*
+     * From the same directory the app writes. A replay that took the path as an
+     * argument could be pointed at another install's notes — and the whole reason
+     * this command lives in `runner` is that it resolves the directory the way the
+     * window does.
+     */
+    feedbackFile: paths.feedback,
   });
 
   process.stdout.write(

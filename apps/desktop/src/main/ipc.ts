@@ -454,6 +454,9 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         await agent().recordFeedback({
           sessionId: params.sessionId,
           messageId: params.messageId,
+          ...(params.invocationId === undefined
+            ? {}
+            : {invocationId: params.invocationId}),
           excerpt: params.excerpt,
           ...(params.correction === undefined
             ? {}

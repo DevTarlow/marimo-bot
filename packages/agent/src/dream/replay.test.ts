@@ -592,4 +592,23 @@ describe('describeReport', () => {
     expect(line).toContain('withheld 1');
     expect(line).toContain('the model asked for');
   });
+
+  it('says nothing about wrong answers until somebody has judged one', () => {
+    /*
+     * The absence matters. "0 marked wrong" on a log nobody has read would be a
+     * verdict about the agent rather than a statement that no data exists, and
+     * the line already carries enough counts to be misread.
+     */
+    const tree = treeOf({
+      menu: ['read_file'],
+      steps: [{tool: 'read_file', reward: 1, ran: true}],
+    });
+    const settings = {explorationWeight: 1, pruningThreshold: -1};
+    expect(describeReport(replayTrees([tree], settings))).not.toContain(
+      'marked wrong',
+    );
+    expect(
+      describeReport(replayTrees([tree], settings, new Set([tree.invocationId]))),
+    ).toContain('1 marked wrong');
+  });
 });

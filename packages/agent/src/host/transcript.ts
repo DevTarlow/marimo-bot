@@ -125,6 +125,14 @@ function project(events: readonly AdkEvent[]): TranscriptMessage[] {
         id: event.id || `event-${messages.length}`,
         role: 'assistant',
         ...(from === undefined ? {} : {agentId: from}),
+        /*
+         * The turn, for the one thing a message id cannot name. A correction is
+         * recorded against the message the user is looking at, and the discovery
+         * log records what happened under the *invocation* — so without this the
+         * two documents have no word in common, and "this answer was wrong" stays
+         * a note about prose rather than a fact about a turn a replay can read.
+         */
+        ...(event.invocationId ? {invocationId: event.invocationId} : {}),
         text: '',
         createdAt: timestampOf(event),
       };

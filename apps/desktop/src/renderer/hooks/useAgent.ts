@@ -166,13 +166,17 @@ export interface AgentController {
   /**
    * Records that an answer was wrong, and what was right instead.
    *
+   * Takes the message rather than its id and text, because the turn it belongs
+   * to is the part the caller cannot reconstruct: a correction that names only
+   * the message cannot be read back onto the work the agent did, and the turn id
+   * lives on the message the transcript already has.
+   *
    * Answers whether it was stored, because the button that calls it says "Noted"
    * and a button that says that about something which was not recorded is worse
    * than one that did nothing.
    */
   noteCorrection: (
-    messageId: string,
-    excerpt: string,
+    message: TranscriptMessage,
     correction?: string,
   ) => Promise<boolean>;
   open: (sessionId: string) => Promise<void>;
@@ -902,8 +906,7 @@ export function useAgent(): AgentController {
 
   const noteCorrection = useCallback(
     async (
-      messageId: string,
-      excerpt: string,
+      message: TranscriptMessage,
       correction?: string,
     ): Promise<boolean> => {
       const sessionId = openSession.current;
@@ -913,10 +916,20 @@ export function useAgent(): AgentController {
       try {
         const result = await window.marimo.call('memory.feedback', {
           sessionId,
-          messageId,
+          messageId: message.id,
+          /*
+           * The turn, when the message has one. Sent rather than derived later
+           * because the window is the only place that has it: the feedback
+           * document outlives every surface that could reconstruct it, and a
+           * mark that cannot be joined to the recorded work is a note about
+           * prose rather than a fact about a turn.
+           */
+          ...(message.invocationId === undefined
+            ? {}
+            : {invocationId: message.invocationId}),
           // Capped here as well as in the schema: the answer can be arbitrarily
           // long and only the opening of it is needed to recognise it later.
-          excerpt: excerpt.slice(0, 400),
+          excerpt: message.text.slice(0, 400),
           ...(correction === undefined || correction.trim().length === 0
             ? {}
             : {correction: correction.trim().slice(0, 400)}),

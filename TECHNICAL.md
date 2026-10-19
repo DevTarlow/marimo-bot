@@ -326,12 +326,26 @@ difference between a store of facts and something that improves.
 
 There is now a quiet **Not quite** under an answer, in the window and on the moss,
 which records an optional line about what was right instead. Nothing is written to
-memory and nothing is said back: the transcript is left as it was, because a
-correction is a note *about* a conversation rather than a turn in it. What reads
-it is the next memory review, which gets the corrections as a block of their own —
-the strongest evidence it ever receives, because the person has already done the
-work of stating what is true. It is deliberately not the same as a refusal: a
-refusal says "do not remember that", a correction says "this is right".
+memory and nothing is said back: the conversation log is left as it was, because a
+correction is a note *about* a turn rather than a turn in it. What reads it is the
+next memory review, which gets the corrections as a block of their own — the
+strongest evidence it ever receives, because the person has already done the work
+of stating what is true. It is deliberately not the same as a refusal: a refusal
+says "do not remember that", a correction says "this is right".
+
+**The note carries the turn, and that is what makes it a fact rather than a
+comment.** A message is named by its first event's id, which the discovery log has
+never seen; a turn is named by its invocation, which both records have. So the
+entry stores the invocation too, the transcript puts it on the message, and every
+read joins the two. Two things follow. Reopening a conversation shows **Noted**
+where it used to offer to note the same answer again — the old mark lived in one
+component's state and died with it. And the offline replay can count how many of
+the turns it is scoring the person judged wrong, which is the first outcome the
+replay has ever had. It is counted, not scored: an answer is usually wrong about
+what it said rather than about which tool ran, so the mark splits the sample and
+explains nothing on its own. Entries written before the field existed are still
+matched by message id, because an upgrade is not an objection to the person's own
+note.
 
 The store holds the user's words verbatim and bounded, and it is scoped to the
 profile, because one agent being told it was wrong about a deployment is not a
@@ -929,7 +943,9 @@ jobs.json               scheduled jobs and how their last run went
 settings.json           preferences and connectors
 skills/<name>/SKILL.md  a procedure you wrote or copied in
 memory-proposals.json   what the agent would remember, waiting for an answer
-feedback.json           answers the user said were wrong, which the next review reads
+feedback.json           answers the user said were wrong, each naming the turn it
+                        was about: the next review reads the words, the replay
+                        reads the mark
 trees/<session>.json    what the agent tried on each turn — only while the
                         recording is on, so an install that never turns it on
                         creates no directory at all

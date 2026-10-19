@@ -965,10 +965,15 @@ export class AgentRuntime {
    * Records that an answer was wrong, and what was right instead.
    *
    * Nothing is written to memory here and nothing is said back to the model: the
-   * transcript is left exactly as it was, because a correction is a note *about*
-   * a conversation rather than a turn in it. What it changes is the next review,
+   * conversation log is left exactly as it was, because a correction is a note
+   * *about* a turn rather than a turn in it. What it changes is the next review,
    * which reads it — and the review still only proposes, so the fact reaches
    * memory through the same human answer as everything else.
+   *
+   * The turn is recorded beside the message because the two documents that will
+   * want this note name the turn differently: a transcript message is titled with
+   * an event id, and the discovery log records an invocation. Carrying both is
+   * what makes the mark readable back onto the answer it was about.
    *
    * The profile is the *active* one rather than the conversation's owner, and the
    * window is what resolves that: the correction is made from an open
@@ -978,6 +983,7 @@ export class AgentRuntime {
   async recordFeedback(params: {
     sessionId: string;
     messageId: string;
+    invocationId?: string;
     excerpt: string;
     correction?: string;
   }): Promise<FeedbackEntry> {
@@ -986,6 +992,9 @@ export class AgentRuntime {
       profileId: profile.id,
       sessionId: params.sessionId,
       messageId: params.messageId,
+      ...(params.invocationId === undefined
+        ? {}
+        : {invocationId: params.invocationId}),
       excerpt: params.excerpt,
       ...(params.correction === undefined
         ? {}
@@ -1551,7 +1560,57 @@ export class AgentRuntime {
     const host = await this.ensureHost(profileId);
     const {messages} = await host.getTranscript(sessionId, profileId);
     const pending = await host.pendingGates(sessionId);
-    return {messages, pending};
+    /*
+     * And what the user said about those answers, joined here rather than in the
+     * window.
+     *
+     * The mark belongs to the turn, so it is put on the message as it is read:
+     * a component that kept it in its own state until reload showed a button
+     * offering to note something it had already noted, and a reader with two
+     * surfaces on one conversation had two different answers to "was this
+     * wrong". Joining in the main process means the window, the pet and any later
+     * reader get the same one.
+     */
+    return {messages: await this.markFeedback(messages, sessionId), pending};
+  }
+
+  /**
+   * Puts the user's judgement back on the turns it was about.
+   *
+   * Matched by invocation first, because that is the turn's own name: a message
+   * id is the first event's id, which is an internal name the discovery log has
+   * never seen, while the invocation is what both records call this turn. The
+   * message id is the fallback for entries recorded before the window sent one:
+   * those are still about an answer the person marked, and refusing to show the
+   * mark because it predates a field would turn an upgrade into an objection.
+   *
+   * A mark is copied rather than mutated onto the projected message. The
+   * projection is a plain function of the log, and the log has nothing to do with
+   * this document.
+   */
+  private async markFeedback(
+    messages: TranscriptMessage[],
+    sessionId: string,
+  ): Promise<TranscriptMessage[]> {
+    const entries = await this.feedbackStore.forSession(sessionId);
+    if (entries.length === 0) {
+      return messages;
+    }
+    const wrongTurns = new Set<string>();
+    const wrongMessages = new Set<string>();
+    for (const entry of entries) {
+      if (entry.invocationId !== undefined) {
+        wrongTurns.add(entry.invocationId);
+      }
+      wrongMessages.add(entry.messageId);
+    }
+    return messages.map((message) => {
+      const wrong =
+        (message.invocationId !== undefined &&
+          wrongTurns.has(message.invocationId)) ||
+        wrongMessages.has(message.id);
+      return wrong ? {...message, markedWrong: true} : message;
+    });
   }
 
   /**

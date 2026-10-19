@@ -52,6 +52,30 @@ describe('projectTranscript', () => {
     });
   });
 
+  it('names the turn an answer belongs to', () => {
+    /*
+     * The join the correction document needs. A message id is the first event's
+     * id and means nothing to the discovery log, while the invocation id is the
+     * name both the stored events and a recorded tree carry — so "that answer
+     * was wrong" can only become a fact about a turn if this is on the message.
+     */
+    const messages = projectTranscript([
+      user('question'),
+      createEvent({
+        author: 'marimo',
+        invocationId: 'turn-7',
+        content: {role: 'model', parts: [{text: 'an answer'}]},
+      }) as AdkEvent,
+    ]);
+
+    expect(messages[1]).toMatchObject({
+      role: 'assistant',
+      invocationId: 'turn-7',
+    });
+    // The user's own message is not a turn the agent took.
+    expect(messages[0]?.invocationId).toBeUndefined();
+  });
+
   it('starts a new assistant message after each user turn', () => {
     const messages = projectTranscript([
       user('one'),

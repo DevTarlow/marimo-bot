@@ -293,7 +293,7 @@ export function Pet(): React.JSX.Element {
               onClick={() => {
                 const answer = lastStoredAnswer(shown);
                 if (answer !== undefined) {
-                  void agent.noteCorrection(answer.id, answer.text);
+                  void agent.noteCorrection(answer);
                 }
               }}
             >

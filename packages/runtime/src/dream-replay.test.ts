@@ -1,4 +1,4 @@
-import {mkdtemp} from 'node:fs/promises';
+import {mkdtemp, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {describe, expect, it} from 'vitest';
@@ -94,6 +94,34 @@ async function storeUnder(): Promise<DreamStore> {
   return new DreamStore({dir, keepLogs: () => 200});
 }
 
+/** A store and the feedback document that sits beside it in user data. */
+async function storeAndFeedback(): Promise<{
+  store: DreamStore;
+  feedbackFile: string;
+}> {
+  const dir = await mkdtemp(join(process.cwd(), '.marimo-dream-'));
+  return {
+    store: new DreamStore({dir, keepLogs: () => 200}),
+    feedbackFile: join(dir, 'feedback.json'),
+  };
+}
+
+function feedbackDocument(invocationIds: string[], version = 1): string {
+  return JSON.stringify({
+    version,
+    entries: invocationIds.map((invocationId, index) => ({
+      id: `feedback-${String(index)}`,
+      profileId: 'default',
+      sessionId: 'session-1',
+      messageId: `message-${String(index)}`,
+      invocationId,
+      excerpt: 'An answer somebody judged.',
+      correction: '',
+      createdAt: at(index),
+    })),
+  });
+}
+
 describe('sweepDreamTrees', () => {
   it('reads the log once and reports every candidate against it', async () => {
     const store = await storeUnder();
@@ -123,6 +151,79 @@ describe('sweepDreamTrees', () => {
     expect(sweep.rows[0]?.settings.pruningThreshold).toBe(-1);
     expect(sweep.rows[0]?.baseline).toBe(true);
     expect(sweep.baseline).toEqual({explorationWeight: 1, pruningThreshold: -1});
+  });
+
+  it("reports the user's judgement beside what a setting withheld", async () => {
+    const {store, feedbackFile} = await storeAndFeedback();
+    await store.append(
+      turn({
+        invocationId: 'inv-wrong',
+        menu: ['read_file', 'shell'],
+        steps: [
+          {tool: 'shell', reward: -1},
+          {tool: 'read_file', reward: 1},
+        ],
+      }),
+    );
+    await store.append(
+      turn({
+        invocationId: 'inv-right',
+        menu: ['read_file', 'shell'],
+        steps: [{tool: 'read_file', reward: 1}],
+      }),
+    );
+    await writeFile(feedbackFile, feedbackDocument(['inv-wrong']), 'utf8');
+
+    const sweep = await sweepDreamTrees({
+      store,
+      candidates: [{explorationWeight: 1, pruningThreshold: 0}],
+      feedbackFile,
+    });
+
+    const report = sweep.rows[0]?.report;
+    expect(report?.totals.markedWrong).toBe(1);
+    expect(
+      report?.turns.find((entry) => entry.invocationId === 'inv-wrong')
+        ?.markedWrong,
+    ).toBe(true);
+    expect(
+      report?.turns.find((entry) => entry.invocationId === 'inv-right')
+        ?.markedWrong,
+    ).toBeUndefined();
+    /*
+     * The split has to agree with the turn it came from — and the turn's own
+     * count is the only thing it may be derived from. A total that did not add up
+     * would let a setting look like it targeted the wrong turns when it did not.
+     */
+    const wrongTurn = report?.turns.find(
+      (entry) => entry.invocationId === 'inv-wrong',
+    );
+    expect(report?.totals.withheldOnMarkedWrong).toBe(wrongTurn?.withheld);
+  });
+
+  it('says so when the feedback document cannot be read', async () => {
+    const {store, feedbackFile} = await storeAndFeedback();
+    await store.append(
+      turn({
+        invocationId: 'inv-1',
+        menu: ['read_file'],
+        steps: [{tool: 'read_file', reward: 1}],
+      }),
+    );
+    // A document from a newer build: the reader refuses it rather than guessing
+    // what its fields mean, and the report has to say the marks are missing.
+    await writeFile(feedbackFile, feedbackDocument(['inv-1'], 99), 'utf8');
+
+    const sweep = await sweepDreamTrees({
+      store,
+      candidates: [{explorationWeight: 1, pruningThreshold: -1}],
+      feedbackFile,
+    });
+
+    expect(sweep.rows[0]?.report.totals.markedWrong).toBe(0);
+    expect(
+      sweep.problems.some((problem) => problem.includes('feedback.json')),
+    ).toBe(true);
   });
 
   it('skips a turn that was still open when the process stopped', async () => {

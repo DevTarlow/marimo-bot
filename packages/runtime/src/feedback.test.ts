@@ -52,6 +52,46 @@ describe('the feedback store', () => {
     expect(entries[0]?.correction).toBe('No, it moved to beta.');
   });
 
+  it('keeps the turn, when it was given one', async () => {
+    /*
+     * The message id is what the window has on screen; the invocation is the
+     * name the discovery log uses. Storing both is what lets the mark be read
+     * back onto the answer it was about instead of floating free in a list.
+     */
+    await store.record({
+      profileId: 'default',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      invocationId: 'turn-1',
+      excerpt: 'Something wrong.',
+    });
+
+    const [entry] = await store.forProfile('default');
+    expect(entry?.invocationId).toBe('turn-1');
+    // The message id survives, because an older reader has only that one.
+    expect(entry?.messageId).toBe('message-1');
+  });
+
+  it('reads one conversation without dragging in another', async () => {
+    await store.record({
+      profileId: 'default',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      excerpt: 'Wrong in one conversation.',
+    });
+    await store.record({
+      profileId: 'default',
+      sessionId: 'session-2',
+      messageId: 'message-2',
+      excerpt: 'Wrong in another.',
+    });
+
+    const entries = await store.forSession('session-1');
+    expect(entries.map((entry) => entry.excerpt)).toEqual([
+      'Wrong in one conversation.',
+    ]);
+  });
+
   it('survives a restart', async () => {
     await store.record({
       profileId: 'default',

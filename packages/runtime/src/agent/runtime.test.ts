@@ -888,12 +888,17 @@ describe('reading a conversation without a working provider', () => {
    * skipped by the reader, which is how a hand-written conversation file
    * silently reads back as nothing at all.
    */
-  function stored(author: string, role: string, text: string): string {
+  function stored(
+    author: string,
+    role: string,
+    text: string,
+    invocationId = '',
+  ): string {
     return JSON.stringify({
       author,
       content: {role, parts: [{text}]},
       id: `event-${author}-${text.length}`,
-      invocationId: '',
+      invocationId,
       actions: {
         stateDelta: {},
         artifactDelta: {},
@@ -922,7 +927,7 @@ describe('reading a conversation without a working provider', () => {
     await mkdir(paths.sessions, {recursive: true});
     await writeFile(
       join(paths.sessions, `${sessionId}.jsonl`),
-      `${stored('user', 'user', 'show me the parser output')}\n${stored('marimo', 'model', 'Here it is.')}\n`,
+      `${stored('user', 'user', 'show me the parser output')}\n${stored('marimo', 'model', 'Here it is.', 'turn-read-1')}\n`,
       'utf8',
     );
     await writeFile(
@@ -973,6 +978,76 @@ describe('reading a conversation without a working provider', () => {
       'show me the parser output',
       'Here it is.',
     ]);
+  });
+
+  /*
+   * What the user said about an answer has to come back with the answer.
+   *
+   * It used to live in one component's state until the window reloaded, so a
+   * conversation opened again offered to note something already noted. The mark
+   * is now read out of the document on every read — joined by the turn, because
+   * that is the name the discovery log also uses.
+   */
+  it('marks the answer the user said was wrong', async () => {
+    await writeFile(
+      paths.feedback,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: 'feedback-1',
+            profileId,
+            sessionId,
+            // Deliberately not the message's id: the invocation is the join
+            // that matters, and a match on the message id here would hide a
+            // broken invocation join behind a passing test.
+            messageId: 'some-other-event',
+            invocationId: 'turn-read-1',
+            excerpt: 'Here it is.',
+            correction: '',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const {messages} = await runtime().transcript(profileId, sessionId);
+    const answer = messages.find((message) => message.role === 'assistant');
+    expect(answer?.markedWrong).toBe(true);
+    // The user's own words are not the turn being judged.
+    expect(messages[0]?.markedWrong).toBeUndefined();
+  });
+
+  it('marks one noted before turns were recorded, by its message', async () => {
+    /*
+     * Entries written before the window sent an invocation id have only the
+     * message id. Refusing to show those would turn an upgrade into a silent
+     * objection about the user's own note.
+     */
+    await writeFile(
+      paths.feedback,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: 'feedback-2',
+            profileId,
+            sessionId,
+            messageId: `event-marimo-${'Here it is.'.length}`,
+            excerpt: 'Here it is.',
+            correction: '',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const {messages} = await runtime().transcript(profileId, sessionId);
+    expect(
+      messages.find((message) => message.role === 'assistant')?.markedWrong,
+    ).toBe(true);
   });
 
   it('answers with nothing for an agent that does not exist', async () => {

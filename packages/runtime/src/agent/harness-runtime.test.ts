@@ -6,6 +6,7 @@ import {afterEach, describe, expect, it} from 'vitest';
 import {
   MemoryEventStore,
   MemoryStore,
+  resolveHarness,
   type DriverEvent,
   type DriverResume,
   type DriverRun,
@@ -433,6 +434,8 @@ describe('HarnessRuntime', () => {
       totalTokens: 40,
     });
     expect(report.harnessVersions).toBe(1);
+    expect(report.versions).toHaveLength(1);
+    expect(report.versions[0]?.hash).toBeTruthy();
     expect(report.pendingProposals).toBe(0);
     expect(report.unreadableLogs).toBe(0);
     expect(report.paths.harnessSessions).toContain('harness');
@@ -500,6 +503,79 @@ describe('HarnessRuntime', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     expect(posted).toBe('The task is done.');
+  });
+
+  it('restores identity, grants and model from a recorded harness', async () => {
+    const {deps, profileId} = await setup();
+    const versions = new HarnessVersionStore({
+      rootDir: deps.paths.harnessVersions,
+    });
+    const snapshot = resolveHarness({
+      profile: {
+        id: profileId,
+        name: 'Old Name',
+        role: 'Old role.',
+        persona: 'Old persona.',
+        enabledTools: ['current_time', 'read_file'],
+        enabledSkills: ['triage'],
+      },
+      app: {
+        model: {provider: 'gemini', model: 'gemini-flash'},
+        allowPrivateNetworkFetch: false,
+        learning: {mode: 'propose', retainTraces: false},
+      },
+      version: 4,
+      workspaceRoot: deps.paths.harnessSessions,
+    });
+    const recorded = await versions.record(snapshot);
+    await deps.profiles.update(profileId, {
+      name: 'New Name',
+      identity: 'New role.',
+      persona: 'New persona.',
+      enabledTools: [],
+      enabledSkills: [],
+    });
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+    await runtime.restoreHarness(profileId, recorded.record.hash);
+
+    const profile = (await deps.profiles.profiles()).find(
+      (entry) => entry.id === profileId,
+    );
+    expect(profile).toMatchObject({
+      name: 'Old Name',
+      identity: 'Old role.',
+      persona: 'Old persona.',
+      enabledTools: ['current_time', 'read_file'],
+      enabledSkills: ['triage'],
+      model: {provider: 'gemini', model: 'gemini-flash'},
+    });
+  });
+
+  it('refuses a harness recorded for another bot', async () => {
+    const {deps, profileId} = await setup();
+    const versions = new HarnessVersionStore({
+      rootDir: deps.paths.harnessVersions,
+    });
+    const other = resolveHarness({
+      profile: {
+        id: 'someone-else',
+        name: 'Other',
+        role: 'Other.',
+        enabledTools: [],
+        enabledSkills: [],
+      },
+      app: {
+        model: {provider: 'deepseek', model: 'deepseek-chat'},
+        allowPrivateNetworkFetch: false,
+        learning: {mode: 'propose', retainTraces: false},
+      },
+      version: 1,
+    });
+    const recorded = await versions.record(other);
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+    await expect(
+      runtime.restoreHarness(profileId, recorded.record.hash),
+    ).rejects.toThrow('does not belong');
   });
 
   it('proposes a memory from a conversation and remembers it was read', async () => {

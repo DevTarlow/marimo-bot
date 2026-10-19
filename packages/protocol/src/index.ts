@@ -1922,6 +1922,12 @@ export interface HarnessReport {
   /** A v2 log this build could not read, counted rather than hidden. */
   unreadableLogs: number;
   harnessVersions: number;
+  /** The frozen specs this bot has run under, newest first. */
+  versions: Array<{
+    hash: string;
+    harnessVersion: number;
+    recordedAt: string;
+  }>;
   pendingProposals: number;
   skills: number;
   jobs: number;
@@ -3205,6 +3211,10 @@ export const agentCallSchemas = {
    * acted on is re-read afterwards, which is what shows the summary card.
    */
   'harness.report': z.object({profileId: z.string().min(1)}),
+  'harness.restore': z.object({
+    profileId: z.string().min(1),
+    hash: z.string().min(1),
+  }),
   'sessions.usage': z.object({
     profileId: z.string().min(1),
     sessionId: z.string().min(1),
@@ -3618,6 +3628,7 @@ export interface AgentCallResults {
   'sessions.rename': {session: SessionSummary};
   'sessions.compact': CompactResult;
   'harness.report': HarnessReport;
+  'harness.restore': {restored: true};
   'sessions.usage': SessionUsage;
   'sessions.delete': {deleted: boolean};
   /**

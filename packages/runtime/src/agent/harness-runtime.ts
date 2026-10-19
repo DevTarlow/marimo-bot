@@ -300,6 +300,7 @@ export class HarnessRuntime {
     usage: {promptTokens: number; completionTokens: number; totalTokens: number};
     unreadableLogs: number;
     harnessVersions: number;
+    versions: Array<{hash: string; harnessVersion: number; recordedAt: string}>;
     pendingProposals: number;
     skills: number;
     paths: {harnessSessions: string; harnessVersions: string};
@@ -340,6 +341,7 @@ export class HarnessRuntime {
       this.options.versions === undefined
         ? []
         : await this.options.versions.list().catch(() => []);
+    const ownVersions = versions.filter((record) => record.spec.id === profileId);
     const proposals = (await this.proposals.load()).proposals.filter(
       (proposal) => proposal.profileId === profileId,
     ).length;
@@ -349,8 +351,12 @@ export class HarnessRuntime {
       turns,
       usage: {promptTokens, completionTokens, totalTokens},
       unreadableLogs,
-      harnessVersions: versions.filter((record) => record.spec.id === profileId)
-        .length,
+      harnessVersions: ownVersions.length,
+      versions: ownVersions.map((record) => ({
+        hash: record.hash,
+        harnessVersion: record.harnessVersion,
+        recordedAt: record.recordedAt,
+      })),
       pendingProposals: proposals,
       skills,
       paths: {
@@ -384,6 +390,42 @@ export class HarnessRuntime {
       }
     }
     return {turns, usage: {promptTokens, completionTokens, totalTokens}};
+  }
+
+  /**
+   * Puts a bot back to one recorded harness.
+   *
+   * The snapshot contains the identity, the tool grants, the skills grant, the
+   * connector grant and the model pair. It does not contain the Space, the icon
+   * or the memory files: those are not the harness, and silently moving a bot
+   * back to an old folder or an old memory would be a much larger undo than the
+   * person asked for. The next turn records the new harness as a new version.
+   */
+  async restoreHarness(
+    profileId: string,
+    hash: string,
+  ): Promise<import('@marimo/protocol').AgentProfile> {
+    if (this.options.versions === undefined) {
+      throw new HarnessRuntimeError('There is no harness ledger to restore from.');
+    }
+    const record = await this.options.versions.load(hash);
+    if (record === undefined || record.spec.id !== profileId) {
+      throw new HarnessRuntimeError('That harness version does not belong to this bot.');
+    }
+    const spec = record.spec;
+    const profile = await this.options.profiles.update(profileId, {
+      name: spec.identity.name,
+      identity: spec.identity.role,
+      persona: spec.identity.persona ?? '',
+      enabledTools: [...spec.tools.grants],
+      enabledSkills: [...spec.context.skills.enabled],
+      mcpServerIds:
+        spec.tools.mcpServerIds === 'all'
+          ? null
+          : [...spec.tools.mcpServerIds],
+      model: spec.model,
+    });
+    return profile;
   }
 
   async participants(profileId: string, sessionId: string): Promise<string[]> {

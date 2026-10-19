@@ -1048,7 +1048,12 @@ export function Settings({
 
         <SettingsSection title="Harness" opened={opened} onToggle={fold}>
           {opened.has('Harness') && loaded.profile !== undefined ? (
-            <HarnessCard profileId={loaded.profile.id} />
+            <HarnessCard
+              profileId={loaded.profile.id}
+              onRestored={() => {
+                void load();
+              }}
+            />
           ) : (
             <p className="settings-muted">
               What the rebuilt engine has recorded for this bot.
@@ -1964,12 +1969,16 @@ function ProviderSection({
  */
 function HarnessCard({
   profileId,
+  onRestored,
 }: {
   profileId: string;
+  onRestored: () => void;
 }): React.JSX.Element {
   const [report, setReport] = useState<HarnessReport | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -2065,6 +2074,75 @@ function HarnessCard({
           {report.unreadableLogs === 1 ? 'is' : 'are'} not counted above.
         </p>
       ) : null}
+      <div className="harness-versions">
+        <h4>Recorded versions</h4>
+        <p className="settings-muted">
+          Restoring puts back this bot’s name, Role, Persona, tools, skills,
+          connectors and model as they were. The Space, the icon and memory are
+          left alone.
+        </p>
+        {report.versions.length === 0 ? (
+          <p className="settings-muted">No versions recorded yet.</p>
+        ) : (
+          report.versions.slice(0, 10).map((version) => (
+            <div className="harness-version" key={version.hash}>
+              <span>
+                {new Date(version.recordedAt).toLocaleString()} · v
+                {version.harnessVersion} · <code>{version.hash.slice(0, 10)}</code>
+              </span>
+              {confirming === version.hash ? (
+                <span className="harness-version-actions">
+                  <button
+                    type="button"
+                    className="button button-danger button-small"
+                    disabled={restoring !== null}
+                    onClick={() => {
+                      setRestoring(version.hash);
+                      void window.marimo
+                        .call('harness.restore', {
+                          profileId,
+                          hash: version.hash,
+                        })
+                        .then(() => {
+                          setRestoring(null);
+                          setConfirming(null);
+                          onRestored();
+                          setNonce((value) => value + 1);
+                        })
+                        .catch((failure: unknown) => {
+                          setRestoring(null);
+                          setProblem(describe(failure));
+                        });
+                    }}
+                  >
+                    {restoring === version.hash ? 'Restoring…' : 'Restore'}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-quiet button-small"
+                    disabled={restoring !== null}
+                    onClick={() => {
+                      setConfirming(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="button button-quiet button-small"
+                  onClick={() => {
+                    setConfirming(version.hash);
+                  }}
+                >
+                  Restore
+                </button>
+              )}
+            </div>
+          ))
+        )}
+      </div>
       <p className="settings-muted">
         Harness logs: <code>{report.paths.harnessSessions}</code>
         <br />

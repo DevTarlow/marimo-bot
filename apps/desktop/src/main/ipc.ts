@@ -632,6 +632,11 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'sessions.usage': async (params) =>
       await agent().sessionUsage(params.profileId, params.sessionId),
 
+    'harness.restore': async (params) => {
+      await agent().restoreHarness(params.profileId, params.hash);
+      return {restored: true};
+    },
+
     'harness.report': async (params) =>
       await agent().harnessReport(params.profileId),
 

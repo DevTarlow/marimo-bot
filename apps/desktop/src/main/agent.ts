@@ -1076,6 +1076,7 @@ export class AgentService {
       usage: report.usage,
       unreadableLogs: report.unreadableLogs,
       harnessVersions: report.harnessVersions,
+      versions: report.versions,
       pendingProposals: report.pendingProposals,
       skills: report.skills,
       jobs,
@@ -1096,6 +1097,13 @@ export class AgentService {
       turns: 0,
       usage: {promptTokens: 0, completionTokens: 0, totalTokens: 0},
     };
+  }
+
+  async restoreHarness(
+    profileId: string,
+    hash: string,
+  ): Promise<void> {
+    await this.runtime.harness().restoreHarness(profileId, hash);
   }
 
   async skillHistory(id: string): Promise<SkillHistoryEntry[]> {

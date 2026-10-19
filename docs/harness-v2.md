@@ -358,14 +358,20 @@ record.
 
 **The Harness card** in Settings reads a report on demand: v1 and v2
 conversation counts for the active bot, turns, the token totals the provider
-reported, the number of frozen specs, waiting memory suggestions, skills and
-jobs, and the two data paths. It reads every v2 log, so it mounts only when the
-card is opened and has its own Refresh; it is not on the turn path. One
-conversation's own menu reads its turns and token total from its log; a v1
-conversation says that token usage was not recorded rather than showing zeros.
+reported, the frozen specs, waiting memory suggestions, skills and jobs, and the
+two data paths. It reads every v2 log, so it mounts only when the card is opened
+and has its own Refresh; it is not on the turn path. One conversation's own menu
+reads its turns and token total from its log; a v1 conversation says that token
+usage was not recorded rather than showing zeros.
 
-Not yet in Phase 2: rollback from the ledger and a learning dashboard beyond
-these counts.
+The card lists the recorded versions and can put one back. A restore applies the
+snapshot's name, Role, Persona, tool grants, skill grants, connector grant and
+model pair; the Space, the icon and the memory files are deliberately left
+alone, because they are not the harness. It asks for a second click and reloads
+the bot. The next turn records a new version, so the restore is itself
+reversible.
+
+Not yet in Phase 2: a learning dashboard beyond these counts.
 
 ## Phase 3: participants, so far
 

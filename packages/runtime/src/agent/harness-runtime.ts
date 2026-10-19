@@ -12,28 +12,40 @@ import {randomUUID} from 'node:crypto';
 import type {
   AgentProfile,
   AgentUiEvent,
+  MemorySupersede,
   PendingGate,
   ProviderId,
+  StoredSkill,
   TranscriptMessage,
 } from '@marimo/protocol';
 import {
   AdkDriver,
   GateNotFoundError,
+  MemoryStore,
   OpenAiCompatLlm,
+  SKILLS,
   TurnBusyError,
   TurnEngine,
   resolveHarness,
+  runReview,
   type AgentConfig,
   type EventStore,
   type HarnessSpec,
+  type SkillToolService,
   type TurnDriver,
 } from '@marimo/agent';
 
+import type {MemoryProposal} from '@marimo/protocol';
+
+import {FeedbackStore} from '../feedback.js';
+import {MemoryProposalStore} from '../memory-proposals.js';
 import type {AppPaths} from '../paths.js';
 import {FileEventStore} from '../events/file-event-store.js';
 import type {SecretRead} from '../secrets.js';
 import type {ProfileStore} from '../profiles.js';
 import type {SettingsStore} from '../settings.js';
+import {RuntimeSkillService} from '../skill-service.js';
+import {SkillStore} from '../skills.js';
 import {workspaceRootFor} from '../workspaces.js';
 import type {WorkspaceStore} from '../workspaces.js';
 import {resolveAgentConfig} from './resolve.js';
@@ -60,6 +72,8 @@ export interface HarnessRuntimeOptions {
   driverFactory?: (config: AgentConfig) => TurnDriver;
   /** Injected by tests; the app writes to the v2 log directory. */
   store?: EventStore;
+  /** Injected by tests; the app asks the profile's own model. */
+  reviewer?: (prompt: string) => Promise<string>;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -69,16 +83,50 @@ interface Prepared {
   profile: AgentProfile;
   config: AgentConfig;
   harness: HarnessSpec;
+  workspaceRoot: string;
+  memory: MemoryStore;
 }
 
 interface SessionState {
   engine: TurnEngine;
+  driver: DelegatingDriver;
   model: {config: AgentConfig};
+}
+
+/**
+ * A stable driver seam whose current driver is replaced before each turn.
+ *
+ * The engine holds one driver for the life of a conversation so its busy guard
+ * and state remain one object. The actual ADK driver is built per turn because
+ * its prompt and tool services are facts about that turn.
+ */
+class DelegatingDriver implements TurnDriver {
+  current: TurnDriver | undefined;
+
+  run(input: Parameters<TurnDriver['run']>[0]): ReturnType<TurnDriver['run']> {
+    if (this.current === undefined) {
+      throw new Error('No driver is configured for this turn.');
+    }
+    return this.current.run(input);
+  }
+
+  resume(
+    input: Parameters<TurnDriver['resume']>[0],
+  ): ReturnType<TurnDriver['resume']> {
+    if (this.current === undefined) {
+      throw new Error('No driver is configured for this turn.');
+    }
+    return this.current.resume(input);
+  }
 }
 
 export class HarnessRuntime {
   private readonly options: HarnessRuntimeOptions;
   private readonly store: EventStore;
+  private readonly skillStore: SkillStore;
+  private readonly skillService: RuntimeSkillService;
+  private readonly proposals: MemoryProposalStore;
+  private readonly feedback: FeedbackStore;
   private readonly states = new Map<string, SessionState>();
 
   constructor(options: HarnessRuntimeOptions) {
@@ -86,6 +134,19 @@ export class HarnessRuntime {
     this.store =
       options.store ??
       new FileEventStore({rootDir: options.paths.harnessSessions});
+    this.skillStore = new SkillStore({
+      root: options.paths.skills,
+      legacyFile: options.paths.legacySkills,
+      reserved: SKILLS.map((skill) => skill.name),
+    });
+    this.skillService = new RuntimeSkillService({
+      skills: this.skillStore,
+      profiles: options.profiles,
+    });
+    this.proposals = new MemoryProposalStore({
+      file: options.paths.memoryProposals,
+    });
+    this.feedback = new FeedbackStore({file: options.paths.feedback});
   }
 
   /** Runs one turn in one conversation. */
@@ -110,6 +171,7 @@ export class HarnessRuntime {
     }
 
     const state = this.stateFor(sessionId, prepared.config);
+    state.driver.current = this.driverFor(prepared);
     try {
       yield* projectTurn(
         state.engine.run({
@@ -154,6 +216,7 @@ export class HarnessRuntime {
       return;
     }
 
+    state.driver.current = this.driverFor(prepared);
     try {
       yield* projectTurn(
         state.engine.approve({
@@ -190,6 +253,112 @@ export class HarnessRuntime {
       await this.assertOwner(sessionId, profileId);
     }
     return transcriptFromEvents(await this.store.read(sessionId));
+  }
+
+  /**
+   * Reads the conversation back and proposes what is worth remembering.
+   *
+   * Proposals go to the same `memory-proposals.json` the v1 review uses, so the
+   * existing Memory card can show and resolve them. The watermark is moved
+   * whether or not anything was found; a look that found nothing is still a look.
+   */
+  async reviewMemory(sessionId: string): Promise<{
+    proposals: MemoryProposal[];
+    events: number;
+  }> {
+    const events = await this.store.read(sessionId);
+    const owner = ownerOf(events);
+    if (owner === undefined) {
+      return {proposals: [], events: 0};
+    }
+    const prepared = await this.prepare(owner);
+    const reviewable = reviewEvents(events);
+    const from = await this.proposals.reviewedUpTo(sessionId);
+    if (reviewable.length <= from) {
+      return {proposals: [], events: 0};
+    }
+    const refused = (await this.proposals.load()).dismissed
+      .filter((entry) => entry.profileId === owner)
+      .map((entry) => ({text: entry.text}));
+    const corrections = (await this.feedback.forProfile(owner)).map(
+      (entry) => ({excerpt: entry.excerpt, text: entry.correction}),
+    );
+    const found = await runReview({
+      events: reviewable.slice(from),
+      memory: await prepared.memory.read(),
+      refused,
+      corrections,
+      ask: async (prompt) =>
+        await (this.options.reviewer?.(prompt) ??
+          this.askOnce(prepared, prompt)),
+    });
+
+    const recorded = await this.proposals.record(
+      sessionId,
+      from + found.used,
+      found.proposals.map((proposal) => ({
+        sessionId,
+        profileId: owner,
+        section: proposal.section,
+        text: proposal.text,
+        reason: proposal.reason,
+        ...(proposal.replaces === undefined
+          ? {}
+          : {replaces: proposal.replaces}),
+      })),
+    );
+    const added = new Set(found.proposals.map((proposal) => proposal.text));
+    return {
+      proposals: recorded.proposals.filter((proposal) =>
+        added.has(proposal.text),
+      ),
+      events: found.used,
+    };
+  }
+
+  /**
+   * Accepts or refuses a proposal the v2 review recorded.
+   *
+   * The proposal store is shared with v1, so the window does not need a second
+   * queue. What differs is who writes the fact: a v2 proposal belongs to a v2
+   * conversation, and its memory is the one this facade knows how to reach.
+   */
+  async resolveMemoryProposal(
+    proposalId: string,
+    accept: boolean,
+  ): Promise<{ok: boolean; problem?: string; supersede?: MemorySupersede}> {
+    const file = await this.proposals.load();
+    const proposal = file.proposals.find((entry) => entry.id === proposalId);
+    if (proposal === undefined) {
+      return {ok: false, problem: 'That suggestion is no longer waiting.'};
+    }
+    let supersede: MemorySupersede | undefined;
+    if (accept) {
+      try {
+        const prepared = await this.prepare(proposal.profileId);
+        const report = await prepared.memory.update(
+          {
+            content: proposal.text,
+            section: proposal.section,
+            ...(proposal.replaces === undefined
+              ? {}
+              : {replaces: proposal.replaces}),
+          },
+          'review',
+        );
+        supersede = report.supersede;
+      } catch (error) {
+        return {
+          ok: false,
+          problem: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    await this.proposals.remove(
+      proposalId,
+      accept ? undefined : {profileId: proposal.profileId, text: proposal.text},
+    );
+    return supersede === undefined ? {ok: true} : {ok: true, supersede};
   }
 
   /** Whether this conversation has a v2 log, so the shell can fall back. */
@@ -244,6 +413,15 @@ export class HarnessRuntime {
     }
     const config = resolved.config;
 
+    const memory = new MemoryStore({
+      workspaceRoot,
+      personMemoryRoot: this.options.paths.personMemoryDir,
+      profileId: profile.id,
+      ...(settings.memorySoftLimitBytes === undefined
+        ? {}
+        : {softLimitBytes: settings.memorySoftLimitBytes}),
+    });
+
     const harness = resolveHarness({
       profile: {
         id: profile.id,
@@ -267,7 +445,7 @@ export class HarnessRuntime {
       workspaceRoot,
     });
 
-    return {profile, config, harness};
+    return {profile, config, harness, workspaceRoot, memory};
   }
 
   private stateFor(sessionId: string, config: AgentConfig): SessionState {
@@ -277,11 +455,7 @@ export class HarnessRuntime {
       return existing;
     }
     const model = {config};
-    const driver =
-      this.options.driverFactory?.(config) ??
-      new AdkDriver({
-        resolveModel: () => this.llmFor(model.config),
-      });
+    const driver = new DelegatingDriver();
     const engine = new TurnEngine({
       store: this.store,
       driver,
@@ -290,9 +464,80 @@ export class HarnessRuntime {
         ? {}
         : {createId: this.options.createId}),
     });
-    const state: SessionState = {engine, model};
+    const state: SessionState = {engine, driver, model};
     this.states.set(sessionId, state);
     return state;
+  }
+
+  private driverFor(prepared: Prepared): TurnDriver {
+    if (this.options.driverFactory !== undefined) {
+      return this.options.driverFactory(prepared.config);
+    }
+    const profileId = prepared.profile.id;
+    const skills: SkillToolService = {
+      load: async (name) => {
+        const answer = await this.skillService.load(profileId, name);
+        return {
+          ...(answer.skill === undefined
+            ? {}
+            : {
+                skill: {
+                  name: answer.skill.name,
+                  description: answer.skill.description,
+                  instructions: answer.skill.instructions,
+                },
+              }),
+          names: answer.names,
+        };
+      },
+      save: async (input) =>
+        await this.skillService.saveFromAgent(input, profileId),
+    };
+    return new AdkDriver({
+      resolveModel: () => this.llmFor(prepared.config),
+      promptContext: async () => ({
+        memory: await prepared.memory.readForPrompt(),
+        skills: (await this.skillService.grantedForProfile(profileId)).map(
+          (skill: StoredSkill) => ({
+            name: skill.name,
+            description: skill.description,
+          }),
+        ),
+      }),
+      toolContext: (_harness, signal) => ({
+        workspaceRoot: prepared.workspaceRoot,
+        signal,
+        memory: prepared.memory,
+        skills,
+      }),
+    });
+  }
+
+  /**
+   * One model call for a background look, with no tools and no session.
+   *
+   * The review is not a turn: it must not appear in the conversation, and it
+   * must not be able to call a tool. The same client serves it, because the
+   * provider and key are the same facts.
+   */
+  private async askOnce(prepared: Prepared, prompt: string): Promise<string> {
+    const llm = this.llmFor(prepared.config);
+    let text = '';
+    for await (const response of llm.generateContentAsync(
+      {
+        contents: [{role: 'user', parts: [{text: prompt}]}],
+        liveConnectConfig: {},
+        toolsDict: {},
+      } as never,
+      true,
+    )) {
+      for (const part of response.content?.parts ?? []) {
+        if (typeof part.text === 'string' && part.text.length > 0) {
+          text += part.text;
+        }
+      }
+    }
+    return text;
   }
 
   private llmFor(config: AgentConfig): OpenAiCompatLlm {
@@ -328,4 +573,46 @@ function busyOr(error: unknown): Error {
 function titleFor(text: string): string {
   const title = text.replace(/\s+/g, ' ').trim().slice(0, 80);
   return title.length === 0 ? 'New chat' : title;
+}
+
+function ownerOf(
+  events: readonly import('@marimo/agent').SessionEvent[],
+): string | undefined {
+  return (
+    events.find((event) => event.type === 'session.created')?.profileId ??
+    events.find((event) => event.type === 'turn.started')?.profileId
+  );
+}
+
+function reviewEvents(
+  events: readonly import('@marimo/agent').SessionEvent[],
+): Array<{
+  author?: string;
+  content?: {parts?: Array<{text?: string; thought?: boolean}>};
+}> {
+  const reviewable: Array<{
+    author?: string;
+    content?: {parts?: Array<{text?: string; thought?: boolean}>};
+  }> = [];
+  for (const event of events) {
+    if (event.type === 'user.message') {
+      reviewable.push({
+        author: 'user',
+        content: {parts: [{text: event.text}]},
+      });
+    } else if (event.type === 'assistant.message') {
+      reviewable.push({
+        author: event.author,
+        content: {
+          parts: [
+            ...(event.reasoning === undefined
+              ? []
+              : [{text: event.reasoning, thought: true}]),
+            {text: event.text},
+          ],
+        },
+      });
+    }
+  }
+  return reviewable;
 }

@@ -16,9 +16,12 @@ import {dirname} from 'node:path';
 import {z} from 'zod';
 
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
+import {MEMORY_TOOLS} from './memory-tools.js';
+import {SKILL_TOOLS} from './skill-tools.js';
 import {
   describeToolError,
   outcome,
+  type AnyToolDefinition,
   type ToolContext,
   type ToolDefinition,
   type ToolOutcome,
@@ -35,7 +38,7 @@ const MAX_SHELL_OUTPUT = 1024 * 1024;
 const SHELL_TIMEOUT_MS = 120_000;
 
 /** A tool erased to the one shape the adapter can call. */
-export type AnyToolDefinition = ToolDefinition<Record<string, unknown>>;
+export type {AnyToolDefinition} from './tool-contract.js';
 
 function asAnyTool<Args>(definition: ToolDefinition<Args>): AnyToolDefinition {
   return definition as unknown as AnyToolDefinition;
@@ -293,6 +296,8 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   listDir,
   writeFileTool,
   runShell,
+  ...MEMORY_TOOLS,
+  ...SKILL_TOOLS,
 ];
 
 /**
@@ -302,12 +307,23 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
  * at all: a tool that would fail on every call is a promise the model makes and
  * cannot keep.
  */
-export function toolsFor(harness: HarnessSpec): AnyToolDefinition[] {
+export interface ToolAvailability {
+  memory?: boolean;
+  skills?: boolean;
+}
+
+export function toolsFor(
+  harness: HarnessSpec,
+  available: ToolAvailability = {},
+): AnyToolDefinition[] {
   const granted = new Set(harness.tools.grants);
   return CORE_TOOLS.filter(
     (tool) =>
       granted.has(tool.name) &&
-      (tool.requiresWorkspace !== true || harness.workspaceRoot !== undefined),
+      (tool.requiresWorkspace !== true ||
+        harness.workspaceRoot !== undefined) &&
+      (tool.requiresMemory !== true || available.memory === true) &&
+      (tool.requiresSkills !== true || available.skills === true),
   );
 }
 

@@ -1,9 +1,9 @@
 /**
  * The v2 tool contract.
  *
- * A tool is data: a name, a description, a zod schema, whether it needs a
- * Space, and a function that returns an outcome. It does not know about ADK or
- * about confirmation calls. The engine's ADK adapter wraps these into the
+ * A tool is data: a name, a description, a zod schema, whether it needs a Space
+ * or a service, and a function that returns an outcome. It does not know about
+ * ADK or about confirmation calls. The engine's ADK adapter wraps these into the
  * framework's tools; a test can call one directly.
  *
  * The outcome is explicit rather than a thrown error because a tool failure is
@@ -13,13 +13,40 @@
 import type {ZodObject, ZodRawShape} from 'zod';
 
 import type {GateRule} from '../harness/spec.js';
+import type {MemoryStore} from '../memory/memory-store.js';
 
 export type ToolOutcome =
   {ok: true; result: unknown} | {ok: false; result: string};
 
+export interface SkillSummary {
+  name: string;
+  description: string;
+}
+
+export interface SkillLoad {
+  skill?: {name: string; description: string; instructions: string};
+  names: string[];
+}
+
+export interface SkillSaveInput {
+  name: string;
+  description: string;
+  instructions: string;
+}
+
+/** The granted-skill surface a tool may use, bound to one profile by the caller. */
+export interface SkillToolService {
+  load(name: string): Promise<SkillLoad>;
+  save(input: SkillSaveInput): Promise<{name: string; updated: boolean}>;
+}
+
 export interface ToolContext {
   workspaceRoot: string;
   signal: AbortSignal;
+  /** Present only when this turn has a memory store. */
+  memory?: MemoryStore;
+  /** Present only when this profile may load and save skills. */
+  skills?: SkillToolService;
 }
 
 export interface ToolDefinition<Args = unknown> {
@@ -30,8 +57,14 @@ export interface ToolDefinition<Args = unknown> {
   gate?: GateRule;
   /** A tool that cannot work without a Space is not offered without one. */
   requiresWorkspace?: boolean;
+  /** A tool that needs memory is absent when the turn has no store. */
+  requiresMemory?: boolean;
+  /** A tool that needs skills is absent when the profile has no library. */
+  requiresSkills?: boolean;
   execute(args: Args, context: ToolContext): Promise<ToolOutcome>;
 }
+
+export type AnyToolDefinition = ToolDefinition<Record<string, unknown>>;
 
 export function outcome(ok: true, result: unknown): ToolOutcome;
 export function outcome(ok: false, result: string): ToolOutcome;

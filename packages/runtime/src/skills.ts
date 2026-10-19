@@ -321,6 +321,28 @@ export class SkillStore {
     const directory = join(this.options.root, folder);
     await mkdir(directory, {recursive: true});
     const file = join(directory, SKILL_FILE);
+    /*
+     * The previous body is kept before the replacement lands. A skill is prompt
+     * text the agent follows, so "I improved the procedure" has to be
+     * reversible: the user may prefer what the agent did before, and the file is
+     * theirs to compare. The history folder is ignored by `load`, which reads
+     * only `SKILL.md`.
+     */
+    const previous = await readFile(file, 'utf8').catch(() => undefined);
+    if (previous !== undefined && previous.trim().length > 0) {
+      const history = join(directory, 'history');
+      await mkdir(history, {recursive: true});
+      const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+      await writeFile(join(history, `${stamp}.md`), previous, 'utf8').catch(
+        () => undefined,
+      );
+      const kept = (await readdir(history))
+        .filter((entry) => entry.endsWith('.md'))
+        .sort();
+      for (const stale of kept.slice(0, Math.max(0, kept.length - 20))) {
+        await rm(join(history, stale), {force: true}).catch(() => undefined);
+      }
+    }
     // Written to a sibling and renamed, so a crash mid-write cannot leave half a
     // file where the user's skill was.
     const temporary = `${file}.${randomUUID()}.tmp`;

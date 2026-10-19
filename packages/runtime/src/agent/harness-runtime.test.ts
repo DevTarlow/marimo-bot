@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it} from 'vitest';
 
 import {
   MemoryEventStore,
+  MemoryStore,
   type DriverEvent,
   type DriverResume,
   type DriverRun,
@@ -108,10 +109,12 @@ async function setup(): Promise<{deps: RuntimeDeps; profileId: string}> {
 function runtimeFrom(
   deps: RuntimeDeps,
   driverFactory: () => TurnDriver,
+  reviewer?: (prompt: string) => Promise<string>,
 ): HarnessRuntime {
   return new HarnessRuntime({
     ...deps,
     driverFactory,
+    ...(reviewer === undefined ? {} : {reviewer}),
   });
 }
 
@@ -244,6 +247,59 @@ describe('HarnessRuntime', () => {
     expect(await runtime.pendingGates('s1')).toEqual([]);
   });
 
+  it('proposes a memory from a conversation and remembers it was read', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'I will remember that.'},
+        {type: 'done'},
+      ],
+    ]);
+    const reviewer = async (): Promise<string> =>
+      JSON.stringify({
+        proposals: [
+          {
+            section: 'Preferences and tone',
+            text: '- prefers tabs',
+            reason: 'They said so.',
+            replaces: '',
+          },
+        ],
+      });
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver, reviewer);
+    await collect(runtime.run(profileId, 's1', 'I prefer tabs.'));
+
+    const first = await runtime.reviewMemory('s1');
+    expect(first.proposals).toHaveLength(1);
+    expect(first.proposals[0]).toMatchObject({
+      section: 'Preferences and tone',
+      text: '- prefers tabs',
+      profileId,
+    });
+
+    const second = await runtime.reviewMemory('s1');
+    expect(second.proposals).toEqual([]);
+    expect(second.events).toBe(0);
+
+    const proposed = first.proposals[0];
+    if (proposed === undefined) {
+      throw new Error('expected a proposal');
+    }
+    const accepted = await runtime.resolveMemoryProposal(proposed.id, true);
+    expect(accepted).toMatchObject({ok: true});
+    const active = await deps.workspaces.active();
+    if (active === undefined) {
+      throw new Error('expected a workspace');
+    }
+    const memory = new MemoryStore({
+      workspaceRoot: active.path,
+      personMemoryRoot: deps.paths.personMemoryDir,
+      profileId,
+    });
+    expect(await memory.read()).toContain('prefers tabs');
+  });
+
   it('records a denial as a failed tool result and clears the card', async () => {
     const driver = new ScriptedDriver(
       [
@@ -284,7 +340,9 @@ describe('HarnessRuntime', () => {
         confirmed: false,
       }),
     );
-    expect(resumed.find((event) => event.type === 'tool.finished')).toMatchObject({
+    expect(
+      resumed.find((event) => event.type === 'tool.finished'),
+    ).toMatchObject({
       ok: false,
     });
     expect(await runtime.pendingGates('s1')).toEqual([]);

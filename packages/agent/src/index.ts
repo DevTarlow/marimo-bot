@@ -287,6 +287,10 @@ export {CORE_TOOLS, gateFor, toolsFor} from './engine/core-tools.js';
 export type {AnyToolDefinition} from './engine/core-tools.js';
 export {describeToolError, outcome} from './engine/tool-contract.js';
 export type {
+  SkillLoad,
+  SkillSaveInput,
+  SkillSummary,
+  SkillToolService,
   ToolContext,
   ToolDefinition,
   ToolOutcome,

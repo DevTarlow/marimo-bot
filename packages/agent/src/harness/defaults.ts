@@ -77,6 +77,7 @@ export const DEFAULT_HARNESS: HarnessBuiltin = {
         // a gate and gates the replacement; the tool's predicate decides which.
         run_shell: 'always',
         write_file: 'on-overwrite',
+        save_skill: 'always',
       },
       network: 'default',
     },

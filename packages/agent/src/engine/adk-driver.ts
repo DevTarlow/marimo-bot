@@ -26,7 +26,10 @@ import type {Content, Part} from '@google/genai';
 import {stat} from 'node:fs/promises';
 
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
-import {composeHarnessInstruction} from '../context/instruction.js';
+import {
+  composeHarnessInstruction,
+  type HarnessPromptContext,
+} from '../context/instruction.js';
 import {resolveInsideWorkspace} from '../tools/paths.js';
 import {gateFor, toolsFor, type AnyToolDefinition} from './core-tools.js';
 import type {
@@ -48,6 +51,15 @@ export interface AdkDriverOptions {
   resolveModel: (harness: HarnessSpec) => BaseLlm;
   /** Injected for tests; the app uses the v2 core tool set. */
   toolDefinitions?: (harness: HarnessSpec) => readonly AnyToolDefinition[];
+  /** The turn's memory and skill index, read fresh for each request. */
+  promptContext?: (
+    harness: HarnessSpec,
+  ) => HarnessPromptContext | Promise<HarnessPromptContext>;
+  /** The services tools may use this turn. */
+  toolContext?: (
+    harness: HarnessSpec,
+    signal: AbortSignal,
+  ) => ToolContext | Promise<ToolContext>;
   appName?: string;
   userId?: string;
 }
@@ -99,7 +111,8 @@ export class AdkDriver implements TurnDriver {
       history,
       input.harness,
     );
-    const runner = this.runnerFor(input.harness, sessions, input.signal);
+    const context = await this.toolContextFor(input.harness, input.signal);
+    const runner = this.runnerFor(input.harness, sessions, context);
     yield* this.stream(runner, {
       sessionId: input.sessionId,
       harness: input.harness,
@@ -129,7 +142,8 @@ export class AdkDriver implements TurnDriver {
       history,
       input.harness,
     );
-    const runner = this.runnerFor(input.harness, sessions, input.signal);
+    const context = await this.toolContextFor(input.harness, input.signal);
+    const runner = this.runnerFor(input.harness, sessions, context);
     yield* this.stream(runner, {
       sessionId: input.sessionId,
       harness: input.harness,
@@ -291,14 +305,24 @@ export class AdkDriver implements TurnDriver {
   private runnerFor(
     harness: HarnessSpec,
     sessions: InMemorySessionService,
-    signal: AbortSignal,
+    context: ToolContext,
   ): Runner {
     const agent = new LlmAgent({
       name: adkAgentName(harness.id),
       description: harness.identity.role.slice(0, 200) || harness.identity.name,
       model: this.options.resolveModel(harness),
-      instruction: composeHarnessInstruction(harness),
-      tools: this.buildTools(harness, signal),
+      /*
+       * Read per request rather than once per turn: a memory write or a saved
+       * skill should reach the very next request, which is the sentence those
+       * tools give the model. The frozen spec does not move; what it is
+       * surrounding itself with does.
+       */
+      instruction: async () =>
+        composeHarnessInstruction(
+          harness,
+          (await this.options.promptContext?.(harness)) ?? {},
+        ),
+      tools: this.buildTools(harness, context),
     });
     return new Runner({
       appName: this.appName,
@@ -307,15 +331,28 @@ export class AdkDriver implements TurnDriver {
     });
   }
 
-  private buildTools(
+  private async toolContextFor(
     harness: HarnessSpec,
     signal: AbortSignal,
+  ): Promise<ToolContext> {
+    return (
+      (await this.options.toolContext?.(harness, signal)) ?? {
+        workspaceRoot: harness.workspaceRoot ?? '',
+        signal,
+      }
+    );
+  }
+
+  private buildTools(
+    harness: HarnessSpec,
+    context: ToolContext,
   ): FunctionTool<never>[] {
-    const definitions = (this.options.toolDefinitions ?? toolsFor)(harness);
-    const context: ToolContext = {
-      workspaceRoot: harness.workspaceRoot ?? '',
-      signal,
-    };
+    const definitions =
+      this.options.toolDefinitions?.(harness) ??
+      toolsFor(harness, {
+        memory: context.memory !== undefined,
+        skills: context.skills !== undefined,
+      });
     return definitions.map((definition) => {
       const rule = strongerGate(
         definition.gate ?? 'never',

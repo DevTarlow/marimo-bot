@@ -297,6 +297,36 @@ What the v2 path does not have yet: memory, the user's skills, recall, jobs,
 documents, bot drafting, group collaboration and the companion's shorter answer.
 Those are Phase 2 and Phase 4.
 
+## Phase 2: memory, skills and a review
+
+The v2 turn now has the two things that make an agent improve rather than just
+answer.
+
+**Memory** is read into the prompt and written through `read_memory`,
+`update_memory` and `prune_memory`. The files are the same two-scope markdown
+files v1 uses (`memory/<profile>/memory.md` and
+`<space>/.marimo/<profile>/memory.md`), so a fact the person can read is a fact
+both engines know. The prompt is rebuilt per request, so a write lands in the
+very next request of the turn that made it, not only the next turn.
+
+**Skills** are advertised by name and one line, and `load_skill` reads the body
+on demand. `save_skill` is gated and writes the same `skills/<name>/SKILL.md`
+the Settings editor writes. A replacement keeps the previous body under
+`skills/<name>/history/`, capped at twenty, so improving a procedure is
+reversible. The prompt is rebuilt per request here too, so a skill saved during
+a turn is advertised to the model before that turn ends.
+
+**The review** reads a v2 conversation after a quiet minute, asks the profile's
+own model, and records proposals in the existing `memory-proposals.json`. The
+existing Memory card lists them and resolves them through the v2 facade, which
+writes to the same memory files. The watermark lives in the proposal store, so a
+conversation is not reviewed twice. A reviewer can be injected in tests; the
+app uses a one-shot model call with no tools.
+
+Not yet in Phase 2: a harness-version ledger and rollback, a learning dashboard,
+and usage accounting. The turn already records its harness version and hash, so
+the identity of a turn is reproducible before the ledger exists.
+
 ## What is not in scope
 
 - Hosted multi-tenant accounts, a server, team Spaces.

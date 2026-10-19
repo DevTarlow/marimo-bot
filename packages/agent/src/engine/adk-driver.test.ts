@@ -5,6 +5,7 @@ import {BaseLlm} from '@google/adk';
 import type {LlmRequest, LlmResponse} from '@google/adk';
 import {afterEach, describe, expect, it} from 'vitest';
 
+import {MemoryStore} from '../memory/memory-store.js';
 import {resolveHarness} from '../harness/resolve.js';
 import type {
   HarnessAppDefaults,
@@ -236,6 +237,50 @@ describe('AdkDriver', () => {
     const result = updates.find((update) => update.type === 'tool.result');
     expect(result).toMatchObject({ok: true});
     expect(model.requests).toHaveLength(2);
+  });
+
+  it('offers a memory tool only when the turn has a memory store', async () => {
+    const dir = await workDir();
+    const memory = new MemoryStore({
+      workspaceRoot: dir,
+      personMemoryRoot: join(dir, 'person'),
+      profileId: 'writer',
+    });
+    await memory.update({
+      content: '- prefers tabs',
+      section: 'Preferences and tone',
+    });
+
+    const model = new ScriptedLlm([
+      [call('read_memory', {})],
+      [text('I remember.')],
+    ]);
+    const driver = new AdkDriver({
+      resolveModel: () => model,
+      toolContext: () => ({
+        workspaceRoot: dir,
+        signal: new AbortController().signal,
+        memory,
+      }),
+    });
+    const updates = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'What do you remember?',
+        harness: harness(dir, ['current_time', 'read_memory']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const result = updates.find((update) => update.type === 'tool.result');
+    expect(result).toMatchObject({ok: true, tool: 'read_memory'});
+    expect(
+      result !== undefined && result.type === 'tool.result'
+        ? String(result.result)
+        : '',
+    ).toContain('prefers tabs');
   });
 
   it('refuses a path that leaves the Space without asking the user', async () => {

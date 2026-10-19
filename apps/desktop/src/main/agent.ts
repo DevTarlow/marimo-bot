@@ -163,6 +163,8 @@ export class AgentService {
   private lockTimer: NodeJS.Timeout | undefined;
   /** The pending idle look, reset by each new turn. */
   private idleReview: NodeJS.Timeout | undefined;
+  /** The v2 review timers, one per conversation waiting to be read back. */
+  private readonly harnessReviews = new Map<string, NodeJS.Timeout>();
   /** Which agent the turn in flight belongs to, for the review that follows. */
   private busyProfileId: string | undefined;
   private stopped = false;
@@ -380,6 +382,10 @@ export class AgentService {
     }
     this.lockTimer = this.clearTimer(this.lockTimer);
     this.idleReview = this.clearIdle(this.idleReview);
+    for (const handle of this.harnessReviews.values()) {
+      clearTimeout(handle);
+    }
+    this.harnessReviews.clear();
     this.scheduler.stop();
     await this.appLock?.release();
     this.appLock = undefined;
@@ -610,6 +616,50 @@ export class AgentService {
   }
 
   /**
+   * Gives a v2 conversation a quiet minute, then reads it back.
+   *
+   * A turn followed immediately by another is a conversation still happening;
+   * reviewing it then would spend a model call on a half-finished thought. The
+   * timer is per conversation and replaced by each new message, which is the
+   * same shape as the v1 idle look.
+   */
+  private scheduleHarnessReview(sessionId: string): void {
+    const existing = this.harnessReviews.get(sessionId);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+    }
+    const handle = setTimeout(() => {
+      this.harnessReviews.delete(sessionId);
+      void this.reviewHarnessNow(sessionId);
+    }, 60_000);
+    handle.unref?.();
+    this.harnessReviews.set(sessionId, handle);
+  }
+
+  private async reviewHarnessNow(sessionId: string): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
+    try {
+      const result = await this.runtime.harness().reviewMemory(sessionId);
+      this.options.sendEvent({
+        type: 'memory.reviewed',
+        events: result.events,
+        found: result.proposals.length,
+      });
+      if (result.proposals.length > 0) {
+        this.options.sendEvent({
+          type: 'memory.proposed',
+          count: result.proposals.length,
+        });
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error(`[marimo] the v2 memory review did not finish: ${detail}`);
+    }
+  }
+
+  /**
    * Runs the review, and tells the window when something was found.
    *
    * Silent when nothing was — which is most of the time, and the reason this is
@@ -767,8 +817,7 @@ export class AgentService {
        * the user is looking at. A draft that has never been saved has no entry to
        * ask at all, which is the case the last fallback is for.
        */
-      allowPlaintext:
-        (secretStorage ?? server?.secretStorage) === 'plaintext',
+      allowPlaintext: (secretStorage ?? server?.secretStorage) === 'plaintext',
     });
   }
 
@@ -827,6 +876,17 @@ export class AgentService {
 
   /** Accepts one into memory, or drops it. */
   async resolveMemoryProposal(proposalId: string, accept: boolean) {
+    const proposals = await this.runtime.memoryProposals();
+    const proposal = proposals.find((entry) => entry.id === proposalId);
+    if (
+      proposal?.sessionId !== null &&
+      proposal?.sessionId !== undefined &&
+      (await this.harnessHasLog(proposal.sessionId))
+    ) {
+      return await this.runtime
+        .harness()
+        .resolveMemoryProposal(proposalId, accept);
+    }
     return await this.runtime.resolveMemoryProposal(proposalId, accept);
   }
 
@@ -1336,6 +1396,7 @@ export class AgentService {
         return {accepted: false};
       }
       this.pump(harness.run(profileId, sessionId, text));
+      this.scheduleHarnessReview(sessionId);
       return {accepted: true};
     }
 

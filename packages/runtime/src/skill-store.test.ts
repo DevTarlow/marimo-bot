@@ -5,7 +5,15 @@
  * heading and a profile's grant, so two spellings have to be one skill — and the
  * promise that a file this build cannot read is never written over.
  */
-import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
@@ -168,6 +176,26 @@ describe('SkillStore', () => {
     expect(file).toContain('name: weekly-inbox-triage');
     expect(file).toContain('description: |');
     expect(file).toContain('1. Read the unread mail.');
+  });
+
+  it('keeps the previous body when a skill is replaced', async () => {
+    const first = store();
+    await first.save({
+      name: 'triage',
+      description: 'Sort the inbox.',
+      instructions: 'Read the unread mail.',
+    });
+    await first.save({
+      name: 'triage',
+      description: 'Sort the inbox.',
+      instructions: 'Read the unread mail, then group by sender.',
+    });
+
+    const history = join(root(), 'triage', 'history');
+    const files = (await readdir(history)).filter((file) => file.endsWith('.md'));
+    expect(files).toHaveLength(1);
+    const previous = await readFile(join(history, files[0] ?? ''), 'utf8');
+    expect(previous).toContain('Read the unread mail.');
   });
 
   it('replaces a skill saved under another spelling of the same name', async () => {

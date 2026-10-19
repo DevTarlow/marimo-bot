@@ -349,9 +349,15 @@ writes to the same memory files. The watermark lives in the proposal store, so a
 conversation is not reviewed twice. A reviewer can be injected in tests; the
 app uses a one-shot model call with no tools.
 
-Not yet in Phase 2: a harness-version ledger and rollback, a learning dashboard,
-and usage accounting. The turn already records its harness version and hash, so
-the identity of a turn is reproducible before the ledger exists.
+**The ledger** lives under `harness/versions/<hash>.json`, one immutable
+document per distinct spec, written before the first turn that uses it. The first
+record wins; a file this build cannot read is never overwritten. It is audit
+data, not the conversation, so a ledger that cannot be written does not stop the
+turn. The turn itself still carries the version and hash, which is what names the
+record.
+
+Not yet in Phase 2: rollback from the ledger, a learning dashboard, and usage
+accounting.
 
 ## Phase 3: participants, so far
 

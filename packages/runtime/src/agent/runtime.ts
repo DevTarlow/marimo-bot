@@ -106,6 +106,7 @@ import {RuntimeSkillService} from '../skill-service.js';
 import {WorkspaceStore, workspaceRootFor} from '../workspaces.js';
 import {resolveAgentConfig} from './resolve.js';
 import {HarnessRuntime} from './harness-runtime.js';
+import {HarnessVersionStore} from '../harness-versions.js';
 import {BOT_BUILDER_INSTRUCTION} from './bot-builder.js';
 import {turnInstruction} from './pet-turn.js';
 import {turnContext} from './turn-context.js';
@@ -197,6 +198,8 @@ export type HostResult =
 export class AgentRuntime {
   /** The v2 turn path, built lazily so an install that never uses it pays nothing. */
   private harnessRuntime: HarnessRuntime | undefined;
+  /** The frozen specs every v2 turn has run under, by hash. */
+  private readonly harnessVersions: HarnessVersionStore;
   private readonly settingsStore: SettingsStore;
   private readonly profileStore: ProfileStore;
   /**
@@ -248,6 +251,9 @@ export class AgentRuntime {
   private cachedDreamResultBytes = DEFAULT_DREAM_RESULT_BYTES;
 
   constructor(private readonly options: AgentRuntimeOptions) {
+    this.harnessVersions = new HarnessVersionStore({
+      rootDir: options.paths.harnessVersions,
+    });
     this.settingsStore = new SettingsStore(options.paths.settings);
     this.dreamStore = new DreamStore({
       dir: options.paths.dreamDir,
@@ -1950,6 +1956,7 @@ export class AgentRuntime {
           ?.recallService,
       jobsFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))?.jobService,
+      versions: this.harnessVersions,
       ...(this.options.webSearch === undefined
         ? {}
         : {webSearch: this.options.webSearch}),

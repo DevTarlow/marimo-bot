@@ -29,6 +29,8 @@ export interface AppPaths {
    * make a format change look like a corrupt conversation.
    */
   harnessSessions: string;
+  /** One frozen harness spec per distinct hash, for audit and rollback. */
+  harnessVersions: string;
   /** Window geometry, rail widths, theme, and the plain preferences. */
   settings: string;
   /**
@@ -194,6 +196,7 @@ export function resolveAppPaths(
     userData,
     sessions: join(userData, 'sessions'),
     harnessSessions: join(userData, 'harness', 'sessions'),
+    harnessVersions: join(userData, 'harness', 'versions'),
     settings: join(userData, 'settings.json'),
     secretsDir,
     /*

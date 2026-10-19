@@ -47,6 +47,7 @@ import {FeedbackStore} from '../feedback.js';
 import {MemoryProposalStore} from '../memory-proposals.js';
 import type {AppPaths} from '../paths.js';
 import {FileEventStore} from '../events/file-event-store.js';
+import type {HarnessVersionStore} from '../harness-versions.js';
 import type {SecretRead} from '../secrets.js';
 import type {ProfileStore} from '../profiles.js';
 import type {SettingsStore} from '../settings.js';
@@ -94,6 +95,8 @@ export interface HarnessRuntimeOptions {
   ) => Promise<JobService | undefined>;
   /** Search, when this install has a provider. */
   webSearch?: WebSearchProvider;
+  /** The frozen-spec ledger, when this install keeps one. */
+  versions?: HarnessVersionStore;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -201,6 +204,14 @@ export class HarnessRuntime {
       yield failed(sessionId, error);
       return;
     }
+
+    /*
+     * Audit, not the conversation. A ledger that cannot be written is worth a
+     * missing record, not a turn that never starts.
+     */
+    await this.options.versions
+      ?.record(prepared.harness)
+      .catch(() => undefined);
 
     const state = this.stateFor(sessionId, prepared.config);
     state.driver.current = this.driverFor(prepared, sessionId);

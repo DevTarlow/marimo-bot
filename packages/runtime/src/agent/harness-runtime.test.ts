@@ -17,6 +17,7 @@ import {ProfileStore} from '../profiles.js';
 import {SettingsStore} from '../settings.js';
 import {WorkspaceStore} from '../workspaces.js';
 import {HarnessRuntime} from './harness-runtime.js';
+import {HarnessVersionStore} from '../harness-versions.js';
 
 const roots: string[] = [];
 
@@ -115,6 +116,9 @@ function runtimeFrom(
   return new HarnessRuntime({
     ...deps,
     driverFactory,
+    versions: new HarnessVersionStore({
+      rootDir: deps.paths.harnessVersions,
+    }),
     ...(reviewer === undefined ? {} : {reviewer}),
     ...(answerer === undefined ? {} : {answerer}),
   });
@@ -383,6 +387,21 @@ describe('HarnessRuntime', () => {
     expect(missing.ok).toBe(false);
     expect(missing.result).toContain('Nobody');
     expect(other.id).not.toBe(profileId);
+  });
+
+  it('records the harness a turn ran under', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hello'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(runtime.run(profileId, 's1', 'Hello'));
+    const records = await new HarnessVersionStore({
+      rootDir: deps.paths.harnessVersions,
+    }).list();
+    expect(records).toHaveLength(1);
+    expect(records[0]?.spec.id).toBe(profileId);
+    expect(records[0]?.spec.version).toBe(1);
   });
 
   it('proposes a memory from a conversation and remembers it was read', async () => {

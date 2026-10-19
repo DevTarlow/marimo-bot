@@ -7,8 +7,9 @@ without the code that enforces it.
 
 The old code is deleted only when every row says **ported** and the full suite is
 green. The status column is updated in the same commit as the test. The old
-`AgentHost` remains because 18, 19, 27 and 28 are still planned: v2 answers a
-bot-to-bot question but does not run a helper tool turn or post an async task.
+`AgentHost` remains as a class because 18 and 19 are still planned, but the app
+has no ordinary path that constructs one. V2 answers a bot-to-bot question and
+posts an async task, but does not run a same-conversation helper tool turn.
 
 | #   | Invariant                                                                    | V1 home                                              | V2 test target                                                                                                                                                                                                                       | Status  |
 | --- | ---------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |

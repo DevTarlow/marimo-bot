@@ -326,10 +326,12 @@ continue on v2 too. A waiting v1 card is imported as a canonical approval with
 the original call, confirmation id, tool and arguments, so it can be answered on
 v2. There is no environment escape left for an ordinary conversation.
 
-What is still old: v1 turns behind the escape hatch, and same-conversation helper
-delegation where the helper can raise a gate the parent resumes. The session
-index is a shared runtime service, so creating, listing, renaming, moving,
-deleting and reading a chat no longer builds the old host. V2 also caps the
+What is still old: same-conversation helper delegation where the helper can raise
+a gate the parent resumes, and the `AgentHost` class itself. The app no longer
+constructs a host on an ordinary path: a v1 conversation is migrated, and an
+unreadable import reports a sentence. The session index is a shared runtime
+service, so creating, listing, renaming, moving, deleting and reading a chat does
+not build one either. V2 also caps the
 replayed history at a hard ceiling and says when it did; that remains a safety
 net behind the explicit summary.
 

@@ -1684,6 +1684,48 @@ export class AgentRuntime {
   }
 
   /**
+   * Brings a v1 conversation forward, when it is safe to do so.
+   *
+   * A waiting card is the one thing that must not move: its call belongs to the
+   * old invocation and the click that answers it resumes that host. Everything
+   * else is words, and a conversation that continues on v2 is better than one
+   * that keeps needing the old engine forever.
+   */
+  async migrateLegacy(profileId: string, sessionId: string): Promise<boolean> {
+    const entry = await this.assertIndexOwned(sessionId, profileId);
+    const harness = this.harness();
+    if (await harness.hasLog(sessionId)) {
+      return false;
+    }
+    const events = await this.sessionIndex.listEvents(sessionId);
+    if (adkPendingGatesIn(events).length > 0) {
+      return false;
+    }
+    const profile = await this.profileFor(profileId);
+    if (profile === undefined) {
+      return false;
+    }
+    const messages = projectTranscript(events);
+    if (messages.length === 0) {
+      return false;
+    }
+    const imported = await harness.importLegacy(
+      profileId,
+      sessionId,
+      {
+        title: entry.title,
+        ...(entry.workspaceId === undefined
+          ? {}
+          : {spaceId: entry.workspaceId}),
+        ...(entry.purpose === undefined ? {} : {purpose: entry.purpose}),
+        author: profile.name,
+      },
+      messages,
+    );
+    return imported.imported;
+  }
+
+  /**
    * One conversation's stored events and title, for the recall indexer.
    *
    * Raw events rather than the projected transcript, because the indexer renders

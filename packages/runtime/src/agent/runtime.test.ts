@@ -141,6 +141,42 @@ describe('AgentRuntime', () => {
     expect(hosts.size).toBe(0);
   });
 
+  it('brings a v1 conversation forward into the canonical log', async () => {
+    const agent = runtime();
+    const summary = await agent.createSession(profileId);
+    const sessionId = summary?.id ?? '';
+    const store = new FileSessionService({rootDir: paths.sessions});
+    const session = await store.getSession({
+      appName: 'marimo',
+      userId: 'local',
+      sessionId,
+    });
+    if (session === undefined) {
+      throw new Error('the session was not created');
+    }
+    for (const [author, role, text] of [
+      ['user', 'user', 'The old question.'],
+      ['Marimo Bot', 'model', 'The old answer.'],
+    ] as const) {
+      await store.appendEvent({
+        session,
+        event: {
+          id: `legacy-${author}`,
+          author,
+          content: {role, parts: [{text}]},
+          timestamp: Date.now(),
+        } as unknown as AdkEvent,
+      });
+    }
+
+    expect(await agent.migrateLegacy(profileId, sessionId)).toBe(true);
+    const transcript = await agent.transcript(profileId, sessionId);
+    expect(transcript.messages.map((message) => message.text)).toEqual([
+      'The old question.',
+      'The old answer.',
+    ]);
+  });
+
   /*
    * The size control in Settings reads these three numbers. They come from the
    * agent's own store rather than from a second copy of the setting, which is

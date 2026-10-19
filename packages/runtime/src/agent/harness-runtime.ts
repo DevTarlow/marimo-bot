@@ -393,6 +393,78 @@ export class HarnessRuntime {
     };
   }
 
+  /**
+   * Brings a v1 conversation's visible words into the canonical log.
+   *
+   * Best effort and one-way: the old ADK store stays where it is, and this only
+   * runs when the conversation has no pending card. Tool calls are not replayed
+   * — a migrated turn is the words, not the machinery — because inventing a tool
+   * result for a call whose arguments are only partly known would be worse than
+   * losing the fold. The next turn reads the words and continues on v2.
+   */
+  async importLegacy(
+    profileId: string,
+    sessionId: string,
+    info: {
+      title: string;
+      spaceId?: string;
+      purpose?: 'bot-builder';
+      author: string;
+    },
+    messages: readonly TranscriptMessage[],
+  ): Promise<{imported: boolean; reason?: string}> {
+    if (await this.hasLog(sessionId)) {
+      return {imported: false, reason: 'This conversation is already on v2.'};
+    }
+    const visible = messages.filter(
+      (message) => message.text.trim().length > 0,
+    );
+    if (visible.length === 0) {
+      return {imported: false, reason: 'There was nothing to bring forward.'};
+    }
+    const first = visible[0];
+    const events: import('@marimo/agent').SessionEvent[] = [
+      {
+        id: randomUUID(),
+        sessionId,
+        at: first?.createdAt ?? new Date().toISOString(),
+        type: 'session.created',
+        profileId,
+        title: info.title,
+        ...(info.spaceId === undefined ? {} : {spaceId: info.spaceId}),
+        ...(info.purpose === undefined ? {} : {purpose: info.purpose}),
+      },
+    ];
+    visible.forEach((message, index) => {
+      const turnId = `legacy-${String(Math.floor(index / 2))}`;
+      if (message.role === 'user') {
+        events.push({
+          id: randomUUID(),
+          sessionId,
+          at: message.createdAt,
+          turnId,
+          type: 'user.message',
+          text: message.text,
+        });
+      } else {
+        events.push({
+          id: randomUUID(),
+          sessionId,
+          at: message.createdAt,
+          turnId,
+          type: 'assistant.message',
+          author: info.author,
+          text: message.text,
+          ...(message.reasoning === undefined
+            ? {}
+            : {reasoning: message.reasoning}),
+        });
+      }
+    });
+    await this.store.append(sessionId, events);
+    return {imported: true};
+  }
+
   /** One v2 conversation's turns and the usage its completed turns reported. */
   async sessionUsage(
     profileId: string,

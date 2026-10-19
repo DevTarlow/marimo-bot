@@ -317,13 +317,18 @@ search, web search and fetch, jobs, bot drafting, direct @ addressing,
 rename/delete, compaction, and the companion's turn instruction. Documents are
 the runtime's own service on both engines.
 
-What is still old: v1 turns and same-conversation helper delegation where the
-helper can raise a gate the parent resumes. The session index itself is now a
-shared runtime service: creating, listing, renaming, moving, deleting and reading
-a v2 chat no longer builds the old host, and a new chat is identified from its
-index row rather than by asking the host for an empty transcript. V2 also caps the replayed
-history at a hard ceiling and says when it did; that remains a safety net behind
-the explicit summary.
+A v1 conversation is brought forward on its next unaddressed send when it has no
+waiting card: its visible words are written into the canonical log and the turn
+continues on v2. The old ADK log is left where it is, and the migration is
+one-way. A conversation with a waiting gate, an addressed turn, or the
+`MARIMO_HARNESS_V1=1` escape stays on v1 for that path.
+
+What is still old: v1 turns for those cases, and same-conversation helper
+delegation where the helper can raise a gate the parent resumes. The session
+index is a shared runtime service, so creating, listing, renaming, moving,
+deleting and reading a chat no longer builds the old host. V2 also caps the
+replayed history at a hard ceiling and says when it did; that remains a safety
+net behind the explicit summary.
 
 ## Phase 2: memory, skills and a review
 

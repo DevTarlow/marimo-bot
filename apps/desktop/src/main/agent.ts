@@ -1568,6 +1568,25 @@ export class AgentService {
      */
     this.busyProfileId = profileId;
 
+    /*
+     * A v1 conversation that is not waiting on a card can be brought forward
+     * before this send. The old log is left where it is; the words are written
+     * into the canonical log and the next turn continues there. An addressed
+     * turn or the escape hatch stays on v1.
+     */
+    if (
+      agentId === undefined &&
+      process.env['MARIMO_HARNESS_V1'] !== '1' &&
+      !(await this.harnessHasLog(sessionId))
+    ) {
+      try {
+        await this.runtime.migrateLegacy(profileId, sessionId);
+      } catch {
+        // A migration that could not read the old log leaves the conversation
+        // on v1; the send below still reaches the host and reports its own error.
+      }
+    }
+
     if (await this.useHarness(profileId, sessionId, origin, agentId)) {
       const harness = this.runtime.harness();
       if (harness.isRunning(sessionId)) {

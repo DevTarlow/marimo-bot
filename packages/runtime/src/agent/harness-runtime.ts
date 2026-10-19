@@ -280,6 +280,79 @@ export class HarnessRuntime {
     return projectPendingGates(await this.store.read(sessionId));
   }
 
+  /**
+   * Counts for the Settings card: what this profile's v2 logs hold.
+   *
+   * A report is a read across every conversation, so it is on demand rather than
+   * on the turn path. A log this build cannot read is counted, not hidden; one
+   * bad file must not stop the rest of the report.
+   */
+  async report(profileId: string): Promise<{
+    conversations: {v2: number};
+    turns: number;
+    usage: {promptTokens: number; completionTokens: number; totalTokens: number};
+    unreadableLogs: number;
+    harnessVersions: number;
+    pendingProposals: number;
+    skills: number;
+    paths: {harnessSessions: string; harnessVersions: string};
+  }> {
+    let v2 = 0;
+    let turns = 0;
+    let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+    let unreadableLogs = 0;
+    const ids = this.store.list === undefined ? [] : await this.store.list();
+    for (const id of ids) {
+      let events;
+      try {
+        events = await this.store.read(id);
+      } catch {
+        unreadableLogs += 1;
+        continue;
+      }
+      const owner =
+        events.find((event) => event.type === 'session.created')?.profileId ??
+        events.find((event) => event.type === 'turn.started')?.profileId;
+      if (owner !== profileId) {
+        continue;
+      }
+      v2 += 1;
+      for (const event of events) {
+        if (event.type === 'turn.started') {
+          turns += 1;
+        } else if (event.type === 'turn.completed' && event.usage !== undefined) {
+          promptTokens += event.usage.promptTokens;
+          completionTokens += event.usage.completionTokens;
+          totalTokens += event.usage.totalTokens;
+        }
+      }
+    }
+    const versions =
+      this.options.versions === undefined
+        ? []
+        : await this.options.versions.list().catch(() => []);
+    const proposals = (await this.proposals.load()).proposals.filter(
+      (proposal) => proposal.profileId === profileId,
+    ).length;
+    const skills = (await this.skillStore.load()).length;
+    return {
+      conversations: {v2},
+      turns,
+      usage: {promptTokens, completionTokens, totalTokens},
+      unreadableLogs,
+      harnessVersions: versions.filter((record) => record.spec.id === profileId)
+        .length,
+      pendingProposals: proposals,
+      skills,
+      paths: {
+        harnessSessions: this.options.paths.harnessSessions,
+        harnessVersions: this.options.paths.harnessVersions,
+      },
+    };
+  }
+
   async participants(profileId: string, sessionId: string): Promise<string[]> {
     await this.assertOwner(sessionId, profileId);
     return participantsIn(await this.store.read(sessionId));

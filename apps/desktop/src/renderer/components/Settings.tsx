@@ -45,6 +45,7 @@ import type {
   CatalogTool,
   CompanionAnswerLength,
   McpStatus,
+  HarnessReport,
   ProfileCatalog,
   PublicSettings,
   SettingsPatch,
@@ -1045,6 +1046,16 @@ export function Settings({
           )}
         </SettingsSection>
 
+        <SettingsSection title="Harness" opened={opened} onToggle={fold}>
+          {opened.has('Harness') && loaded.profile !== undefined ? (
+            <HarnessCard profileId={loaded.profile.id} />
+          ) : (
+            <p className="settings-muted">
+              What the rebuilt engine has recorded for this bot.
+            </p>
+          )}
+        </SettingsSection>
+
         {/*
           The procedures this bot can load.
 
@@ -1951,6 +1962,118 @@ function ProviderSection({
  * agent's save does: a list of switches is where a person makes that decision
  * deliberately.
  */
+function HarnessCard({
+  profileId,
+}: {
+  profileId: string;
+}): React.JSX.Element {
+  const [report, setReport] = useState<HarnessReport | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    setReport(null);
+    setProblem(null);
+    void window.marimo
+      .call('harness.report', {profileId})
+      .then((next) => {
+        if (live) {
+          setReport(next);
+        }
+      })
+      .catch((failure: unknown) => {
+        if (live) {
+          setProblem(describe(failure));
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [profileId, nonce]);
+
+  if (problem !== null) {
+    return <p className="settings-muted">{problem}</p>;
+  }
+  if (report === null) {
+    return <p className="settings-muted">Reading the logs…</p>;
+  }
+
+  const number = (value: number): string => value.toLocaleString();
+  const tokenTotal =
+    report.usage.totalTokens ||
+    report.usage.promptTokens + report.usage.completionTokens;
+
+  return (
+    <div className="harness-report">
+      <div className="settings-row">
+        <p className="settings-muted">
+          New conversations run on the rebuilt engine. A conversation that
+          already has a v1 history stays on v1, so the two counts can both be
+          non-zero.
+        </p>
+        <button
+          type="button"
+          className="button button-quiet button-small"
+          onClick={() => {
+            setNonce((value) => value + 1);
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+      <dl>
+        <div>
+          <dt>Conversations</dt>
+          <dd>
+            {number(report.conversations.v2)} v2 ·{' '}
+            {number(report.conversations.v1)} v1
+          </dd>
+        </div>
+        <div>
+          <dt>Turns</dt>
+          <dd>{number(report.turns)}</dd>
+        </div>
+        <div>
+          <dt>Tokens</dt>
+          <dd>
+            {number(tokenTotal)} total · {number(report.usage.promptTokens)}{' '}
+            prompt · {number(report.usage.completionTokens)} completion
+          </dd>
+        </div>
+        <div>
+          <dt>Harness versions</dt>
+          <dd>{number(report.harnessVersions)}</dd>
+        </div>
+        <div>
+          <dt>Memory suggestions</dt>
+          <dd>{number(report.pendingProposals)} waiting</dd>
+        </div>
+        <div>
+          <dt>Skills on disk</dt>
+          <dd>{number(report.skills)}</dd>
+        </div>
+        <div>
+          <dt>Scheduled jobs</dt>
+          <dd>{number(report.jobs)}</dd>
+        </div>
+      </dl>
+      {report.unreadableLogs > 0 ? (
+        <p className="settings-muted">
+          {number(report.unreadableLogs)} v2 log
+          {report.unreadableLogs === 1 ? '' : 's'} could not be read and{' '}
+          {report.unreadableLogs === 1 ? 'is' : 'are'} not counted above.
+        </p>
+      ) : null}
+      <p className="settings-muted">
+        Harness logs: <code>{report.paths.harnessSessions}</code>
+        <br />
+        Version ledger: <code>{report.paths.harnessVersions}</code>
+      </p>
+    </div>
+  );
+}
+
 function SkillsCard({
   skills,
   granted,

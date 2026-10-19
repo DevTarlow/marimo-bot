@@ -46,6 +46,7 @@ import type {
   DocumentRead,
   DocumentRevision,
   DocumentWrite,
+  HarnessReport,
   Job,
   McpServer,
   McpStatus,
@@ -1055,6 +1056,30 @@ export class AgentService {
 
   async removeSkill(id: string): Promise<StoredSkill[]> {
     return await this.runtime.removeSkill(id);
+  }
+
+  /** Counts for the Settings card and a bug report. */
+  async harnessReport(profileId: string): Promise<HarnessReport> {
+    const report = await this.runtime.harness().report(profileId);
+    const sessions = await this.runtime.listSessions(profileId);
+    const jobs = (await this.jobsStore.load()).jobs.filter(
+      (job) => job.profileId === profileId,
+    ).length;
+    return {
+      engine: 'v2-for-new',
+      conversations: {
+        ...report.conversations,
+        v1: Math.max(0, sessions.length - report.conversations.v2),
+      },
+      turns: report.turns,
+      usage: report.usage,
+      unreadableLogs: report.unreadableLogs,
+      harnessVersions: report.harnessVersions,
+      pendingProposals: report.pendingProposals,
+      skills: report.skills,
+      jobs,
+      paths: report.paths,
+    };
   }
 
   async skillHistory(id: string): Promise<SkillHistoryEntry[]> {

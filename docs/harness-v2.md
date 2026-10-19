@@ -356,8 +356,14 @@ data, not the conversation, so a ledger that cannot be written does not stop the
 turn. The turn itself still carries the version and hash, which is what names the
 record.
 
-Not yet in Phase 2: rollback from the ledger, a learning dashboard, and usage
-accounting.
+**The Harness card** in Settings reads a report on demand: v1 and v2
+conversation counts for the active bot, turns, the token totals the provider
+reported, the number of frozen specs, waiting memory suggestions, skills and
+jobs, and the two data paths. It reads every v2 log, so it mounts only when the
+card is opened and has its own Refresh; it is not on the turn path.
+
+Not yet in Phase 2: rollback from the ledger, per-conversation usage, and a
+learning dashboard beyond these counts.
 
 ## Phase 3: participants, so far
 

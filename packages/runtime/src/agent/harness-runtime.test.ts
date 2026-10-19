@@ -404,6 +404,40 @@ describe('HarnessRuntime', () => {
     expect(records[0]?.spec.version).toBe(1);
   });
 
+  it('counts conversations, turns and the usage the provider reported', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'One'},
+        {type: 'usage', usage: {promptTokens: 10, completionTokens: 4, totalTokens: 14}},
+        {type: 'done'},
+      ],
+      [
+        {type: 'step'},
+        {type: 'message', text: 'Two'},
+        {type: 'usage', usage: {promptTokens: 20, completionTokens: 6, totalTokens: 26}},
+        {type: 'done'},
+      ],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    await collect(runtime.run(profileId, 's1', 'First'));
+    await collect(runtime.run(profileId, 's2', 'Second'));
+
+    const report = await runtime.report(profileId);
+    expect(report.conversations.v2).toBe(2);
+    expect(report.turns).toBe(2);
+    expect(report.usage).toEqual({
+      promptTokens: 30,
+      completionTokens: 10,
+      totalTokens: 40,
+    });
+    expect(report.harnessVersions).toBe(1);
+    expect(report.pendingProposals).toBe(0);
+    expect(report.unreadableLogs).toBe(0);
+    expect(report.paths.harnessSessions).toContain('harness');
+  });
+
   it('proposes a memory from a conversation and remembers it was read', async () => {
     const driver = new ScriptedDriver([
       [

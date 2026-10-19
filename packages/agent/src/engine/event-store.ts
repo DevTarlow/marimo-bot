@@ -13,6 +13,8 @@ export interface EventStore {
   read(sessionId: string): Promise<SessionEvent[]>;
   /** Whether a conversation has a stored log. */
   has?(sessionId: string): Promise<boolean>;
+  /** Every conversation with a stored log, for a report or a cleanup. */
+  list?(): Promise<string[]>;
   /** Remove a conversation's log, when the conversation is deleted. */
   delete?(sessionId: string): Promise<void>;
 }
@@ -41,6 +43,10 @@ export class MemoryEventStore implements EventStore {
 
   async has(sessionId: string): Promise<boolean> {
     return this.sessions.has(sessionId);
+  }
+
+  async list(): Promise<string[]> {
+    return [...this.sessions.keys()];
   }
 
   async delete(sessionId: string): Promise<void> {

@@ -629,6 +629,9 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'skills.list': async () => ({skills: await agent().skills()}),
     'skills.save': async (params) =>
       await agent().saveSkill(params.draft, params.id),
+    'harness.report': async (params) =>
+      await agent().harnessReport(params.profileId),
+
     'skills.history': async (params) => ({
       entries: await agent().skillHistory(params.id),
     }),

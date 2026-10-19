@@ -10,7 +10,14 @@
  * because a lenient read plus a write is how a conversation disappears. The
  * caller gets an `EventLogError` naming the line and decides what to do.
  */
-import {access, appendFile, mkdir, readFile, unlink} from 'node:fs/promises';
+import {
+  access,
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  unlink,
+} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {parseSessionEvent} from '@marimo/agent';
@@ -160,6 +167,14 @@ export class FileEventStore implements EventStore {
       events.push(parsed.event);
     }
     return events;
+  }
+
+  async list(): Promise<string[]> {
+    await mkdir(this.rootDir, {recursive: true});
+    const names = await readdir(this.rootDir);
+    return names
+      .filter((name) => name.endsWith('.jsonl'))
+      .map((name) => name.slice(0, -'.jsonl'.length));
   }
 
   async has(sessionId: string): Promise<boolean> {

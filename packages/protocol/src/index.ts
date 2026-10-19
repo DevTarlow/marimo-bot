@@ -1893,6 +1893,28 @@ export interface CompactResult {
   reason?: string;
 }
 
+/**
+ * What this install's harness is doing, for the Settings card and a bug report.
+ *
+ * Counts rather than contents: this is the shape a person can read and paste into
+ * a report, while the ledger holds the specs and the logs hold the turns. The
+ * token totals are the v2 logs' own `turn.completed` usage, so they are a fact
+ * about what the provider reported rather than a local estimate.
+ */
+export interface HarnessReport {
+  engine: 'v2-for-new';
+  conversations: {v2: number; v1: number};
+  turns: number;
+  usage: TokenUsage;
+  /** A v2 log this build could not read, counted rather than hidden. */
+  unreadableLogs: number;
+  harnessVersions: number;
+  pendingProposals: number;
+  skills: number;
+  jobs: number;
+  paths: {harnessSessions: string; harnessVersions: string};
+}
+
 /* -------------------------------------------------------------------------- */
 /* To-dos                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -3169,6 +3191,7 @@ export const agentCallSchemas = {
    * result the window draws rather than a stream of events. The conversation it
    * acted on is re-read afterwards, which is what shows the summary card.
    */
+  'harness.report': z.object({profileId: z.string().min(1)}),
   'sessions.compact': z.object({
     profileId: z.string().min(1),
     sessionId: z.string().min(1),
@@ -3577,6 +3600,7 @@ export interface AgentCallResults {
   'sessions.move': {session: SessionSummary};
   'sessions.rename': {session: SessionSummary};
   'sessions.compact': CompactResult;
+  'harness.report': HarnessReport;
   'sessions.delete': {deleted: boolean};
   /**
    * What was attached and what was refused, with the folder both were judged

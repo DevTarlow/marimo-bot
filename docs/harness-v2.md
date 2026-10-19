@@ -326,14 +326,21 @@ continue on v2 too. A waiting v1 card is imported as a canonical approval with
 the original call, confirmation id, tool and arguments, so it can be answered on
 v2. There is no environment escape left for an ordinary conversation.
 
-What is still old: same-conversation helper delegation where the helper can raise
-a gate the parent resumes, and the `AgentHost` class itself. The app no longer
-constructs a host on an ordinary path: a v1 conversation is migrated, and an
-unreadable import reports a sentence. The session index is a shared runtime
-service, so creating, listing, renaming, moving, deleting and reading a chat does
-not build one either. V2 also caps the
-replayed history at a hard ceiling and says when it did; that remains a safety
-net behind the explicit summary.
+What is still old: the `AgentHost` class itself, which the app no longer
+constructs on an ordinary path. A v1 conversation is migrated, and an unreadable
+import reports a sentence. The session index is a shared runtime service, so
+creating, listing, renaming, moving, deleting and reading a chat does not build
+one either.
+
+`ask_agent` is now a real helper: the target bot runs as an ADK agent in the
+parent's session, with the tools its profile grants but without `ask_agent`
+(depth is one). A tool it gates raises a card on the parent's `ask_agent` call;
+the approval wakes the helper on the exact call it stopped on, through the parked
+ADK session kept for that parent conversation. The target's own memory, Space and
+model are resolved the same way a normal turn resolves them.
+
+V2 also caps the replayed history at a hard ceiling and says when it did; that
+remains a safety net behind the explicit summary.
 
 ## Phase 2: memory, skills and a review
 

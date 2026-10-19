@@ -41,6 +41,7 @@ import {
   type SkillToolService,
   type WebSearchProvider,
   type TurnDriver,
+  type ToolContext,
 } from '@marimo/agent';
 
 import type {MemoryProposal} from '@marimo/protocol';
@@ -165,6 +166,8 @@ export class HarnessRuntime {
   private readonly proposals: MemoryProposalStore;
   private readonly feedback: FeedbackStore;
   private readonly states = new Map<string, SessionState>();
+  /** ADK sessions left parked on a helper gate, keyed by parent session. */
+  private readonly helperSessions = new Map<string, unknown>();
   /** Task conversations opened by start_task; they may not start another. */
   private readonly taskSessions = new Set<string>();
 
@@ -197,6 +200,7 @@ export class HarnessRuntime {
     instruction?: string,
     purpose?: 'bot-builder',
   ): AsyncGenerator<AgentUiEvent> {
+    this.helperSessions.delete(sessionId);
     let prepared: Prepared;
     try {
       await this.assertOwner(sessionId, profileId);
@@ -296,6 +300,8 @@ export class HarnessRuntime {
       );
     } catch (error) {
       yield failed(params.sessionId, busyOr(error));
+    } finally {
+      this.helperSessions.delete(params.sessionId);
     }
   }
 
@@ -1112,27 +1118,15 @@ export class HarnessRuntime {
       return this.options.driverFactory(prepared.config);
     }
     const profileId = prepared.profile.id;
-    const skills: SkillToolService = {
-      load: async (name) => {
-        const answer = await this.skillService.load(profileId, name);
-        return {
-          ...(answer.skill === undefined
-            ? {}
-            : {
-                skill: {
-                  name: answer.skill.name,
-                  description: answer.skill.description,
-                  instructions: answer.skill.instructions,
-                },
-              }),
-          names: answer.names,
-        };
-      },
-      save: async (input) =>
-        await this.skillService.saveFromAgent(input, profileId),
-    };
+    const skills = this.skillToolsFor(profileId);
     return new AdkDriver({
       resolveModel: () => this.llmFor(prepared.config),
+      resolveHelper: async (agent, signal) =>
+        await this.helperFor(agent, sessionId, signal),
+      resumeSessions: (id) => this.helperSessions.get(id),
+      rememberSessions: (id, sessions) => {
+        this.helperSessions.set(id, sessions);
+      },
       promptContext: async () => ({
         memory: await prepared.memory.readForPrompt(),
         skills: (await this.skillService.grantedForProfile(profileId)).map(
@@ -1166,6 +1160,102 @@ export class HarnessRuntime {
             }),
       }),
     });
+  }
+
+  /** The skill service one profile's turn or helper sees. */
+  private skillToolsFor(profileId: string): SkillToolService {
+    return {
+      load: async (name) => {
+        const answer = await this.skillService.load(profileId, name);
+        return {
+          ...(answer.skill === undefined
+            ? {}
+            : {
+                skill: {
+                  name: answer.skill.name,
+                  description: answer.skill.description,
+                  instructions: answer.skill.instructions,
+                },
+              }),
+          names: answer.names,
+        };
+      },
+      save: async (input) =>
+        await this.skillService.saveFromAgent(input, profileId),
+    };
+  }
+
+  /**
+   * A helper another bot asked for, built for the parent's session.
+   *
+   * Same session id, same ADK session service as the parent's turn: that is what
+   * makes the delegation a tool call in one conversation rather than a second
+   * live host. The helper gets the target's full tool set (less `ask_agent`,
+   * which the driver omits) and its own memory and Space.
+   */
+  private async helperFor(
+    agent: string,
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<
+    | {
+        harness: HarnessSpec;
+        model: ReturnType<HarnessRuntime['llmFor']>;
+        promptContext: {
+          memory: string;
+          skills: Array<{name: string; description: string}>;
+        };
+        toolContext: ToolContext;
+        name: string;
+      }
+    | {problem: string}
+  > {
+    const wanted = agent.trim().toLocaleLowerCase();
+    const target = (await this.options.profiles.profiles()).find(
+      (profile) =>
+        profile.id === agent.trim() ||
+        profile.name.trim().toLocaleLowerCase() === wanted,
+    );
+    if (target === undefined) {
+      return {problem: `There is no bot called "${agent.trim()}" on this computer.`};
+    }
+    try {
+      const prepared = await this.prepare(target.id, sessionId);
+      const skills = this.skillToolsFor(target.id);
+      return {
+        harness: prepared.harness,
+        model: this.llmFor(prepared.config),
+        name: target.name,
+        promptContext: {
+          memory: await prepared.memory.readForPrompt(),
+          skills: (await this.skillService.grantedForProfile(target.id)).map(
+            (skill: StoredSkill) => ({
+              name: skill.name,
+              description: skill.description,
+            }),
+          ),
+        },
+        toolContext: {
+          workspaceRoot: prepared.workspaceRoot,
+          signal,
+          memory: prepared.memory,
+          skills,
+          ...(prepared.recall === undefined ? {} : {recall: prepared.recall}),
+          ...(prepared.jobs === undefined ? {} : {jobs: prepared.jobs}),
+          sessionId,
+          profileId: target.id,
+          allowPrivateNetworkFetch:
+            prepared.harness.tools.policy.network === 'private',
+          ...(this.options.webSearch === undefined
+            ? {}
+            : {webSearch: this.options.webSearch}),
+        },
+      };
+    } catch (error) {
+      return {
+        problem: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**

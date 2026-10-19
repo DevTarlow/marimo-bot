@@ -46,6 +46,26 @@ import {
   type ToolOutcome,
 } from './tool-contract.js';
 
+/**
+ * The smallest shape of ADK's tool context this driver uses. Kept structural
+ * because only the ADK side may name ADK's types.
+ */
+interface AdkToolContext {
+  functionCallId?: string;
+  toolConfirmation?: {confirmed: boolean; payload?: Record<string, unknown>};
+  requestConfirmation?: (request: {hint?: string}) => void;
+  abortSignal?: AbortSignal;
+}
+
+/** A bot another bot may ask, and the context its own turn runs with. */
+export interface HelperTarget {
+  harness: HarnessSpec;
+  model: BaseLlm;
+  promptContext: HarnessPromptContext;
+  toolContext: ToolContext;
+  name: string;
+}
+
 export interface AdkDriverOptions {
   /** Builds the model client for a harness. May throw if a key is missing. */
   resolveModel: (harness: HarnessSpec) => BaseLlm;
@@ -60,6 +80,15 @@ export interface AdkDriverOptions {
     harness: HarnessSpec,
     signal: AbortSignal,
   ) => ToolContext | Promise<ToolContext>;
+  /** The ADK session a parked helper left behind, when one exists. */
+  resumeSessions?: (sessionId: string) => unknown;
+  /** Remembers the ADK session of a parked helper for the approval resume. */
+  rememberSessions?: (sessionId: string, sessions: unknown) => void;
+  /** Resolves a helper by the name the parent used. */
+  resolveHelper?: (
+    agent: string,
+    signal: AbortSignal,
+  ) => Promise<HelperTarget | {problem: string}>;
   appName?: string;
   userId?: string;
 }
@@ -116,17 +145,18 @@ export class AdkDriver implements TurnDriver {
     const history = input.history.filter(
       (event) => turnIdOf(event) !== input.turnId,
     );
-    const sessions = await this.sessionsFrom(
-      input.sessionId,
-      history,
-      input.harness,
-    );
+    const cached = this.options.resumeSessions?.(input.sessionId);
+    const sessions =
+      cached === undefined
+        ? await this.sessionsFrom(input.sessionId, history, input.harness)
+        : (cached as InMemorySessionService);
     const context = await this.toolContextFor(input.harness, input.signal);
     const runner = this.runnerFor(
       input.harness,
       sessions,
       context,
       input.instruction,
+      input.sessionId,
     );
     yield* this.stream(runner, {
       sessionId: input.sessionId,
@@ -152,17 +182,18 @@ export class AdkDriver implements TurnDriver {
       };
       return;
     }
-    const sessions = await this.sessionsFrom(
-      input.sessionId,
-      history,
-      input.harness,
-    );
+    const cached = this.options.resumeSessions?.(input.sessionId);
+    const sessions =
+      cached === undefined
+        ? await this.sessionsFrom(input.sessionId, history, input.harness)
+        : (cached as InMemorySessionService);
     const context = await this.toolContextFor(input.harness, input.signal);
     const runner = this.runnerFor(
       input.harness,
       sessions,
       context,
       input.instruction,
+      input.sessionId,
     );
     yield* this.stream(runner, {
       sessionId: input.sessionId,
@@ -403,11 +434,15 @@ export class AdkDriver implements TurnDriver {
     sessions: InMemorySessionService,
     context: ToolContext,
     instruction: string | undefined,
+    sessionId: string,
+    promptContext?: HarnessPromptContext,
+    omitTools?: ReadonlySet<string>,
+    model?: BaseLlm,
   ): Runner {
     const agent = new LlmAgent({
       name: adkAgentName(harness.id),
       description: harness.identity.role.slice(0, 200) || harness.identity.name,
-      model: this.options.resolveModel(harness),
+      model: model ?? this.options.resolveModel(harness),
       /*
        * Read per request rather than once per turn: a memory write or a saved
        * skill should reach the very next request, which is the sentence those
@@ -415,13 +450,16 @@ export class AdkDriver implements TurnDriver {
        * surrounding itself with does.
        */
       instruction: async () => {
-        const prompt = (await this.options.promptContext?.(harness)) ?? {};
+        const prompt =
+          promptContext ??
+          (await this.options.promptContext?.(harness)) ??
+          {};
         return composeHarnessInstruction(harness, {
           ...prompt,
           ...(instruction === undefined ? {} : {instruction}),
         });
       },
-      tools: this.buildTools(harness, context),
+      tools: this.buildTools(harness, context, sessions, sessionId, omitTools),
     });
     return new Runner({
       appName: this.appName,
@@ -442,11 +480,214 @@ export class AdkDriver implements TurnDriver {
     );
   }
 
+  /**
+   * Runs one helper inside the parent's ADK session.
+   *
+   * The helper is a real ADK agent with its own tools, so a gate it hits ends its
+   * invocation. This tool then raises a parent card and, on approval, wakes the
+   * helper with the confirmation response for the exact call it stopped on — the
+   * same handoff the old host did, now without a second session service.
+   */
+  private async runHelper(
+    args: Record<string, unknown>,
+    adk: AdkToolContext,
+    sessions: InMemorySessionService,
+    sessionId: string,
+    signal: AbortSignal,
+  ): Promise<ToolOutcome> {
+    const agent = String(args.agent ?? '').trim();
+    const task = String(args.task ?? '').trim();
+    if (agent.length === 0 || task.length === 0) {
+      return {ok: false, result: 'ask_agent needs a bot name and a task.'};
+    }
+    if (this.options.resolveHelper === undefined) {
+      return {ok: false, result: 'There is no other bot to ask in this turn.'};
+    }
+
+    let target: HelperTarget;
+    try {
+      const resolved = await this.options.resolveHelper(agent, signal);
+      if ('problem' in resolved) {
+        return {ok: false, result: resolved.problem};
+      }
+      target = resolved;
+    } catch (error) {
+      return {ok: false, result: describeToolError(error)};
+    }
+
+    const callId = adk.functionCallId ?? 'ask_agent';
+    const decision = adk.toolConfirmation;
+    const gate =
+      decision === undefined
+        ? undefined
+        : (
+            await this.helperGates(
+              sessions,
+              sessionId,
+              adkAgentName(target.harness.id),
+              callId,
+            )
+          )[0];
+    const parts: Part[] = [];
+    if (gate !== undefined && decision !== undefined) {
+      parts.push({
+        functionResponse: {
+          id: gate.id,
+          name: REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+          response: {
+            confirmed: decision.confirmed,
+            ...(decision.payload === undefined
+              ? {}
+              : {payload: decision.payload}),
+          },
+        },
+      });
+    } else if (decision !== undefined) {
+      /*
+       * A store that cannot name the gate is still worth waking: the task is
+       * repeated so the helper has not lost what it was approved to do.
+       */
+      const news = decision.confirmed
+        ? 'The user approved this. Carry on and finish the task, then report the result.'
+        : 'The user declined this. Stop and say what you had done so far.';
+      parts.push({text: `${news}
+
+Your task:
+${task}`});
+    } else {
+      parts.push({text: task});
+    }
+
+    const runner = this.runnerFor(
+      target.harness,
+      sessions,
+      target.toolContext,
+      undefined,
+      sessionId,
+      target.promptContext,
+      new Set(['ask_agent']),
+      target.model,
+    );
+
+    let answer = '';
+    let streamed = false;
+    try {
+      for await (const event of runner.runAsync({
+        userId: this.userId,
+        sessionId,
+        newMessage: {role: 'user', parts},
+        runConfig: {streamingMode: StreamingMode.SSE},
+        abortSignal: signal,
+      })) {
+        if (signal.aborted) {
+          return {ok: false, result: 'The turn was stopped.'};
+        }
+        const eventParts = event.content?.parts ?? [];
+        const text = eventParts
+          .map((part) => part.text ?? '')
+          .filter((part) => part.length > 0)
+          .join('');
+        if (text.length > 0 && event.author === adkAgentName(target.harness.id)) {
+          if (event.partial === true) {
+            streamed = true;
+            answer += text;
+          } else {
+            if (!streamed) {
+              answer = text;
+            }
+            streamed = false;
+          }
+        }
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        result: `The helper "${target.name}" did not finish: ${describeToolError(error)}`,
+      };
+    }
+
+    const waiting = await this.helperGates(
+      sessions,
+      sessionId,
+      adkAgentName(target.harness.id),
+      callId,
+    );
+    if (waiting.length > 0) {
+      this.options.rememberSessions?.(sessionId, sessions);
+      adk.requestConfirmation?.({
+        hint: `${target.name} wants to continue. Approving lets it carry on where it stopped.`,
+      });
+      return {
+        ok: false,
+        result: `Waiting for your approval before "${target.name}" continues.`,
+      };
+    }
+    if (answer.trim().length === 0) {
+      return {
+        ok: false,
+        result: `The helper "${target.name}" finished without producing an answer.`,
+      };
+    }
+    return {ok: true, result: answer.trim()};
+  }
+
+  /** The unanswered helper gates raised after one parent ask_agent call. */
+  private async helperGates(
+    sessions: InMemorySessionService,
+    sessionId: string,
+    author: string,
+    afterCallId: string,
+  ): Promise<Array<{id: string; hint?: string}>> {
+    const session = await sessions.getSession({
+      appName: this.appName,
+      userId: this.userId,
+      sessionId,
+    });
+    const events = session?.events ?? [];
+    const start = events.findIndex((event) =>
+      (event.content?.parts ?? []).some(
+        (part) => part.functionCall?.id === afterCallId,
+      ),
+    );
+    if (start < 0) {
+      return [];
+    }
+    const asked = new Map<string, {id: string; hint?: string}>();
+    const answered = new Set<string>();
+    for (const event of events.slice(start)) {
+      for (const part of event.content?.parts ?? []) {
+        const call = part.functionCall;
+        if (
+          event.author === author &&
+          call?.name === REQUEST_CONFIRMATION_FUNCTION_CALL_NAME &&
+          call.id !== undefined
+        ) {
+          const args = call.args as
+            | {toolConfirmation?: {hint?: string}}
+            | undefined;
+          asked.set(call.id, {
+            id: call.id,
+            ...(args?.toolConfirmation?.hint === undefined
+              ? {}
+              : {hint: args.toolConfirmation.hint}),
+          });
+        }
+        if (part.functionResponse?.id !== undefined) {
+          answered.add(part.functionResponse.id);
+        }
+      }
+    }
+    return [...asked.values()].filter((entry) => !answered.has(entry.id));
+  }
+
   private buildTools(
     harness: HarnessSpec,
     context: ToolContext,
+    sessions: InMemorySessionService,
+    sessionId: string,
+    omitTools?: ReadonlySet<string>,
   ): FunctionTool<never>[] {
-    const definitions =
+    const definitions = (
       this.options.toolDefinitions?.(harness) ??
       toolsFor(harness, {
         memory: context.memory !== undefined,
@@ -455,7 +696,8 @@ export class AdkDriver implements TurnDriver {
         task: context.delegateTask !== undefined,
         jobs: context.jobs !== undefined,
         webSearch: context.webSearch !== undefined,
-      });
+      })
+    ).filter((definition) => omitTools?.has(definition.name) !== true);
     return definitions.map((definition) => {
       const rule = strongerGate(
         definition.gate ?? 'never',
@@ -468,8 +710,21 @@ export class AdkDriver implements TurnDriver {
         requireConfirmation: this.confirmationFor(rule, harness),
         execute: async (
           args: Record<string, unknown>,
+          adkContext: unknown,
         ): Promise<ToolOutcome> => {
           try {
+            if (
+              definition.name === 'ask_agent' &&
+              this.options.resolveHelper !== undefined
+            ) {
+              return await this.runHelper(
+                args,
+                adkContext as AdkToolContext,
+                sessions,
+                sessionId,
+                context.signal,
+              );
+            }
             return await definition.execute(args, context);
           } catch (error) {
             return {ok: false, result: describeToolError(error)};

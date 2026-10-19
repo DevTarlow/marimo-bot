@@ -1,12 +1,10 @@
 /**
  * `ask_agent`: a bot asking another bot for its answer.
  *
- * This is a conversation, not a delegation of work. The other bot sees its own
- * Role, Persona and memory, not the caller's conversation, and it cannot use
- * tools — so a question that needs a file or a command belongs with `ask_agent`'s
- * old job in the main conversation, not here. The narrowness is deliberate: a
- * second bot that can act would need its own approval cards, its own turn and its
- * own failure reporting, which is the collaboration work this tool is not.
+ * The helper runs in the caller's ADK session, with its own Role, Persona,
+ * memory and the tools its profile grants. A tool it needs to gate raises a card
+ * in the caller's conversation; approving it wakes the helper on the exact call
+ * it stopped on. Depth is one: the helper is built without `ask_agent`.
  */
 import {z} from 'zod';
 
@@ -20,10 +18,9 @@ import {
 export const askAgentTool: AnyToolDefinition = {
   name: 'ask_agent',
   description:
-    'Ask another bot for its answer. It sees its own instructions and memory, ' +
-    'not your conversation, and it cannot use tools — use it for a second ' +
-    'opinion or a specialty, not for work that needs files or commands. Name ' +
-    'the bot as it appears in the roster.',
+    'Ask another bot to do work. It sees its own instructions, memory and ' +
+    'granted tools, not your conversation; if it needs approval, this chat asks ' +
+    'you. Name the bot as it appears in the roster.',
   parameters: z.object({
     agent: z.string().describe('The bot name, as it appears in the roster.'),
     task: z.string().describe('What you want that bot to answer or advise on.'),

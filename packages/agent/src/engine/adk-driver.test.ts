@@ -12,7 +12,7 @@ import type {
   HarnessProfile,
   HarnessSpec,
 } from '../harness/spec.js';
-import {AdkDriver} from './adk-driver.js';
+import {AdkDriver, type HelperTarget} from './adk-driver.js';
 import type {DriverEvent} from './driver.js';
 import type {SessionEvent} from './events.js';
 
@@ -401,6 +401,158 @@ describe('AdkDriver', () => {
     });
     expect(gated.map((update) => update.type)).toContain('tool.call');
     expect(gated.map((update) => update.type)).not.toContain('tool.result');
+  });
+
+  it('runs a helper with tools in the parent session', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'existing.md'), 'old', 'utf8');
+    const parent = new ScriptedLlm([
+      [call('ask_agent', {agent: 'Reader', task: 'What is in existing.md?'}, 'a1')],
+      [text('The helper answered.')],
+    ]);
+    const helper = new ScriptedLlm([
+      [call('read_file', {path: 'existing.md'}, 'h1')],
+      [text('It says old.')],
+    ]);
+    const helperHarness = resolveHarness({
+      profile: {
+        id: 'reader',
+        name: 'Reader',
+        role: 'Read files.',
+        enabledTools: ['read_file'],
+        enabledSkills: [],
+      },
+      app,
+      version: 1,
+      workspaceRoot: dir,
+    });
+    const target: HelperTarget = {
+      harness: helperHarness,
+      model: helper,
+      name: 'Reader',
+      promptContext: {memory: '', skills: []},
+      toolContext: {workspaceRoot: dir, signal: new AbortController().signal},
+    };
+    const driver = new AdkDriver({
+      resolveModel: () => parent,
+      resolveHelper: async () => target,
+      promptContext: () => ({memory: '', skills: []}),
+      toolContext: (_harness, signal) => ({
+        workspaceRoot: dir,
+        signal,
+        delegate: async () => ({ok: false, result: 'no'}),
+      }),
+    });
+    const eventList = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Ask the reader.',
+        harness: harness(dir, ['ask_agent']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(
+      eventList.find((event) => event.type === 'tool.result'),
+    ).toMatchObject({ok: true, result: 'It says old.'});
+    expect(
+      eventList.find((event) => event.type === 'message'),
+    ).toMatchObject({text: 'The helper answered.'});
+  });
+
+  it('raises a parent card for a helper gate, then wakes the helper', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'existing.md'), 'old', 'utf8');
+    const cached = new Map<string, unknown>();
+    const parent = new ScriptedLlm([
+      [call('ask_agent', {agent: 'Reader', task: 'Replace existing.md'}, 'a1')],
+      [text('The helper replaced it.')],
+    ]);
+    const helper = new ScriptedLlm([
+      [call('write_file', {path: 'existing.md', content: 'new'}, 'h1')],
+      [text('Replaced.')],
+    ]);
+    const helperHarness = resolveHarness({
+      profile: {
+        id: 'reader',
+        name: 'Reader',
+        role: 'Read files.',
+        enabledTools: ['write_file'],
+        enabledSkills: [],
+      },
+      app,
+      version: 1,
+      workspaceRoot: dir,
+    });
+    const target: HelperTarget = {
+      harness: helperHarness,
+      model: helper,
+      name: 'Reader',
+      promptContext: {memory: '', skills: []},
+      toolContext: {workspaceRoot: dir, signal: new AbortController().signal},
+    };
+    const driver = new AdkDriver({
+      resolveModel: (harness) => (harness.id === 'reader' ? helper : parent),
+      resolveHelper: async () => target,
+      promptContext: () => ({memory: '', skills: []}),
+      toolContext: (_harness, signal) => ({
+        workspaceRoot: dir,
+        signal,
+        delegate: async () => ({ok: false, result: 'no'}),
+      }),
+      resumeSessions: (id) => cached.get(id),
+      rememberSessions: (id, sessions) => cached.set(id, sessions),
+    });
+    const first = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Ask the reader.',
+        harness: harness(dir, ['ask_agent']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const approval = first.find(
+      (event): event is Extract<DriverEvent, {type: 'approval.request'}> =>
+        event.type === 'approval.request',
+    );
+    expect(approval).toMatchObject({tool: 'ask_agent', callId: 'a1'});
+
+    const prior = history(
+      userMessage('t1', 'Ask the reader.'),
+      toolCall('t1', 'a1', 'ask_agent', {
+        agent: 'Reader',
+        task: 'Replace existing.md',
+      }),
+      gate('t1', 'a1', approval?.confirmationId ?? '', 'ask_agent', {
+        agent: 'Reader',
+        task: 'Replace existing.md',
+      }),
+      decision('t1', 'a1', approval?.confirmationId ?? ''),
+    );
+    const resumed = await collect(
+      driver.resume({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        harness: harness(dir, ['ask_agent']),
+        history: prior,
+        decisions: [{callId: 'a1', confirmed: true}],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(
+      resumed.find((event) => event.type === 'message'),
+    ).toMatchObject({text: 'The helper replaced it.'});
+    expect(
+      await import('node:fs/promises').then((fs) =>
+        fs.readFile(join(dir, 'existing.md'), 'utf8'),
+      ),
+    ).toBe('new');
   });
 
   it('resumes an approved call and records the tool result', async () => {

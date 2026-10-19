@@ -9,6 +9,7 @@ import type {HarnessAppDefaults, HarnessProfile} from '../harness/spec.js';
 import {composeHarnessInstruction} from '../context/instruction.js';
 import {CORE_TOOLS, toolsFor} from './core-tools.js';
 import type {SkillToolService, ToolContext} from './tool-contract.js';
+import type {RecallLookup} from '../tools/recall-tools.js';
 
 const app: HarnessAppDefaults = {
   model: {provider: 'deepseek', model: 'deepseek-chat'},
@@ -171,6 +172,47 @@ describe('memory and skill tools', () => {
     );
     expect(result).toMatchObject({ok: true});
     expect(String(result.result)).toContain('Reader: What do you think?');
+  });
+
+  it('searches recall only when an index is available', async () => {
+    const spec = resolveHarness({
+      profile: {...profile(), enabledTools: ['recall']},
+      app,
+      version: 1,
+    });
+    expect(toolsFor(spec, {recall: false})).toEqual([]);
+    const recall: RecallLookup = {
+      scopes: () => ['folder'],
+      search: async () => ({
+        hits: [
+          {
+            kind: 'text',
+            path: 'notes.md',
+            startLine: 4,
+            preview: 'the retry loop',
+            score: 0.8,
+            text: 'The retry loop backs off.',
+            stale: false,
+          },
+        ],
+        searched: ['folder'],
+        notes: [],
+      }),
+    };
+    expect(toolsFor(spec, {recall: true}).map((entry) => entry.name)).toEqual([
+      'recall',
+    ]);
+    const result = await tool('recall').execute(
+      {query: 'how retries work'},
+      {
+        workspaceRoot: '/tmp',
+        signal: new AbortController().signal,
+        recall,
+      },
+    );
+    expect(result).toMatchObject({ok: true});
+    expect(String(result.result)).toContain('notes.md:4');
+    expect(String(result.result)).toContain('backs off');
   });
 
   it('puts memory and the skill index in the prompt, not the skill body', () => {

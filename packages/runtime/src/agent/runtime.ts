@@ -1922,6 +1922,9 @@ export class AgentRuntime {
       profiles: this.profileStore,
       workspaces: this.workspaceStore,
       readSecret: this.options.readSecret,
+      recallFor: async (profileId, workspaceRoot) =>
+        (await this.options.services?.(profileId, workspaceRoot))
+          ?.recallService,
     });
     return this.harnessRuntime;
   }

@@ -34,6 +34,7 @@ import {
   type AgentConfig,
   type EventStore,
   type HarnessSpec,
+  type RecallLookup,
   type SkillToolService,
   type TurnDriver,
 } from '@marimo/agent';
@@ -79,6 +80,11 @@ export interface HarnessRuntimeOptions {
   reviewer?: (prompt: string) => Promise<string>;
   /** Injected by tests; the app asks a bot's own model. */
   answerer?: (prompt: string) => Promise<string>;
+  /** Recall, when the install has it switched on for this profile. */
+  recallFor?: (
+    profileId: string,
+    workspaceRoot: string,
+  ) => Promise<RecallLookup | undefined>;
   version?: number;
   now?: () => Date;
   createId?: () => string;
@@ -90,6 +96,7 @@ interface Prepared {
   harness: HarnessSpec;
   workspaceRoot: string;
   memory: MemoryStore;
+  recall?: RecallLookup;
 }
 
 interface SessionState {
@@ -506,7 +513,15 @@ export class HarnessRuntime {
       workspaceRoot,
     });
 
-    return {profile, config, harness, workspaceRoot, memory};
+    const recall = await this.options.recallFor?.(profile.id, workspaceRoot);
+    return {
+      profile,
+      config,
+      harness,
+      workspaceRoot,
+      memory,
+      ...(recall === undefined ? {} : {recall}),
+    };
   }
 
   private stateFor(sessionId: string, config: AgentConfig): SessionState {
@@ -570,6 +585,7 @@ export class HarnessRuntime {
         signal,
         memory: prepared.memory,
         skills,
+        ...(prepared.recall === undefined ? {} : {recall: prepared.recall}),
         delegate: async ({agent, task}) =>
           await this.askAgent(profileId, agent, task),
       }),

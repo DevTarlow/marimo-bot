@@ -14,6 +14,7 @@ import type {ZodObject, ZodRawShape} from 'zod';
 
 import type {GateRule} from '../harness/spec.js';
 import type {MemoryStore} from '../memory/memory-store.js';
+import type {RecallLookup} from '../tools/recall-tools.js';
 
 export type ToolOutcome =
   {ok: true; result: unknown} | {ok: false; result: string};
@@ -59,6 +60,8 @@ export interface ToolContext {
   skills?: SkillToolService;
   /** Present only when this runtime can reach another bot. */
   delegate?: (request: DelegationRequest) => Promise<DelegationResult>;
+  /** Present only when recall is switched on and has a corpus. */
+  recall?: RecallLookup;
 }
 
 export interface ToolDefinition<Args = unknown> {
@@ -75,6 +78,8 @@ export interface ToolDefinition<Args = unknown> {
   requiresSkills?: boolean;
   /** A tool that needs another bot is absent when delegation is unavailable. */
   requiresDelegate?: boolean;
+  /** A tool that needs recall is absent when the index is not available. */
+  requiresRecall?: boolean;
   execute(args: Args, context: ToolContext): Promise<ToolOutcome>;
 }
 

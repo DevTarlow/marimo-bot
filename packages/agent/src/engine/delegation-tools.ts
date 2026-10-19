@@ -45,7 +45,10 @@ export const askAgentTool: AnyToolDefinition = {
         ? outcome(true, answer.result)
         : outcome(false, answer.result);
     } catch (error) {
-      return outcome(false, `Could not ask that bot: ${describeToolError(error)}`);
+      return outcome(
+        false,
+        `Could not ask that bot: ${describeToolError(error)}`,
+      );
     }
   },
 };

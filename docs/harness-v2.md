@@ -366,6 +366,18 @@ Not yet in Phase 3: a delegated bot that can use tools and raise its own
 approval cards, asynchronous tasks, and merging delegated work into the parent
 transcript.
 
+## Phase 4: recall
+
+`recall` is a v2 tool now. It is offered only when the install has an index for
+this profile, so a capability with no corpus behind it is absent rather than a
+tool that answers "nothing available". The result keeps the v1 honesty notes —
+what was searched, a size cap, a stale file — because a short list that reads as
+"the folder holds only this" is the failure those notes exist for.
+
+Documents, jobs, the companion and the bot builder are still on the old path.
+Jobs in particular cannot move yet: a v2-created job would point at a conversation
+the old scheduler runs, so the job tools stay off in v2 until the runner does.
+
 ## What is not in scope
 
 - Hosted multi-tenant accounts, a server, team Spaces.

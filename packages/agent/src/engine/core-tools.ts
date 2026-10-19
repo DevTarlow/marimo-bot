@@ -16,6 +16,7 @@ import {dirname} from 'node:path';
 import {z} from 'zod';
 
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
+import {draftBotTool} from './bot-tools.js';
 import {askAgentTool} from './delegation-tools.js';
 import {MEMORY_TOOLS} from './memory-tools.js';
 import {JOB_TOOLS} from './job-tools.js';
@@ -303,6 +304,7 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   ...SKILL_TOOLS,
   askAgentTool,
   recallTool,
+  draftBotTool,
   ...JOB_TOOLS,
 ];
 

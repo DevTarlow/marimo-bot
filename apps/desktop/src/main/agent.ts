@@ -25,6 +25,7 @@ import {
   McpManager,
   secretReaderFor,
   turnInstruction,
+  BOT_BUILDER_INSTRUCTION,
 } from '@marimo/runtime';
 import type {ProcessLock} from '@marimo/runtime';
 import type {
@@ -1429,13 +1430,18 @@ export class AgentService {
         });
         return {accepted: false};
       }
+      const session = (await this.runtime.listSessions(profileId)).find(
+        (candidate) => candidate.id === sessionId,
+      );
       const instruction =
         origin === 'pet'
           ? turnInstruction(
               'pet',
               (await this.runtime.settings()).companion.answerLength,
             )
-          : undefined;
+          : session?.purpose === 'bot-builder'
+            ? BOT_BUILDER_INSTRUCTION
+            : undefined;
       this.pump(harness.run(profileId, sessionId, text, agentId, instruction));
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};

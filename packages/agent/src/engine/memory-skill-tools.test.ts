@@ -274,6 +274,31 @@ describe('memory and skill tools', () => {
     });
   });
 
+  it('drafts a bot for review without creating one', async () => {
+    const spec = resolveHarness({
+      profile: {...profile(), enabledTools: ['draft_bot']},
+      app,
+      version: 1,
+    });
+    expect(toolsFor(spec).map((entry) => entry.name)).toContain('draft_bot');
+    const context = {
+      workspaceRoot: '/tmp',
+      signal: new AbortController().signal,
+    };
+    const draft = await tool('draft_bot').execute(
+      {name: 'Writer', persona: 'You write for this person.'},
+      context,
+    );
+    expect(draft).toMatchObject({ok: true});
+    expect(String(draft.result)).toContain('Draft shown to the person: Writer');
+    const bad = await tool('draft_bot').execute(
+      {name: 'Writer', templateId: 'not-a-role'},
+      context,
+    );
+    expect(bad.ok).toBe(false);
+    expect(String(bad.result)).toContain('starter role');
+  });
+
   it('puts memory and the skill index in the prompt, not the skill body', () => {
     const spec = resolveHarness({profile: profile(), app, version: 1});
     const prompt = composeHarnessInstruction(spec, {

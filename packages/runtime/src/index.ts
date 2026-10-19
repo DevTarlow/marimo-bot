@@ -280,6 +280,7 @@ export type {JobRunnerOptions} from './agent/job-runner.js';
  * keep true.
  */
 export {turnInstruction} from './agent/pet-turn.js';
+export {BOT_BUILDER_INSTRUCTION} from './agent/bot-builder.js';
 export type {
   ResolvedAgent,
   ResolveAgentOptions,

@@ -474,6 +474,46 @@ describe('AdkDriver', () => {
     expect(written).toBe('new');
   });
 
+  it('resumes an imported card that has no turn.started', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'imported.md'), 'old', 'utf8');
+    const callId = 'legacy-confirm-1';
+    const prior = history(
+      userMessage('legacy-0', 'Replace it'),
+      toolCall('legacy-0', callId, 'write_file', {
+        path: 'imported.md',
+        content: 'new',
+      }),
+      gate('legacy-0', callId, 'confirm-1', 'write_file', {
+        path: 'imported.md',
+        content: 'new',
+      }),
+      decision('legacy-0', callId, 'confirm-1'),
+    );
+    const model = new ScriptedLlm([[text('Imported.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const resumed = await collect(
+      driver.resume({
+        sessionId: 's1',
+        turnId: 'legacy-0',
+        profileId: 'writer',
+        harness: harness(dir),
+        history: prior,
+        decisions: [{callId, confirmed: true}],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(resumed.find((update) => update.type === 'tool.result')).toMatchObject({
+      ok: true,
+      callId,
+    });
+    expect(
+      await import('node:fs/promises').then((fs) =>
+        fs.readFile(join(dir, 'imported.md'), 'utf8'),
+      ),
+    ).toBe('new');
+  });
+
   it('maps a denial to a failed tool result', async () => {
     const dir = await workDir();
     await writeFile(join(dir, 'existing.md'), 'old', 'utf8');

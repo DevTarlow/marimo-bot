@@ -1532,47 +1532,42 @@ async function main() {
       }
 
       /*
-       * Dream-RSI, which is off, and which must be *visibly* off.
+       * The Learning card, which is the one inbox for everything the bot
+       * proposes. A fresh install has nothing waiting, and the card still has
+       * to draw: the outcome counts are what a proposal is judged against, and
+       * an empty list with no counts is indistinguishable from a card that
+       * failed to load.
        *
-       * The feature's whole promise is that nothing is recorded until somebody
-       * asks for it, so the switch has to exist and be unchecked on a fresh
-       * install, and the two numbers behind it must not be drawn while it is off
-       * — a card that showed the tuning before the recording would offer a
-       * setting with nothing to measure. The replay command is asserted too: it
-       * is the only payoff the feature has, and a card that named it wrongly
-       * would leave a user with files they cannot read.
+       * The Dream-RSI card is asserted *absent* in the same read. It was removed
+       * with the feature, and a section that lingered would be a screen offering
+       * a capability the build no longer has.
        */
-      await openSection('Dream-RSI');
-      const dreamCard = await until('the Dream-RSI section to answer', async () => {
+      await openSection('Learning');
+      const learningCard = await until('the Learning section to answer', async () => {
         const state = await evaluate(`(() => {
           const section = [...document.querySelectorAll('.settings-section')]
-            .find((entry) => entry.querySelector('h3')?.textContent === 'Dream-RSI');
+            .find((entry) => entry.querySelector('h3')?.textContent === 'Learning');
           if (section === undefined) return undefined;
-          const boxes = [...section.querySelectorAll('input[type="checkbox"]')];
           return JSON.stringify({
             text: section.textContent ?? '',
-            boxes: boxes.length,
-            checked: boxes.filter((box) => box.checked).length,
-            numbers: section.querySelectorAll('input[type="number"]').length,
+            stats: section.querySelectorAll('.learning-stats').length,
+            dream: [...document.querySelectorAll('.settings-section')]
+              .some((entry) => entry.querySelector('h3')?.textContent === 'Dream-RSI'),
           });
         })()`);
         return state === undefined ? undefined : JSON.parse(state);
       });
 
-      if (dreamCard.boxes !== 1) {
+      if (!learningCard.text.includes('Waiting for you')) {
+        fail('the Learning card has no inbox on it');
+      } else if (learningCard.stats !== 1) {
         fail(
-          `the Dream-RSI card draws ${String(dreamCard.boxes)} switches, not one`,
+          `the Learning card draws ${String(learningCard.stats)} outcome rows, not one`,
         );
-      } else if (dreamCard.checked !== 0) {
-        fail('the Dream-RSI recording is on for a fresh install');
-      } else if (dreamCard.numbers !== 0) {
-        fail('the Dream-RSI card offers its tuning numbers while it is off');
-      } else if (!dreamCard.text.includes('replay:dream')) {
-        fail('the Dream-RSI card does not name the replay command');
+      } else if (learningCard.dream) {
+        fail('the Dream-RSI card is still in Settings');
       } else {
-        ok(
-          'the Dream-RSI card is there, off, and says how to replay what it records',
-        );
+        ok('the Learning card is there, with its outcome counts and one inbox');
       }
 
       /*

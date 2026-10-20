@@ -134,6 +134,12 @@ describe('SettingsStore', () => {
     expect(settings.discord.enabled).toBe(false);
   });
 
+  it('remembers the Documents drawer width with the rest of the layout', async () => {
+    await store().patch({documentsWidth: 360});
+
+    expect((await store().load()).documentsWidth).toBe(360);
+  });
+
   it('falls back on a block that does not validate, keeping the rest', async () => {
     await write({
       notesWidth: 260,

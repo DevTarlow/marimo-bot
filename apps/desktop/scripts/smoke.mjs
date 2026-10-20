@@ -1280,11 +1280,12 @@ async function main() {
 
       /*
        * The documents drawer, which is the other half of "a Space owns things":
-       * the folder's markdown files, listed and editable in the window. What is
-       * asserted here is only that the surface exists and opens — the library's
-       * contents depend on the folder a smoke run happens to have loaded, and the
-       * rules that matter (the path guard, the revision conflict) are unit tests
-       * with a real filesystem behind them.
+       * the folder's files, listed and editable in the window. What is asserted
+       * here is that the surface exists, opens, and that its left edge resizes
+       * the column and remembers the width — the library's contents depend on
+       * the folder a smoke run happens to have loaded, and the rules that matter
+       * (the path guard, the revision conflict) are unit tests with a real
+       * filesystem behind them.
        */
       const documents = await until('the documents button to appear', async () => {
         const value = await evaluate(`(() => {
@@ -1320,6 +1321,101 @@ async function main() {
         } else {
           ok('the documents drawer opens onto the space it is about');
         }
+
+        /*
+         * The left edge, dragged with the pointer the same way the Role box is
+         * below. `getBoundingClientRect` is in CSS pixels, which is also what
+         * the Input domain takes.
+         */
+        const beforeResize = await evaluate(`(() => {
+          const panel = document.querySelector('.documents');
+          const handle = document.querySelector('.documents-resizer');
+          if (panel === null || handle === null) return JSON.stringify({});
+          const rect = handle.getBoundingClientRect();
+          return JSON.stringify({
+            width: panel.getBoundingClientRect().width,
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          });
+        })()`);
+        const startWidth = JSON.parse(beforeResize ?? '{}');
+        if (
+          typeof startWidth.width !== 'number' ||
+          typeof startWidth.x !== 'number' ||
+          typeof startWidth.y !== 'number'
+        ) {
+          fail('the documents drawer has no resize handle');
+        } else {
+          const target = startWidth.x - 60;
+          await send('Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: startWidth.x,
+            y: startWidth.y,
+            button: 'left',
+            buttons: 1,
+            clickCount: 1,
+          });
+          /*
+           * Two moves rather than a jump, for the reason the Role box drag has
+           * two: a teleport with the button down can be read as a hover that
+           * happens to end somewhere else.
+           */
+          for (const x of [startWidth.x - 20, target]) {
+            await send('Input.dispatchMouseEvent', {
+              type: 'mouseMoved',
+              x,
+              y: startWidth.y,
+              button: 'left',
+              buttons: 1,
+            });
+          }
+          await send('Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: target,
+            y: startWidth.y,
+            button: 'left',
+            buttons: 0,
+            clickCount: 1,
+          });
+
+          const widened = await until(
+            'the documents drawer to widen',
+            async () => {
+              const width = await evaluate(
+                `document.querySelector('.documents').getBoundingClientRect().width`,
+              );
+              return typeof width === 'number' && width > startWidth.width + 30
+                ? width
+                : undefined;
+            },
+          ).catch(() => undefined);
+          if (widened === undefined) {
+            fail(
+              `the documents drawer did not widen from ${startWidth.width}px`,
+            );
+          } else {
+            const remembered = await until(
+              'the documents width to be remembered',
+              async () => {
+                const width = await evaluate(
+                  `window.marimo.call('settings.get', {}).then(({settings}) => settings.documentsWidth)`,
+                );
+                return typeof width === 'number' &&
+                  width > startWidth.width + 30
+                  ? width
+                  : undefined;
+              },
+            ).catch(() => undefined);
+            if (remembered === undefined) {
+              fail('the documents width was not written to settings');
+            } else {
+              ok(
+                `the documents drawer resizes, and remembers ${String(remembered)}px`,
+              );
+            }
+          }
+        }
+
         await evaluate(`(() => {
           const button = [...document.querySelectorAll('button')].find(
             (entry) => (entry.textContent ?? '').trim() === 'Documents',

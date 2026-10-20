@@ -816,6 +816,13 @@ never becomes a string the next save could write back as damage. Markdown is the
 one format with a Preview — every other text file is edited as source, because
 rendering arbitrary HTML in the window would execute whatever the file says.
 
+**The drawer's width is layout, not a property of the Space.** It lives in
+`settings.json` with the rail widths, so moving between Spaces keeps the column
+where the person put it. A drag is applied to the live width and written once it
+settles; a settings round trip per pointer move would leave the edge behind the
+cursor. The bounds are in the settings schema rather than only in the drag, for
+the same reason the rails' are: a drag can end anywhere, including off-screen.
+
 **A revision guards every write, and the revision is size and modification time.**
 The question a write has to answer is "has this changed since I read it", and both
 are facts the filesystem already keeps; a hash would mean reading the whole file

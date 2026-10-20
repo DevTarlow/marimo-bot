@@ -86,6 +86,10 @@ export function defaultStoredSettings(): StoredSettings {
     jobsWidth: 288,
     notesWidth: 288,
     filesWidth: 320,
+    // The drawer's default, and the width the stylesheet uses before the stored
+    // preference has loaded. Wide enough for a markdown preview, narrow enough
+    // to leave the conversation most of a 1180px window.
+    documentsWidth: 420,
     // The file tree opens folded, like the notes: the to-do list is the rail a
     // fresh install starts with, and it should not have to share the column.
     filesOpen: false,

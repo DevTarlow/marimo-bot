@@ -33,9 +33,12 @@ import {formatBytes} from '../bytes.js';
 import {describe} from '../describe.js';
 import {
   afterWrite,
+  clampDocumentsWidth,
   filterFiles,
   groupFiles,
   isMarkdownPath,
+  MAX_DOCUMENTS_WIDTH,
+  MIN_DOCUMENTS_WIDTH,
   modifiedLabel,
   suggestChatName,
 } from '../documents.js';
@@ -63,6 +66,9 @@ export function Documents({
   sessionId,
   sessionTitle,
   hasConversation,
+  width,
+  onResize,
+  onResizeEnd,
   onClose,
 }: {
   open: boolean;
@@ -73,6 +79,12 @@ export function Documents({
   sessionTitle: string | undefined;
   /** Whether the open conversation has anything in it worth writing down. */
   hasConversation: boolean;
+  /** The drawer's live width, in pixels. */
+  width: number;
+  /** Applies a width while the handle is moving. */
+  onResize: (width: number) => void;
+  /** Writes the width the drag settled on, so it survives a restart. */
+  onResizeEnd: (width: number) => void;
   onClose: () => void;
 }): React.JSX.Element {
   const [files, setFiles] = useState<DocumentEntry[] | null>(null);
@@ -101,6 +113,8 @@ export function Documents({
   const [nameDraft, setNameDraft] = useState('');
   /** A create or a save-chat is in flight. */
   const [working, setWorking] = useState(false);
+  /** Whether the drawer's left edge is being dragged, so it can stay lit. */
+  const [resizing, setResizing] = useState(false);
 
   /*
    * The values the async paths need, readable at the moment they resume. A
@@ -129,6 +143,30 @@ export function Documents({
    * gives "save, then switch file" its order for free.
    */
   const writes = useRef<Promise<unknown>>(Promise.resolve());
+
+  /*
+   * The body class the drag puts on the whole window has to come off on every
+   * path out, including this component disappearing mid-drag.
+   */
+  useEffect(
+    () => () => {
+      document.body.classList.remove('resizing-documents');
+    },
+    [],
+  );
+
+  /**
+   * The drag in flight.
+   *
+   * `startWidth` is measured from the element rather than taken from the prop,
+   * so a column the window clamped is the width the pointer starts from and the
+   * first move does not jump.
+   */
+  const drag = useRef<{
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
 
   const refreshList = useCallback(async (): Promise<void> => {
     const space = spaceRef.current;
@@ -523,6 +561,71 @@ export function Documents({
     return run;
   }, []);
 
+  /** Starts a drag from the drawer's current left edge. */
+  const startResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (drag.current !== null) {
+      return;
+    }
+    event.preventDefault();
+    // `preventDefault` stops the click from selecting text; focus still has to
+    // be put back on the handle so a drag can be followed by the arrow keys.
+    event.currentTarget.focus();
+    const startWidth =
+      event.currentTarget.parentElement?.getBoundingClientRect().width ?? width;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = {startX: event.clientX, startWidth, width: startWidth};
+    // The cursor has to stay a resize cursor while the pointer is over the
+    // conversation, which is the half of the window the drag spends its time in.
+    document.body.classList.add('resizing-documents');
+    setResizing(true);
+  };
+
+  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const current = drag.current;
+    if (current === null) {
+      return;
+    }
+    // The drawer's left edge moving left makes it wider.
+    const next = clampDocumentsWidth(
+      current.startWidth + (current.startX - event.clientX),
+    );
+    current.width = next;
+    onResize(next);
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const current = drag.current;
+    if (current === null) {
+      return;
+    }
+    drag.current = null;
+    document.body.classList.remove('resizing-documents');
+    setResizing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onResizeEnd(current.width);
+  };
+
+  /**
+   * Arrow keys move the edge by a line, Shift by a wider step. A resize handle
+   * that only answers a mouse is a control half the users cannot operate.
+   */
+  const resizeByKey = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const step = event.shiftKey ? 48 : 16;
+    let next: number;
+    if (event.key === 'ArrowLeft') {
+      next = clampDocumentsWidth(width + step);
+    } else if (event.key === 'ArrowRight') {
+      next = clampDocumentsWidth(width - step);
+    } else {
+      return;
+    }
+    event.preventDefault();
+    onResize(next);
+    onResizeEnd(next);
+  };
+
   const beginNaming = (which: Naming): void => {
     setNaming(which);
     setNameDraft(which === 'chat' ? suggestChatName(sessionTitle ?? '') : '');
@@ -616,6 +719,29 @@ export function Documents({
       // stated where the editor is decided rather than inferred from the tree.
       data-editor={editor === null ? undefined : 'true'}
     >
+      {/*
+        The drawer's left edge, and the only pointer target that is not content.
+        It sits on the aside's inner edge rather than in the flex column, so the
+        library keeps the full width the person chose.
+      */}
+      <div
+        className="documents-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the documents panel"
+        aria-valuemin={MIN_DOCUMENTS_WIDTH}
+        aria-valuemax={MAX_DOCUMENTS_WIDTH}
+        aria-valuenow={width}
+        data-resizing={resizing ? 'true' : undefined}
+        title="Drag to resize"
+        tabIndex={0}
+        onPointerDown={startResize}
+        onPointerMove={moveResize}
+        onPointerUp={endResize}
+        onPointerCancel={endResize}
+        onLostPointerCapture={endResize}
+        onKeyDown={resizeByKey}
+      />
       <div className="documents-head">
         <div className="documents-who">
           <h2 className="documents-title">Documents</h2>

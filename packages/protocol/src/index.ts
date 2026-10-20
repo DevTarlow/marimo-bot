@@ -754,9 +754,10 @@ export const settingsSchema = z.object({
    */
   companion: companionSettingsSchema,
   /**
-   * How wide the two rails are, in pixels. Clamped here rather than trusted: a
-   * width is dragged, and a drag can end anywhere including off the screen, so
-   * the bounds belong to the contract rather than to the drag handler.
+   * How wide the rails and the documents drawer are, in pixels. Clamped here
+   * rather than trusted: a width is dragged, and a drag can end anywhere
+   * including off the screen, so the bounds belong to the contract rather than
+   * to the drag handler.
    */
   sidebarWidth: z.number().int().min(200).max(560),
   todosWidth: z.number().int().min(200).max(560),
@@ -765,6 +766,15 @@ export const settingsSchema = z.object({
   /** Notes and Files have their own widths for the same reason. */
   notesWidth: z.number().int().min(200).max(560),
   filesWidth: z.number().int().min(200).max(560),
+  /**
+   * The Documents drawer's width.
+   *
+   * It is a view of the active Space rather than a document of its own, so the
+   * width belongs here with the rest of the layout. The bounds are the same
+   * kind of contract as the rails': a drag can end anywhere, including off the
+   * screen, so the schema is what keeps a stored width usable.
+   */
+  documentsWidth: z.number().int().min(240).max(560),
   /**
    * Whether the Files rail is open.
    *

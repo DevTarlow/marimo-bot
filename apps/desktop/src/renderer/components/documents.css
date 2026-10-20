@@ -12,7 +12,12 @@
  */
 
 :root {
-  --documents-width: min(420px, 40vw);
+  /*
+   * The width before the stored preference arrives, and the same number the
+   * settings default uses. The drag and the schema are what keep it usable; the
+   * conversation column is the one that gives way.
+   */
+  --documents-width: 420px;
 }
 
 .app[data-documents='open'] {
@@ -22,6 +27,7 @@
 }
 
 .documents {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -37,6 +43,57 @@
  */
 .documents[hidden] {
   display: none;
+}
+
+/* ---------------------------------------------------------------- resizer */
+
+/*
+ * A six-pixel strip at the drawer's left edge. It sits inside the aside rather
+ * than straddling the border because the aside clips its own overflow; the
+ * visible line is only drawn while the pointer is on it, is dragging, or it has
+ * keyboard focus — the border is the resting state.
+ */
+.documents-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  width: 6px;
+  touch-action: none;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.documents-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.documents-resizer:hover::after,
+.documents-resizer:focus-visible::after,
+.documents-resizer[data-resizing='true']::after {
+  background: var(--accent);
+}
+
+.documents-resizer:focus-visible {
+  outline: none;
+}
+
+/*
+ * Set while a drag is in flight. The pointer spends most of that time over the
+ * conversation, so the element under it does not keep the resize cursor.
+ */
+body.resizing-documents,
+body.resizing-documents * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* ------------------------------------------------------------------- head */

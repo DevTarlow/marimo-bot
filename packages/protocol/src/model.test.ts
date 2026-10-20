@@ -169,6 +169,7 @@ function settingsShape(): Record<string, unknown> {
     jobsWidth: 288,
     notesWidth: 288,
     filesWidth: 320,
+    documentsWidth: 420,
     filesOpen: false,
     expandedSections: [],
     disabledCommands: [],

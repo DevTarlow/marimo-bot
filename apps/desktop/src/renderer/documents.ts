@@ -46,6 +46,29 @@ export function isMarkdownPath(path: string): boolean {
   return lower.endsWith('.md') || lower.endsWith('.markdown');
 }
 
+/**
+ * The drawer's resize bounds, in pixels.
+ *
+ * The settings schema enforces the same pair. Keeping them here as well is what
+ * lets the drag obey them before a write is attempted — a width that only
+ * becomes valid after a round trip would let the panel jump under the cursor.
+ */
+export const MIN_DOCUMENTS_WIDTH = 240;
+export const MAX_DOCUMENTS_WIDTH = 560;
+
+/** A dragged width, rounded and inside the drawer's bounds. */
+export function clampDocumentsWidth(width: number): number {
+  if (!Number.isFinite(width)) {
+    // A pointer coordinate that is not a number must not reach the grid as
+    // `NaNpx`, which drops the column rather than clamping it.
+    return MIN_DOCUMENTS_WIDTH;
+  }
+  return Math.min(
+    MAX_DOCUMENTS_WIDTH,
+    Math.max(MIN_DOCUMENTS_WIDTH, Math.round(width)),
+  );
+}
+
 export interface DocumentGroup {
   /** The directory, relative to the space root; `''` is the top level. */
   dir: string;

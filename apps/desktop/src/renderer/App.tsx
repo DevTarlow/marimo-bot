@@ -81,6 +81,14 @@ export function App(): React.JSX.Element {
    */
   const [documents, setDocuments] = useState(false);
   /**
+   * The drawer's width, live.
+   *
+   * The stored preference is in settings, but a settings round trip per pointer
+   * move would put the edge behind the cursor. So this is the width drawn now,
+   * filled from settings when they load, and written back when a drag settles.
+   */
+  const [documentsWidth, setDocumentsWidth] = useState(420);
+  /**
    * Whether the recall offer is up.
    *
    * Shown at the one moment somebody is watching a download finish, and only
@@ -127,6 +135,17 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  /*
+   * The stored drawer width fills the live one when settings arrive. A drag
+   * applies locally and writes once it settles; that response is deliberately
+   * unwatched, so a slow round trip cannot pull the edge back under the pointer.
+   */
+  useEffect(() => {
+    if (settings !== null) {
+      setDocumentsWidth(settings.documentsWidth);
+    }
+  }, [settings]);
 
   /*
    * The rail's New bot button is disabled until this lands rather than opening
@@ -239,6 +258,20 @@ export function App(): React.JSX.Element {
       .call('settings.set', {patch: {appearance: {theme: mode}}})
       .catch(() => undefined);
   };
+
+  /**
+   * Writes the width a drag settled on.
+   *
+   * The response is deliberately ignored: the live width is already what the
+   * person chose, and feeding the stored copy back through `settings` would let
+   * a slow round trip snap a new drag back to the previous edge.
+   */
+  const rememberDocumentsWidth = useCallback((next: number): void => {
+    setDocumentsWidth(next);
+    void window.marimo
+      .call('settings.set', {patch: {documentsWidth: next}})
+      .catch(() => undefined);
+  }, []);
 
   /*
    * The window's density is fixed now. It used to follow the simple/power
@@ -658,7 +691,15 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app" data-documents={documents ? 'open' : undefined}>
+    <div
+      className="app"
+      data-documents={documents ? 'open' : undefined}
+      // The grid column reads this, so the width is one value rather than a
+      // second copy in the stylesheet. Closed or open, it costs nothing.
+      style={
+        {'--documents-width': `${documentsWidth}px`} as React.CSSProperties
+      }
+    >
       <Search
         open={searching}
         onClose={() => {
@@ -1107,6 +1148,9 @@ export function App(): React.JSX.Element {
          * so a chat whose first turn has not landed yet has nothing to save.
          */
         hasConversation={agent.messages.length > 0}
+        width={documentsWidth}
+        onResize={setDocumentsWidth}
+        onResizeEnd={rememberDocumentsWidth}
         onClose={() => {
           setDocuments(false);
         }}

@@ -207,7 +207,7 @@ The app's own data is not your project, and the two live in different folders on
 
 A command, or a save over a file that already exists, waits for your answer. The app writes a new file without asking. A scheduled job that hits an approval stays paused, and the request survives a restart.
 
-Every built-in tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all. A connector's tools follow the connector's own switch.
+Every built-in tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all. A connector's tools follow the connector's own switch. Above those switches, Settings also offers the same two choices the first run asks about — Standard and Power user. They set the whole list at once, and every switch stays there to tune afterwards.
 
 Recall is off until you turn it on, and it sends its record nowhere.
 
@@ -219,15 +219,16 @@ There is no public download yet. The Linux version builds to a single AppImage f
 
 If you have the app, the first run is short.
 
-1. Choose a model. Which service should answer? Pick a service, or point the app at a llama.cpp server. An online service needs an account and a key. **Fetch Models** asks it what it serves. Set this up later closes the flow.
-2. Choose a Space. Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
-3. Make a bot. Start from a role, build it step by step or talk to Marimo.
-4. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
-5. Add more bots, or finish. Marimo Bot alone works too. Settings is where you make another.
+1. Choose how much control Marimo Bot gets. **Standard** can read files in your Space, search the web, and keep its own notes; **Power user** turns on every tool the app has, including writing files, running commands, scheduling jobs and handing work to your other bots. Either way, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
+2. Choose a model. Which service should answer? Pick a service, or point the app at a llama.cpp server. An online service needs an account and a key. **Fetch Models** asks it what it serves. Set this up later closes the flow.
+3. Choose a Space. Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
+4. Make a bot. Start from a role, build it step by step or talk to Marimo.
+5. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
+6. Add more bots, or finish. Marimo Bot alone works too. Settings is where you make another.
 
 Every step has a Back button, so you can change an earlier answer without starting over.
 
-The model is first because the guided bot maker needs something that can answer, and the Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until it can answer.
+The control choice comes first because it is about access, and the model is the first required step because the guided bot maker needs something that can answer. The Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until it can answer.
 
 When you finish, the app opens a new chat in the Space you chose, so the first thing you type lands in the folder you meant.
 

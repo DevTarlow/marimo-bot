@@ -5,11 +5,17 @@
  * nothing can answer; the Space it starts in is one the app made, so somebody
  * whose work already lives in a folder has to point it there; and there is no
  * bot but the one it talks to, so a person who came here to make one has to find
- * the right card in Settings first. The model is first because the guided path
+ * the right card in Settings first. The control choice comes first because it
+ * is about access; the model is the first required step because the guided path
  * needs something to think with, and the rest of the flow is offered after it.
  *
- * Nine rules shape it:
+ * Ten rules shape it:
  *
+ * - **The control choice is first.** The lead exists before the flow starts, and
+ *   its grant is what decides whether it can write, run commands or hand work to
+ *   the bots made later. The model is the first *required* step, because the
+ *   guided path needs something to think with, but the question about access is
+ *   asked before it so the person knows what they are giving the bot up front.
  * - **The model is the only required step.** Until a provider is chosen and
  *   readable the window offers no message box at all, and a wizard that asked for
  *   a Space and a bot first would be asking about work nothing can do. "Set this
@@ -65,6 +71,7 @@ import {backTargetFor, landingSpaceAfterSetup, STEPS} from '../setup-nav.js';
 import type {SetupScreen} from '../setup-nav.js';
 import {BotIconGrid} from './BotIconGrid.js';
 import {BotTemplatePicker} from './BotTemplatePicker.js';
+import {ControlChoice} from './ControlChoice.js';
 import {PersonaForm} from './PersonaForm.js';
 import {SetupProvider} from './SetupProvider.js';
 
@@ -166,6 +173,8 @@ export function Setup({
   const delegateTool = catalog?.delegationTool;
   const builderTool = catalog?.builderTool;
   const presets = catalog?.presets ?? [];
+  const controlPresets = catalog?.controlPresets ?? [];
+  const chosenControl = chosenPreset(controlPresets, lead?.enabledTools ?? []);
   const templates = catalog?.botTemplates ?? [];
   /*
    * The icon the bot was given when it was made. `create` always writes one, so
@@ -175,11 +184,12 @@ export function Setup({
     0,
     settings.profiles.findIndex((entry) => entry.id === madeId),
   );
-  const selectedPresetId = justMade?.avatar?.kind === 'preset'
-    ? justMade.avatar.id
-    : justMade?.avatar === undefined
-      ? defaultBotAvatarFor(madeAt).id
-      : undefined;
+  const selectedPresetId =
+    justMade?.avatar?.kind === 'preset'
+      ? justMade.avatar.id
+      : justMade?.avatar === undefined
+        ? defaultBotAvatarFor(madeAt).id
+        : undefined;
 
   const go = (next: SetupScreen): void => {
     setProblem(null);
@@ -361,6 +371,40 @@ export function Setup({
   };
 
   /**
+   * Writes the control choice onto the lead.
+   *
+   * The card is a shortcut over the same `enabledTools` array Settings shows as
+   * switches, not a mode: picking one replaces the whole grant, and anything
+   * added later (delegation, the builder tool) makes it a custom mix rather than
+   * silently lighting a card that no longer describes it.
+   *
+   * Written on the click, like every other control in this flow, so closing the
+   * window after choosing loses nothing.
+   */
+  const chooseControl = async (preset: CapabilityPreset): Promise<void> => {
+    if (lead === undefined) {
+      setProblem('This install has no bot to configure. Reopen the app.');
+      return;
+    }
+    if (chosenControl?.id === preset.id) {
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    try {
+      const updated = await window.marimo.call('profiles.update', {
+        profileId: lead.id,
+        patch: {enabledTools: [...preset.tools]},
+      });
+      applyProfiles(updated);
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
    * Writes one preset onto the bot just made.
    *
    * The same call Settings uses, and the same immediate write: an icon is a
@@ -456,9 +500,9 @@ export function Setup({
               make.
             </p>
             <p className="onboarding-note">
-              The app has no model of its own. First, pick a service that
-              answers. Then check the folder it will work in — Marimo starts you
-              in one it made — and make a bot.
+              The first question is how much Marimo Bot may do. Then pick a
+              service that answers, check the folder it will work in — Marimo
+              starts you in one it made — and make a bot.
             </p>
             <p className="onboarding-note">
               You can change any of this later in Settings.
@@ -468,7 +512,7 @@ export function Setup({
                 type="button"
                 className="button button-primary"
                 onClick={() => {
-                  go('provider');
+                  go('control');
                 }}
               >
                 Get started
@@ -484,12 +528,55 @@ export function Setup({
           </div>
         )}
 
+        {screen === 'control' && (
+          <div className="setup-body">
+            <h2>How much should {lead?.name ?? 'Marimo Bot'} be able to do?</h2>
+            <p className="onboarding-lead">
+              This is about access, not looks: it sets which tools{' '}
+              {lead?.name ?? 'Marimo Bot'} may use. You can change it later in
+              Settings.
+            </p>
+            {catalog === null && problem === null ? (
+              <p className="settings-muted">
+                Reading what this install can do…
+              </p>
+            ) : (
+              <ControlChoice
+                presets={controlPresets}
+                chosenId={chosenControl?.id}
+                disabled={busy}
+                onChoose={(preset) => {
+                  void chooseControl(preset);
+                }}
+              />
+            )}
+            <p className="onboarding-note">
+              A tool that is off is not offered to the bot at all. A command, or
+              a save over a file that already exists, still asks for your
+              approval.
+            </p>
+            <div className="onboarding-actions">
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={busy}
+                onClick={() => {
+                  go('provider');
+                }}
+              >
+                Continue
+              </button>
+              {backButton()}
+            </div>
+          </div>
+        )}
+
         {screen === 'provider' && (
           <SetupProvider
             settings={settings}
             onSettings={onSettings}
             onBack={() => {
-              go('welcome');
+              go('control');
             }}
             onNext={() => {
               go('space');
@@ -765,8 +852,8 @@ export function Setup({
           <div className="setup-body">
             <h2>Any more bots?</h2>
             <p className="onboarding-lead">
-              Each bot has its own memory and its own chats. Make another one, or
-              finish here.
+              Each bot has its own memory and its own chats. Make another one,
+              or finish here.
             </p>
             {bots.length > 0 && (
               <p className="settings-muted">
@@ -908,7 +995,9 @@ function TemplateBotForm({
           <button
             type="submit"
             className="button button-primary"
-            disabled={busy || name.trim().length === 0 || selected === undefined}
+            disabled={
+              busy || name.trim().length === 0 || selected === undefined
+            }
           >
             Make this bot
           </button>

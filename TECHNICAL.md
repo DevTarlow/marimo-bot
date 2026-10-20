@@ -79,7 +79,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | Secrets: one file per provider key and per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear                                                                                                                                                                                                                                                                |
 | Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                             |
-| Done        | A first run in five steps: load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and choose the service that answers — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                                                                                                                                                                                                  |
+| Done        | A first run in six steps: choose how much control Marimo Bot gets, choose the service that answers, load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and finish — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                                                                                                                                                              |
 | Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                                    |
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -420,10 +420,14 @@ switch made the bot's identity and the individual tool switches reachable only b
 leaving "the everyday settings", which made the same app look like two products
 and hid the controls from the people most likely to need them. The setup flow
 still offers three capability cards at the moment a bot is made, because that is
-where a person is choosing what it is _for_; Settings offers every tool as its own
-switch. Both write `enabledTools`, the card that is lit is worked out by comparing
-that grant against the lists, and the profile remains the one source of truth for
-what an agent may do.
+where a person is choosing what it is _for_. Settings offers every tool as its own
+switch, and above those switches it offers the same two control choices the first
+run asks about — Standard and Power user — which set the whole grant at once. They
+are a shortcut over the one grant rather than the removed two-size mode: every
+switch stays visible, and a switch turned afterwards simply makes the grant
+custom. All of them write `enabledTools`, the card that is lit is worked out by
+comparing that grant against the lists, and the profile remains the one source of
+truth for what an agent may do.
 
 The provider card is not tuning and has never been optional: the app carries no
 model, so a fresh install cannot answer until it is pointed at one. The connector
@@ -491,17 +495,24 @@ returns the reason too, but the turn continues with the full history rather than
 failing, because the question the person just asked is not the summary's hostage.
 A pending approval is never compacted in either path.
 
-**The first run itself is a five-step flow, and one flag decides whether it is
+**The first run itself is a six-step flow, and one flag decides whether it is
 offered.** A fresh install has two things missing at once — a bot to give work to
 and the service that answers — and a starting Space the app chose rather than the
-person, which the flow offers to change. The flow is model first: until a provider
-is chosen and readable the window offers no message box at all, and a wizard that
-asked for a Space and a bot before it had a model would be asking somebody to
-describe work nothing can do. A provider that cannot answer is the one step that
-cannot be continued past; "set this up later" closes the flow rather than walking
-into screens that cannot work. It writes as it goes, exactly as Settings does, so
-quitting in the middle loses nothing, and each step reads what already exists
-rather than creating a second copy of it.
+person, which the flow offers to change. The control question is first, because
+it is about access: the lead profile already exists, and its `enabledTools`
+decides whether it can write, run commands or hand work to a bot made later. Two
+cards — Standard, which is the safe default, and Power user, which is every tool
+the catalogue offers — write that grant through `profiles.update`; the lit card is
+derived by comparing the grant, never stored. Power is the one preset that
+includes `run_shell`, because this is the moment the person is explicitly
+choosing control; the shell's approval gate is unchanged. The model is the first
+*required* step: until a provider is chosen and readable the window offers no
+message box at all, and a wizard that asked for a Space and a bot before it had a
+model would be asking somebody to describe work nothing can do. A provider that
+cannot answer is the one step that cannot be continued past; "set this up later"
+closes the flow rather than walking into screens that cannot work. It writes as
+it goes, exactly as Settings does, so quitting in the middle loses nothing, and
+each step reads what already exists rather than creating a second copy of it.
 
 **Finishing the flow lands in the Space the person chose, with a new chat.** The
 conversation the window opened on was created by the app before the flow ran, in

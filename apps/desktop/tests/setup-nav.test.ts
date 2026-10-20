@@ -15,13 +15,18 @@ import {
 
 describe('setup back targets', () => {
   it('walks back through the steps in order', () => {
-    expect(backTargetFor({screen: 'space', hasMadeBot: false})).toBe('provider');
+    expect(backTargetFor({screen: 'provider', hasMadeBot: false})).toBe(
+      'control',
+    );
+    expect(backTargetFor({screen: 'space', hasMadeBot: false})).toBe(
+      'provider',
+    );
     expect(backTargetFor({screen: 'bot', hasMadeBot: false})).toBe('space');
     expect(backTargetFor({screen: 'persona', hasMadeBot: true})).toBe('bot');
   });
 
-  it('always returns to the Model step from the Space step', () => {
-    expect(backTargetFor({screen: 'provider', hasMadeBot: false})).toBe(
+  it('returns to the welcome screen from the control choice', () => {
+    expect(backTargetFor({screen: 'control', hasMadeBot: false})).toBe(
       'welcome',
     );
   });

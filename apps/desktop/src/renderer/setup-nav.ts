@@ -12,6 +12,7 @@
  * and a count is only how much is left.
  */
 export const STEPS = [
+  {id: 'control', label: 'Control'},
   {id: 'provider', label: 'Model'},
   {id: 'space', label: 'Space'},
   {id: 'bot', label: 'Your first bot'},
@@ -42,8 +43,10 @@ export function backTargetFor({
   switch (screen) {
     case 'welcome':
       return null;
-    case 'provider':
+    case 'control':
       return 'welcome';
+    case 'provider':
+      return 'control';
     case 'space':
       return 'provider';
     case 'bot':

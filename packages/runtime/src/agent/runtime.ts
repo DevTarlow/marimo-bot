@@ -27,6 +27,7 @@ import {dirname} from 'node:path';
 import {
   ASK_AGENT_TOOL,
   capabilityPresets,
+  controlPresets,
   describeTools,
   MAX_MEMORY_BYTES,
   FileSessionService,
@@ -451,6 +452,13 @@ export class AgentRuntime {
        * tool answers to never reaches a profile.
        */
       presets: capabilityPresets(tools.map((tool) => tool.name)),
+      /*
+       * The two answers to how much the bot may do, on the same list of names.
+       * The power tier is every tool this install can offer, so it is derived
+       * here rather than listed anywhere: a tool added to the catalogue appears
+       * on the card without a second list to keep in step.
+       */
+      controlPresets: controlPresets(tools.map((tool) => tool.name)),
       /*
        * The starter roles, narrowed the same way. A card that offered a tool
        * this build does not carry would be a choice that grants nothing.

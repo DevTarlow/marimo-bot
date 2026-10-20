@@ -25,6 +25,7 @@ import {
   MAX_MEMORY_BYTES,
   resolveMemoryFile,
   resolvePersonMemoryFile,
+  SAFE_DEFAULT_TOOLS,
 } from '@marimo/agent';
 import type {AdkEvent} from '@marimo/agent';
 import {
@@ -602,6 +603,28 @@ describe('the catalogue', () => {
     expect(capable?.tools).not.toContain('list_todos');
     expect(capable?.tools).toContain('save_skill');
     expect(names.has('save_skill')).toBe(true);
+
+    /*
+     * The control choice is computed from the same catalogue rather than kept
+     * as a second list. Standard is what a fresh profile is granted, and power
+     * is every tool this install can offer — so a tool the catalogue builds is
+     * on the card without anything having to be updated here.
+     */
+    expect(catalog.controlPresets.map((preset) => preset.id)).toEqual([
+      'standard',
+      'power',
+    ]);
+    const standard = catalog.controlPresets.find(
+      (preset) => preset.id === 'standard',
+    );
+    const power = catalog.controlPresets.find(
+      (preset) => preset.id === 'power',
+    );
+    expect(new Set(standard?.tools ?? [])).toEqual(
+      new Set([...SAFE_DEFAULT_TOOLS].filter((name) => names.has(name))),
+    );
+    expect(new Set(power?.tools ?? [])).toEqual(names);
+    expect(power?.tools).toContain('run_shell');
   });
 
   /*

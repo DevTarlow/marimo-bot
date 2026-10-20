@@ -341,6 +341,14 @@ was removed because it made the Role and the per-tool switches reachable only by
 leaving the everyday screen. Do not add a setting that decides which settings
 exist; if a control is worth having, put it on the one screen.
 
+**The two control choices are not that switch back.** Standard and Power user are
+pre-built `enabledTools` grants: the first run asks the question, Settings repeats
+it above the switches, choosing one writes the same grant the switches show, and
+every switch stays on the one screen. A fine-tuned grant lights neither card.
+Power is the one preset that grants `run_shell`, because the person is explicitly
+choosing full control there; the gate that asks before a command is unchanged, and
+`request_tool` still refuses the shell.
+
 ## Learning
 
 A fact the bot decides to remember is written; a change to what it can do waits

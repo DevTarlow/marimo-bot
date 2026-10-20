@@ -275,7 +275,8 @@ async function main() {
         `a fresh install did not start in a folder of its own: ${JSON.stringify(seeded)}`,
       );
     } else if (
-      (await stat(startingFolder).catch(() => undefined))?.isDirectory() !== true
+      (await stat(startingFolder).catch(() => undefined))?.isDirectory() !==
+      true
     ) {
       fail(`the starting folder was not created: ${startingFolder}`);
     } else {
@@ -363,7 +364,57 @@ async function main() {
     await press('Get started');
 
     /*
-     * The Provider step, now first. The local one, because it is the only entry
+     * The control choice, which is now the first thing the flow asks. Standard
+     * is lit because it is what a fresh profile is granted; the script drives
+     * the Power card so the rest of the run is the full-grant path, and the
+     * grant is asserted from the store at the far end of the flow.
+     */
+    const controlStep = await until('the control choice', async () => {
+      const value = await evaluate(`(() => {
+        const cards = [...document.querySelectorAll('[data-control-preset]')];
+        if (cards.length === 0) return undefined;
+        return JSON.stringify({
+          ids: cards.map((entry) => entry.getAttribute('data-control-preset')),
+          selected: cards
+            .filter((entry) => entry.getAttribute('aria-pressed') === 'true')
+            .map((entry) => entry.getAttribute('data-control-preset')),
+        });
+      })()`);
+      return value === undefined ? undefined : JSON.parse(value);
+    });
+    if (controlStep.ids.join(',') !== 'standard,power') {
+      fail(
+        `the control step offers ${JSON.stringify(controlStep.ids)}, not Standard and Power user`,
+      );
+    } else if (!controlStep.selected.includes('standard')) {
+      fail(
+        `the control step does not start on Standard: ${JSON.stringify(controlStep.selected)}`,
+      );
+    } else {
+      ok('the first run asks how much Marimo Bot may do, with Standard lit');
+    }
+
+    const chosePower = await evaluate(`(() => {
+      const card = document.querySelector('[data-control-preset="power"]');
+      if (card === null) {
+        return false;
+      }
+      card.click();
+      return true;
+    })()`);
+    if (chosePower !== true) {
+      fail('the control step offers no Power user card');
+    }
+    await until('the Power card to be chosen', async () => {
+      const pressed = await evaluate(
+        `document.querySelector('[data-control-preset="power"]')?.getAttribute('aria-pressed') === 'true'`,
+      );
+      return pressed === true ? true : undefined;
+    });
+    await press('Continue');
+
+    /*
+     * The Provider step, now second. The local one, because it is the only entry
      * that can be chosen without an account — and choosing it is what makes the
      * app able to answer, which is what turns the step's own button on. The
      * guided bot path needs that, so the model cannot wait until the end.
@@ -458,7 +509,9 @@ async function main() {
     if (personaExtras.role < 20) {
       fail('the Persona step does not show the Role it starts from');
     } else if (personaExtras.icons !== 5) {
-      fail(`the Persona step shows ${String(personaExtras.icons)} icon choices, not five`);
+      fail(
+        `the Persona step shows ${String(personaExtras.icons)} icon choices, not five`,
+      );
     } else if (personaExtras.back !== true) {
       fail('the Persona step has no Back button');
     } else {
@@ -504,7 +557,7 @@ async function main() {
     const afterSetup = JSON.parse(
       await evaluate(`(async () => {
         const {profiles} = await window.marimo.call('profiles.list', {});
-        const {delegationTool} = await window.marimo.call('profiles.catalog', {});
+        const {delegationTool, controlPresets} = await window.marimo.call('profiles.catalog', {});
         return JSON.stringify({
           flow: !!document.querySelector('.setup'),
           composer: !!document.querySelector('.composer-box'),
@@ -512,11 +565,15 @@ async function main() {
           botWords: profiles.find((entry) => entry.name === 'Smoke')?.persona ?? null,
           botIcon: profiles.find((entry) => entry.name === 'Smoke')?.avatar ?? null,
           leadTools: profiles[0]?.enabledTools ?? [],
+          powerTools:
+            controlPresets.find((entry) => entry.id === 'power')?.tools ?? null,
           delegation: delegationTool ?? null,
           ready: (await window.marimo.call('settings.get', {})).settings.modelReady,
         });
       })()`),
     );
+    const leadToolsSorted = [...afterSetup.leadTools].sort();
+    const powerToolsSorted = [...(afterSetup.powerTools ?? [])].sort();
     if (afterSetup.flow !== false || afterSetup.composer !== true) {
       fail(
         `the setup flow did not close onto a chat: ${JSON.stringify(afterSetup)}`,
@@ -525,9 +582,7 @@ async function main() {
       fail(
         `the bot made in the flow is not in the roster: ${afterSetup.bots.join(', ')}`,
       );
-    } else if (
-      afterSetup.botWords !== 'The smoke test wrote this: be brief.'
-    ) {
+    } else if (afterSetup.botWords !== 'The smoke test wrote this: be brief.') {
       /*
        * The Persona the person wrote, at the far end of the path: the step, the
        * IPC call, the profile store, and back out of a payload the window reads.
@@ -535,6 +590,24 @@ async function main() {
       fail(
         `the flow did not keep the Persona: ${JSON.stringify(afterSetup.botWords)}`,
       );
+    } else if (
+      afterSetup.powerTools === null ||
+      leadToolsSorted.join('\n') !== powerToolsSorted.join('\n')
+    ) {
+      /*
+       * The Power card, at the far end of the flow. The lead's grant is compared
+       * against the catalogue's own power list, so a card that writes a partial
+       * list — or a catalogue and a window that disagree about what "every tool"
+       * means — shows up here rather than only in the switches.
+       */
+      fail(
+        `the flow did not grant Marimo Bot every tool: ${JSON.stringify({
+          lead: afterSetup.leadTools,
+          power: afterSetup.powerTools,
+        })}`,
+      );
+    } else if (!afterSetup.leadTools.includes('run_shell')) {
+      fail('the Power choice did not include the shell');
     } else if (
       afterSetup.delegation === null ||
       !afterSetup.leadTools.includes(afterSetup.delegation)
@@ -616,7 +689,9 @@ async function main() {
     } else if (bots.icons !== bots.rows) {
       fail('a bot in the rail has no icon or initial to draw');
     } else {
-      ok(`the rail lists ${String(bots.rows)} bot(s): ${bots.names.join(', ')}`);
+      ok(
+        `the rail lists ${String(bots.rows)} bot(s): ${bots.names.join(', ')}`,
+      );
     }
 
     /*
@@ -683,8 +758,10 @@ async function main() {
         })})`,
       );
       await reload();
-      const customAvatar = await until('the custom bot icon to load', async () =>
-        await evaluate(`(() => {
+      const customAvatar = await until(
+        'the custom bot icon to load',
+        async () =>
+          await evaluate(`(() => {
           const image = document.querySelector(
             '.rail-bot[aria-current="true"] .bot-avatar img',
           );
@@ -694,7 +771,9 @@ async function main() {
         })()`),
       );
       if (!String(customAvatar).startsWith('marimo-asset://bot/')) {
-        fail(`the custom bot icon did not load through the asset scheme: ${String(customAvatar)}`);
+        fail(
+          `the custom bot icon did not load through the asset scheme: ${String(customAvatar)}`,
+        );
       } else {
         ok('a custom bot icon was served through marimo-asset');
       }
@@ -1287,15 +1366,18 @@ async function main() {
        * (the path guard, the revision conflict) are unit tests with a real
        * filesystem behind them.
        */
-      const documents = await until('the documents button to appear', async () => {
-        const value = await evaluate(`(() => {
+      const documents = await until(
+        'the documents button to appear',
+        async () => {
+          const value = await evaluate(`(() => {
           const button = [...document.querySelectorAll('button')].find(
             (entry) => (entry.textContent ?? '').trim() === 'Documents',
           );
           return button === undefined ? undefined : JSON.stringify({found: true});
         })()`);
-        return value === undefined ? undefined : JSON.parse(value);
-      });
+          return value === undefined ? undefined : JSON.parse(value);
+        },
+      );
       if (documents.found !== true) {
         fail('the window has no way into a space\u2019s documents');
       } else {
@@ -1424,7 +1506,6 @@ async function main() {
         })()`);
       }
 
-
       /*
        * The compact command, run the way a person runs it.
        *
@@ -1507,7 +1588,12 @@ async function main() {
           titles: sections.map((entry) => entry.querySelector('h3')?.textContent ?? ''),
           openOnArrival: sections.filter((entry) => entry.open).length,
           hasModeSwitch: document.querySelector('.settings-mode') !== null,
-          capabilityCards: document.querySelectorAll('.capability-card').length,
+          controlCards: document.querySelectorAll('[data-control-preset]').length,
+          controlLabels: [...document.querySelectorAll('[data-control-preset] .capability-label')]
+            .map((entry) => entry.textContent.trim()),
+          selectedControl:
+            document.querySelector('[data-control-preset][aria-pressed="true"]')
+              ?.getAttribute('data-control-preset') ?? '',
           botRows: document.querySelectorAll('.settings-agent').length,
           avatarChoices: document.querySelectorAll('.settings-avatar-choice').length,
           density: document.documentElement.dataset.density ?? '',
@@ -1519,15 +1605,34 @@ async function main() {
       if (settingsScreen.hasModeSwitch) {
         fail('the single settings screen still draws a simple/power switch');
       } else if (!settingsScreen.titles.includes('Provider')) {
-        fail('the settings screen cannot reach the provider that answers for it');
+        fail(
+          'the settings screen cannot reach the provider that answers for it',
+        );
       } else if (!settingsScreen.titles.includes('Connectors')) {
         fail('the settings screen cannot reach the connectors it has');
       } else if (!settingsScreen.titles.includes('Commands')) {
         fail('the settings screen does not draw the command switches');
-      } else if (!settingsScreen.titles.some((title) => title.endsWith('can do'))) {
+      } else if (
+        !settingsScreen.titles.some((title) => title.endsWith('can do'))
+      ) {
         fail('the settings screen does not draw the per-tool switches');
-      } else if (settingsScreen.capabilityCards !== 0) {
-        fail('the settings screen still draws the setup flow\'s capability cards');
+      } else if (settingsScreen.controlCards !== 2) {
+        fail(
+          `the settings screen draws ${String(settingsScreen.controlCards)} control choices, not two`,
+        );
+      } else if (
+        !settingsScreen.controlLabels.some((label) =>
+          label.startsWith('Standard'),
+        ) ||
+        !settingsScreen.controlLabels.includes('Power user')
+      ) {
+        fail(
+          `the settings screen does not name the control choices: ${JSON.stringify(settingsScreen.controlLabels)}`,
+        );
+      } else if (settingsScreen.selectedControl !== 'power') {
+        fail(
+          `the settings screen does not light the choice the first run made: ${JSON.stringify(settingsScreen.selectedControl)}`,
+        );
       } else if (settingsScreen.botRows < 1) {
         fail('the settings screen draws no bot rows');
       } else if (settingsScreen.avatarChoices < 5) {
@@ -1537,11 +1642,13 @@ async function main() {
       } else if (settingsScreen.openOnArrival > 0) {
         fail('a fresh install opens with a settings section already expanded');
       } else if (settingsScreen.density !== 'comfortable') {
-        fail(`the settings screen is drawn at density "${settingsScreen.density}"`);
+        fail(
+          `the settings screen is drawn at density "${settingsScreen.density}"`,
+        );
       } else {
         ok(
           `settings is one screen: ${String(settingsScreen.titles.length)} sections, ` +
-            `${String(settingsScreen.avatarChoices)} icon choices, no mode switch`,
+            `${String(settingsScreen.avatarChoices)} icon choices, two control choices, no mode switch`,
         );
       }
 
@@ -1573,6 +1680,69 @@ async function main() {
       };
 
       /*
+       * The control choice in Settings writes the same grant the first run did.
+       * Switch to Standard and back to Power, reading the lead's grant from the
+       * store each time, so the shortcut is proven against `enabledTools` rather
+       * than only against the card's own `aria-pressed`.
+       */
+      const toolSectionTitle = await evaluate(`(() => {
+        const title = [...document.querySelectorAll('details.settings-section h3')]
+          .map((entry) => entry.textContent ?? '')
+          .find((text) => text.endsWith('can do'));
+        return title ?? '';
+      })()`);
+      if (
+        typeof toolSectionTitle !== 'string' ||
+        toolSectionTitle.length === 0
+      ) {
+        fail('the settings screen has no tool section for the control choice');
+      } else {
+        await openSection(toolSectionTitle);
+        const chooseControl = async (id) => {
+          const clicked = await evaluate(`(() => {
+            const card = document.querySelector('[data-control-preset="${id}"]');
+            if (card === null) {
+              return false;
+            }
+            card.click();
+            return true;
+          })()`);
+          if (clicked !== true) {
+            fail(`the settings screen offers no ${id} control card`);
+          }
+          await until(`the ${id} control card to light`, async () => {
+            const pressed = await evaluate(
+              `document.querySelector('[data-control-preset="${id}"]')?.getAttribute('aria-pressed') === 'true'`,
+            );
+            return pressed === true ? true : undefined;
+          });
+        };
+        const leadToolsNow = async () =>
+          JSON.parse(
+            await evaluate(`(async () => {
+              const {profiles} = await window.marimo.call('profiles.list', {});
+              return JSON.stringify(profiles[0]?.enabledTools ?? []);
+            })()`),
+          );
+
+        await chooseControl('standard');
+        const standardTools = await leadToolsNow();
+        if (standardTools.includes('run_shell')) {
+          fail('the Standard control card left the shell granted');
+        } else {
+          await chooseControl('power');
+          const powerTools = await leadToolsNow();
+          if (!powerTools.includes('run_shell')) {
+            fail('the Power control card did not grant the shell');
+          } else {
+            ok(
+              'the settings control choice writes the same grant as the first run',
+            );
+          }
+        }
+      }
+
+      /*
        * The Provider card, which is the one thing here that decides whether the
        * app can answer at all.
        *
@@ -1584,8 +1754,10 @@ async function main() {
        * know and a picker with no way to ask is a picker of yesterday's guesses.
        */
       await openSection('Provider');
-      const providerCard = await until('the Provider card to answer', async () => {
-        const state = await evaluate(`(() => {
+      const providerCard = await until(
+        'the Provider card to answer',
+        async () => {
+          const state = await evaluate(`(() => {
           const section = [...document.querySelectorAll('.settings-section')]
             .find((entry) => entry.querySelector('h3')?.textContent === 'Provider');
           if (section === undefined) return undefined;
@@ -1605,15 +1777,19 @@ async function main() {
             ),
           });
         })()`);
-        return state === undefined ? undefined : JSON.parse(state);
-      });
+          return state === undefined ? undefined : JSON.parse(state);
+        },
+      );
 
       if (providerCard.keyField !== true) {
         fail('the Provider card has no API-key field');
       } else if (providerCard.keyValue !== '') {
         // Invariant 8. The window is told whether a key is set, never what it is.
         fail('the Provider card drew a stored key back into the field');
-      } else if (providerCard.options === null || providerCard.options.length < 5) {
+      } else if (
+        providerCard.options === null ||
+        providerCard.options.length < 5
+      ) {
         fail(
           `the Provider picker offers ${String(providerCard.options?.length)} services`,
         );
@@ -1624,7 +1800,9 @@ async function main() {
       } else if (!providerCard.buttons.some((label) => /fetch/i.test(label))) {
         fail('the Provider card has no way to ask what a service serves');
       } else {
-        ok('the Provider card offers the catalogue, no key value, and Fetch Models');
+        ok(
+          'the Provider card offers the catalogue, no key value, and Fetch Models',
+        );
       }
 
       /*
@@ -1639,8 +1817,10 @@ async function main() {
        * a capability the build no longer has.
        */
       await openSection('Learning');
-      const learningCard = await until('the Learning section to answer', async () => {
-        const state = await evaluate(`(() => {
+      const learningCard = await until(
+        'the Learning section to answer',
+        async () => {
+          const state = await evaluate(`(() => {
           const section = [...document.querySelectorAll('.settings-section')]
             .find((entry) => entry.querySelector('h3')?.textContent === 'Learning');
           if (section === undefined) return undefined;
@@ -1651,8 +1831,9 @@ async function main() {
               .some((entry) => entry.querySelector('h3')?.textContent === 'Dream-RSI'),
           });
         })()`);
-        return state === undefined ? undefined : JSON.parse(state);
-      });
+          return state === undefined ? undefined : JSON.parse(state);
+        },
+      );
 
       if (!learningCard.text.includes('Waiting for you')) {
         fail('the Learning card has no inbox on it');
@@ -1719,9 +1900,7 @@ async function main() {
         // The example is how somebody works out what the box is for.
         fail('the Persona box has no example in it');
       } else {
-        ok(
-          'Settings carries the app Role, a Reset, and a seeded Persona',
-        );
+        ok('Settings carries the app Role, a Reset, and a seeded Persona');
       }
 
       /*
@@ -2177,7 +2356,9 @@ async function main() {
         });
       })()`);
         const parsed = value === undefined ? undefined : JSON.parse(value);
-        return parsed !== undefined && parsed.row === false ? parsed : undefined;
+        return parsed !== undefined && parsed.row === false
+          ? parsed
+          : undefined;
       });
 
       if (!botMenu.includes('Rename…') || !botMenu.includes('Remove bot…')) {

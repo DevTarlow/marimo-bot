@@ -1,12 +1,12 @@
 /**
- * The first step of the setup flow: what should answer.
+ * The model step: what should answer.
  *
- * It moved to the front when the flow gained a guided bot builder. Marimo cannot
- * help make a bot before the app can answer, and a wizard that asks for a Space
- * and a bot before it has a model is asking somebody to describe work nothing
- * can do yet. So this is the one required step: the rest of the flow is offered
- * after it, and "Set this up later" closes the flow rather than continuing into
- * screens that cannot work.
+ * It is no longer literally first — the control choice comes before it — but it
+ * is the first *required* step, because Marimo cannot help make a bot before
+ * the app can answer. A wizard that asked for a Space and a bot before it had a
+ * model would be asking somebody to describe work nothing can do yet. "Set this
+ * up later" closes the flow rather than continuing into screens that cannot
+ * work.
  *
  * This is still the step the whole flow exists for, because it is the one thing
  * the app cannot do for itself. It carries no model, so a fresh install says

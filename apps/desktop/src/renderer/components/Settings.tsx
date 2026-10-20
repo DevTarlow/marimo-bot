@@ -21,8 +21,13 @@
  * checkboxes with no distinction between reading a file and running a shell
  * command is a list nobody can make a decision from — so the ones that merely
  * look are separated from the ones that can change something, and the second
- * group says what is at stake. The setup flow still offers the same grants as
- * three cards, because that is the moment the choice is made.
+ * group says what is at stake. The setup flow still offers three capability
+ * cards when a bot is made, because that is the moment the choice is made.
+ *
+ * Above the switches, the same two control choices the first run asks about are
+ * offered for the bot already on screen. They are a shortcut over the one grant,
+ * not a mode: picking one writes `enabledTools`, every switch below stays
+ * visible, and a switch turned afterwards simply makes the grant custom.
  *
  * **A bot is what the screen calls an agent.** The word on screen changed; the
  * code did not, because `agent` is a package name, an IPC namespace and a field
@@ -67,12 +72,14 @@ import {
   SKILL_INSTRUCTIONS_MAX,
 } from '@marimo/protocol';
 
+import {chosenPreset} from '../capabilities.js';
 import {describe} from '../describe.js';
 import {modelChoicesFor, SEARCHABLE_MODEL_THRESHOLD} from '../model-search.js';
 import {BotAvatar} from './BotAvatar.js';
 import {BotIconGrid} from './BotIconGrid.js';
 import {BotMenu} from './BotMenu.js';
 import {Connectors} from './Connectors.js';
+import {ControlChoice} from './ControlChoice.js';
 import {Learning} from './Learning.js';
 import {Memory} from './Memory.js';
 import {ModelPicker} from './ModelPicker.js';
@@ -511,6 +518,17 @@ export function Settings({
    */
   const onByDefault = loaded.catalog.tools.filter((tool) => tool.byDefault);
   const offByDefault = loaded.catalog.tools.filter((tool) => !tool.byDefault);
+  /*
+   * The high-level choice, derived from the same grant the switches below read.
+   * It is never stored: a profile granted exactly one of these lists is that
+   * card, and a profile with one switch changed is neither, which is the honest
+   * answer rather than a second place for the choice to disagree with the grant.
+   */
+  const controlPresets = loaded.catalog.controlPresets;
+  const chosenControl = chosenPreset(
+    controlPresets,
+    loaded.profile?.enabledTools ?? [],
+  );
   const connectors = loaded.catalog.connectors;
   const connectorGrant = grantedConnectors(connectors, loaded.profile);
   /*
@@ -977,16 +995,42 @@ export function Settings({
         )}
 
         {/*
-          What the agent may do, drawn as switches rather than as three cards.
-          The setup flow still offers the cards, because that is the moment the
-          choice is made; here the bot already exists and the user is tuning it.
-          Both write the same `enabledTools`, so the grant remains the one truth.
+          What the agent may do. The two control choices are the same grant the
+          setup flow asks about, as a shortcut over the switches below — not a
+          mode, because every switch is still here. Both write the same
+          `enabledTools`, so the profile remains the one truth.
         */}
         <SettingsSection
           title={`What ${loaded.profile?.name ?? 'this bot'} can do`}
           opened={opened}
           onToggle={fold}
         >
+          <h4 className="settings-group">How much can it do?</h4>
+          <ControlChoice
+            presets={controlPresets}
+            chosenId={chosenControl?.id}
+            disabled={saving || loaded.profile === undefined}
+            onChoose={(preset) => {
+              if (
+                loaded.profile === undefined ||
+                chosenControl?.id === preset.id
+              ) {
+                return;
+              }
+              writeTools(loaded.profile.id, [...preset.tools]);
+            }}
+          />
+          <p className="settings-why">
+            This sets every switch below at once. Change any of them afterwards
+            and the bot keeps your own mix.
+          </p>
+          {chosenControl === undefined && (
+            <p className="settings-muted">
+              This bot has its own mix of tools. Picking a card above replaces
+              it.
+            </p>
+          )}
+
           <p className="settings-muted">
             A tool that is switched off is not offered to the model at all — it
             is not a suggestion it might ignore.

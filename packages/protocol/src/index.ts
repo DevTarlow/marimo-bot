@@ -3750,13 +3750,27 @@ export interface ProfileCatalog {
    */
   connectors: CatalogConnector[];
   /**
-   * The same tools, grouped into the three choices the setup flow offers.
+   * The same tools, grouped into the three choices the setup flow offers when a
+   * bot is made.
    *
    * Here rather than in the renderer because the names are the agent package's:
    * a list written in the window would be a second copy of the tool names, and
    * the one thing that must not drift is which names a choice actually grants.
    */
   presets: CapabilityPreset[];
+  /**
+   * The two answers to "how much should this bot be able to do", for the first
+   * run and for the shortcut at the top of the tool switches in Settings.
+   *
+   * Separate from `presets` because the question is different: those three are
+   * how much a *new bot* starts with, while these are the explicit control
+   * choice for the bot the person already talks to. Both write `enabledTools`,
+   * so this is a label on a state the profile already holds rather than a mode
+   * that decides which settings exist. The `power` entry is every tool this
+   * install can offer, which is why it is computed by the agent package rather
+   * than spelled out here.
+   */
+  controlPresets: CapabilityPreset[];
   /**
    * The starter roles this install can offer, with their tools narrowed to what
    * it actually has.

@@ -17,7 +17,11 @@ import {MemoryStore} from '../memory/index.js';
  * learning inbox and this builder has no such service. They are still part of
  * what the app can offer, so the comparisons below count them.
  */
-const PROPOSAL_TOOL_NAMES = ['request_tool', 'request_connector', 'propose_policy'];
+const PROPOSAL_TOOL_NAMES = [
+  'request_tool',
+  'request_connector',
+  'propose_policy',
+];
 import type {RecallLookup} from './recall-tools.js';
 
 /**
@@ -37,6 +41,7 @@ function recallStub(): RecallLookup {
 import {toOpenAiTools} from '../models/openai-mapping.js';
 import {
   CAPABILITY_PRESETS,
+  controlPresets,
   createTools,
   describeTools,
   SAFE_DEFAULT_TOOLS,
@@ -778,5 +783,47 @@ describe('the capability presets', () => {
     expect(new Set(CAPABILITY_PRESETS.map((preset) => preset.id)).size).toBe(
       CAPABILITY_PRESETS.length,
     );
+  });
+
+  /*
+   * The two answers the first run asks for, and the shortcut Settings offers
+   * over the same switches. The second card is *every* tool this install has,
+   * computed rather than listed, so a tool added to the catalogue appears on it
+   * without anybody remembering to update a second list.
+   */
+  describe('the control choices', () => {
+    it('offers the safe default and every tool this install has', () => {
+      const built = everything();
+      const [standard, power] = controlPresets(built);
+
+      expect(new Set(standard!.tools)).toEqual(new Set(SAFE_DEFAULT_TOOLS));
+      expect(new Set(power!.tools)).toEqual(built);
+      expect(standard!.recommended).toBe(true);
+      expect(power!.recommended).toBe(false);
+
+      /*
+       * The deliberate difference from the three bot-creation cards: power is
+       * the one preset that grants the shell, because the person is answering a
+       * question about control. The gate that asks before each command is not
+       * part of the grant and is unchanged.
+       */
+      expect(standard!.tools).not.toContain('run_shell');
+      expect(power!.tools).toContain('run_shell');
+      expect(power!.tools).toContain('write_file');
+      expect(power!.tools).toContain('create_job');
+    });
+
+    it('describes each choice in words for a person', () => {
+      for (const preset of controlPresets(everything())) {
+        expect(preset.id.length).toBeGreaterThan(0);
+        expect(preset.label.trim()).toBe(preset.label);
+        expect(preset.blurb.trim()).toBe(preset.blurb);
+        expect(preset.blurb.endsWith('.')).toBe(true);
+        expect(preset.label).not.toBe(preset.blurb);
+      }
+      expect(
+        new Set(controlPresets(everything()).map((preset) => preset.id)).size,
+      ).toBe(2);
+    });
   });
 });

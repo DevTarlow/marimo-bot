@@ -56,6 +56,7 @@ export {
   ASK_AGENT_TOOL,
   CAPABILITY_PRESETS,
   capabilityPresets,
+  controlPresets,
   createTools,
   describeTools,
   SAFE_DEFAULT_TOOLS,

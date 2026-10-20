@@ -1442,13 +1442,14 @@
 }
 
 /*
- * The three choices the setup flow offers, as cards rather than switches.
+ * A choice between whole answers, as cards rather than switches.
  *
- * A checkbox is the right control for "may it read my files", one capability at a
- * time. It is the wrong one for choosing between three whole answers, because
- * three checkboxes cannot say they are alternatives — each reads as its own
- * question. A card that lights up says *this is the one*, which is what the
- * choice actually is.
+ * The setup flow's three bot-creation cards, its two control choices and the
+ * same two choices in Settings all share this. A checkbox is the right control
+ * for "may it read my files", one capability at a time. It is the wrong one for
+ * choosing between whole answers, because checkboxes cannot say they are
+ * alternatives — each reads as its own question. A card that lights up says
+ * *this is the one*, which is what the choice actually is.
  */
 .capability-cards {
   display: flex;

@@ -197,6 +197,56 @@ export function capabilityPresets(
 }
 
 /**
+ * The two answers to the question the first run asks before anything else: how
+ * much should the bot be able to do?
+ *
+ * These are deliberately *not* part of `CAPABILITY_PRESETS`. Those three are how
+ * much a new bot starts with, and none of them hands out `run_shell` because
+ * running commands on somebody's computer is not a thing to give a friend in a
+ * card. This is the one place a preset does, and the difference is that this is
+ * an explicit question about control rather than a default for a bot somebody
+ * has not made yet. The shell's approval gate is unchanged — a grant is not a
+ * standing permission.
+ *
+ * The power tier is every name the catalogue offers rather than a list written
+ * out here, so a tool added to the catalogue is on it without a second list to
+ * forget. The standard tier is `SAFE_DEFAULT_TOOLS` filtered the same way, so it
+ * cannot drift from what a brand-new agent is granted.
+ *
+ * Both tiers are grants and nothing else: choosing one writes `enabledTools`,
+ * exactly as ticking the switches does. That is why the lit card is worked out
+ * by comparing the profile's grant against these lists, and why a switch turned
+ * afterwards makes the grant custom rather than turning a mode back on.
+ */
+export function controlPresets(
+  available: Iterable<string>,
+): CapabilityPreset[] {
+  const names = [...new Set(available)];
+  const onByDefault = new Set<string>(SAFE_DEFAULT_TOOLS);
+  return [
+    {
+      id: 'standard',
+      label: 'Standard',
+      blurb:
+        'It can read files in your Space, search the web, and keep its own ' +
+        'notes. It cannot change your files or run commands.',
+      tools: names.filter((name) => onByDefault.has(name)),
+      recommended: true,
+    },
+    {
+      id: 'power',
+      label: 'Power user',
+      blurb:
+        'It gains every tool this app has: writing files, running commands, ' +
+        'scheduling jobs, and handing work to your other bots. It still asks ' +
+        'before replacing a file or running a command.',
+      tools: names,
+      recommended: false,
+    },
+  ];
+}
+
+/**
  * Every tool this install can offer, described the way the model is told about
  * it.
  *

@@ -23,6 +23,12 @@ The chat window and the moss ball share one conversation, so a question you ask 
 
 <p align="center">The main window in light mode.</p>
 
+<p align="center">
+  <img src="./docs/screenshots/marimo-bot-chat-screenshot.png" alt="A chat with Marimo in the main window, where a memory update tool call appears above Marimo's reply." />
+</p>
+
+<p align="center">A chat with Marimo, and the memory update it made along the way.</p>
+
 ## The short version
 
 - Work in a folder, not a chat that forgets where it is.

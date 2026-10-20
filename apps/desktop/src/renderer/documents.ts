@@ -34,6 +34,18 @@ export interface OpenDocument {
   revision: DocumentRevision;
 }
 
+/**
+ * Whether a file has a rendered view beside its source.
+ *
+ * The editor opens any UTF-8 text file, but only markdown has a Preview. The
+ * check is case-insensitive because `.MD` is a markdown file to every other
+ * tool on the machine.
+ */
+export function isMarkdownPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith('.md') || lower.endsWith('.markdown');
+}
+
 export interface DocumentGroup {
   /** The directory, relative to the space root; `''` is the top level. */
   dir: string;

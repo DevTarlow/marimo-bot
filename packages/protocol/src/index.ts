@@ -1659,7 +1659,7 @@ export interface SessionSummary {
 /* Documents                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** One markdown file a Space holds, as the library lists it. */
+/** One file a Space holds, as the library lists it. */
 export interface DocumentEntry {
   /** Relative to the space's root, with forward slashes whatever the platform. */
   path: string;
@@ -1686,7 +1686,7 @@ export interface DocumentRevision {
   modifiedAtMs: number;
 }
 
-/** A file's text, and the revision that text belongs to. */
+/** A UTF-8 text file's contents, and the revision those contents belong to. */
 export interface DocumentRead {
   path: string;
   text: string;
@@ -3411,18 +3411,21 @@ export const agentCallSchemas = {
    * folders the user loaded — the same rule the agent's own file tools live
    * under.
    */
+  /** Every regular file in the Space, and the notes of any cap it hit. */
   'docs.list': z.object({spaceId: z.string().min(1)}),
+  /** One UTF-8 text file, refused with a sentence if it is not text. */
   'docs.read': z.object({
     spaceId: z.string().min(1),
     path: z.string().min(1),
   }),
   /*
-   * Writes a file, or refuses because the file moved on.
+   * Writes a UTF-8 text file, or refuses because the file moved on.
    *
    * `revision` is what the caller read, and a mismatch is the refusal above
    * rather than a silent overwrite: an agent may have written the same file
    * while a person had it open, and a document is the one thing in this app that
-   * no versioned store is standing behind.
+   * no versioned store is standing behind. The read that produced the revision
+   * is what refused a binary file, so this call is only ever reached with text.
    */
   'docs.write': z.object({
     spaceId: z.string().min(1),
@@ -3430,6 +3433,7 @@ export const agentCallSchemas = {
     text: z.string(),
     revision: z.object({bytes: z.number().int(), modifiedAtMs: z.number()}),
   }),
+  /** A new, empty file. The name may have any extension, or none. */
   'docs.create': z.object({
     spaceId: z.string().min(1),
     /** Where to put it, relative to the root; absent means the root. */

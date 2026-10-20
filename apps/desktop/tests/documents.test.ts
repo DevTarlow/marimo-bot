@@ -14,6 +14,7 @@ import {
   afterWrite,
   filterFiles,
   groupFiles,
+  isMarkdownPath,
   modifiedLabel,
   suggestChatName,
 } from '../src/renderer/documents.js';
@@ -81,6 +82,26 @@ describe('groupFiles', () => {
 
   it('answers nothing for an empty listing', () => {
     expect(groupFiles([])).toEqual([]);
+  });
+});
+
+describe('isMarkdownPath', () => {
+  /*
+   * The editor opens any UTF-8 text file; this is the one question that decides
+   * whether Preview is offered. `.MD` is markdown to every other tool, so the
+   * check cannot be case-sensitive without making Preview vanish for a file the
+   * rest of the machine calls markdown.
+   */
+  it('recognizes markdown, whatever the case and wherever it sits', () => {
+    expect(isMarkdownPath('notes.md')).toBe(true);
+    expect(isMarkdownPath('docs/guide.markdown')).toBe(true);
+    expect(isMarkdownPath('docs/README.MD')).toBe(true);
+  });
+
+  it('is false for every other text file', () => {
+    for (const path of ['index.html', 'styles.css', 'notes.txt', 'README']) {
+      expect(isMarkdownPath(path)).toBe(false);
+    }
   });
 });
 

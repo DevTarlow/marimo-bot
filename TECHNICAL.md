@@ -68,7 +68,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | Five providers to answer with — DeepSeek, Google Gemini, OpenCode Go, OpenRouter, and a llama.cpp server of your own — each with its own address, model and key. The catalogue is data, the transport is one OpenAI-compatible client, and a key is encrypted unless you say otherwise                                                                                                                                                                                                                                             |
 | Removed     | The model the app used to carry and run itself: Qwen3.5-4B on a llama.cpp engine it downloaded and supervised. Two tiers chosen from what the GPU reported, no account and no key — and 2.7 GB before the first answer                                                                                                                                                                                                                                                                                                             |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
-| Done        | Spaces: a folder that holds its own chats, its agents and its documents — the markdown files in it, listed in a library and editable in the window, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                                               |
+| Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                             |
 | Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                            |
 | Done        | One settings screen, and bots at the top of the sidebar with their own icons — five shipped presets and an uploaded image, changed in Settings                                                                                                                                                                                                                                                                                                                                                                                     |
 | Done        | The agent core: every conversation runs on the v2 harness — a canonical append-only JSONL log, a frozen versioned spec, one ADK adapter behind a boundary test, and a tool set whose availability follows the grant. The session index is a runtime-owned `FileSessionService`, so create/list/rename/move/model/delete and the transcript need no turn engine. The old `AgentHost` is deleted; `ask_agent` runs its helper in the parent's session and answers the helper's gate from the parent's card. See `docs/harness-v2.md` |
@@ -792,21 +792,29 @@ Persona's "use the starter text" replaces words only the person wrote. The rende
 holds neither: a window with its own copy could reset a bot to Marimo Bot, or to a
 version the app never shipped, and look like the button working.
 
-### A Space's documents are the markdown files in it
+### A Space's documents are the files in it
 
 **There is no second store, and that is the feature.** `DocumentService` is built
 over a root — the space's own folder, resolved from an id by the runtime — and its
-library is the `.md` and `.markdown` files under it, so an agent's `write_file`
-appears the moment the listing is re-read and what a person types in the editor is
-what the agent reads next. Every call names a _space_ rather than a path, so a
-window can only reach inside the folders the user loaded. Dot-directories are
-skipped because one of them is the app's own `.marimo/<profile>/memory.md`, and
-the rest of the skip list is the agent walk's own `SKIPPED_DIRECTORIES`: a second
-list would be a second answer to which files are in this folder, and the
-disagreement shows up as a document the agent cannot mention. Symlinks are skipped
-for the reason the agent's walk skips them, and every path arrives through that
-same `resolveInsideWorkspace`, so this module owns no second checker and `..`, an
-absolute path and a symlink that leaves the space are one refusal.
+library is every regular file under it, hidden ones included, so an agent's
+`write_file` appears the moment the listing is re-read and what a person types in
+the editor is what the agent reads next. Every call names a _space_ rather than a
+path, so a window can only reach inside the folders the user loaded. What stays
+out is the agent walk's own `SKIPPED_DIRECTORIES`: `.marimo/` is the app's own
+`.marimo/<profile>/memory.md`, `.git/` is history, and the dependency and build
+folders are noise. A second list would be a second answer to which files are in
+this folder, and the disagreement shows up as a document the agent cannot mention.
+Symlinks are skipped for the reason the agent's walk skips them, and every path
+arrives through that same `resolveInsideWorkspace`, so this module owns no second
+checker and `..`, an absolute path and a symlink that leaves the space are one
+refusal.
+
+**The editor opens text, and refuses the rest rather than guessing.** A read
+checks the bytes for a NUL and validates UTF-8 with a fatal decoder, preserving a
+leading BOM; a binary, non-UTF-8 or over-cap file is answered with a sentence and
+never becomes a string the next save could write back as damage. Markdown is the
+one format with a Preview — every other text file is edited as source, because
+rendering arbitrary HTML in the window would execute whatever the file says.
 
 **A revision guards every write, and the revision is size and modification time.**
 The question a write has to answer is "has this changed since I read it", and both
@@ -827,8 +835,9 @@ first, so the force is not a race with whatever wrote it. A file that does not
 exist is written only by a caller whose revision is the zero one, which is the
 statement "I believe this is new". The write itself goes beside the document and
 is renamed into place, so a crash leaves the original exactly as it was and a
-`.tmp` nobody reads rather than half a file, and the temporary name carries no
-markdown extension so it cannot appear in a listing while it lives.
+`.tmp` nobody reads rather than half a file, and the temporary name carries the
+app's own `.marimo-<uuid>.tmp` marker, which the listing recognizes so it cannot
+appear while it lives.
 
 **Two refusals sit beside the conflict, and both are the careful direction.** A
 missing parent folder is never created: inventing a tree inside somebody's project
@@ -841,11 +850,12 @@ what a Space holds.
 
 **Saving a conversation writes a document too.** The chat is rendered as markdown
 with each message under its author's name — a helper's words under the helper's —
-and it refuses a name that is already taken, because saving a chat makes a
-document, the alternative is quietly replacing one the user wrote, and a
-conversation saved twice should be two files rather than one file with the first
-version gone. The window then opens the file it made, so the thing just saved is
-the thing that can be edited.
+and the destination stays a markdown name, because the rendering is markdown. It
+refuses a name that is already taken, because saving a chat makes a document, the
+alternative is quietly replacing one the user wrote, and a conversation saved
+twice should be two files rather than one file with the first version gone. The
+window then opens the file it made, so the thing just saved is the thing that can
+be edited.
 
 ### The companion shares the conversation, not the manner
 
@@ -928,11 +938,11 @@ The other half of memory is the project's, and it is not here: it is
 own remembered conventions with it and none of your personal facts.
 
 A Space's documents are not in there either, and that is the point rather than an
-omission. A document _is_ the markdown file in the folder the user loaded, so the
-library and the editor are two views of their own directory: nothing is copied
-into user data, and the only thing the app keeps about a file is the revision a
-caller read — size and modification time — long enough to refuse a write based on
-a version that is no longer there.
+omission. A document _is_ a file in the folder the user loaded, so the library and
+the editor are two views of their own directory: nothing is copied into user data,
+and the only thing the app keeps about a file is the revision a caller read — size
+and modification time — long enough to refuse a write based on a version that is
+no longer there.
 
 The recall model is in there too, under `model/recall/`: its engine, its weights
 and a marker naming the engine asset they were unpacked from, so a build that

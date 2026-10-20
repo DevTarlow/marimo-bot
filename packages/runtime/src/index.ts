@@ -340,7 +340,9 @@ export {
 export type {LegacyWorkspaces, WorkspaceStoreOptions} from './workspaces.js';
 
 /*
- * A Space's documents: the markdown files in the folder it points at.
+ * A Space's documents: the files in the folder it points at. The library lists
+ * them all (hidden ones included, minus the agent's skip list), and the editor
+ * opens the UTF-8 text ones.
  *
  * The protocol's own `DocumentRead`/`DocumentWrite` are deliberately not
  * re-exported here — this package already re-exports the *versioned* document

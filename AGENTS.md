@@ -191,16 +191,21 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     a tree in somebody's project and saving a file the editor cannot reopen are
     both worse than a sentence.
 21. **A Space's documents are the folder's files, not a second copy.** The
-    library lists the markdown in the folder and the editor writes it, so an
-    agent's `write_file` is in the drawer the moment the list is re-read and what
-    a person types is what the agent reads next: two doors to one file, with no
-    import or export to keep them in step. `.marimo/` is skipped because the
-    agent's memory is not a document of the user's project, and the rest of the
-    skip list is the agent's own `SKIPPED_DIRECTORIES` — a second list would be a
-    second answer to which files are in this folder, and it shows up as a document
-    the agent cannot mention. The caps (500 files, eight levels, one megabyte) say
-    when they stopped rather than answering as if the folder ended there, which is
-    invariant 7.
+    library lists every regular file in the folder, hidden ones included, and the
+    editor opens the UTF-8 text ones, so an agent's `write_file` is in the drawer
+    the moment the list is re-read and what a person types is what the agent reads
+    next: two doors to one file, with no import or export to keep them in step.
+    `.marimo/` and `.git/` are skipped because the agent's memory and the
+    repository's history are not documents of the user's project, and the rest of
+    the skip list is the agent's own `SKIPPED_DIRECTORIES` — a second list would
+    be a second answer to which files are in this folder, and it shows up as a
+    document the agent cannot mention. A file that is not UTF-8 text — an image, a
+    PDF, bytes that are not valid UTF-8 — is listed and refused when opened, never
+    decoded into a string and saved back as damage; the app's own atomic-write
+    scratch file is recognized by its `.marimo-<uuid>.tmp` shape so it never
+    appears. The caps (500 files, eight levels, one megabyte) say when they stopped
+    rather than answering as if the folder ended there, which is invariant 7.
+    Markdown is the one format with a Preview; every other text file is source.
 22. **A prompt must not advertise a capability the profile does not have.** The
     tool list and the prompt agree, or the model narrates a capability it was
     never given. `ProfileStore.create()` seeded every new profile with Marimo Bot's

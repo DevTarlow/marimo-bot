@@ -1,6 +1,6 @@
 /**
- * The documents drawer: the markdown files in the conversation's Space, and an
- * editor for one of them.
+ * The documents drawer: the files in the conversation's Space, and an editor for
+ * the text ones.
  *
  * The third column, and the only thing in it. It is opened from the header and
  * closed from the header, and while it is open it is a column of its own rather
@@ -11,8 +11,10 @@
  * turn is started. It lists what `docs.list` sent, reads one file at a time,
  * and writes it back only through `docs.write`, whose whole design is that a
  * file which moved underneath the editor is a question rather than a silent
- * overwrite. The conflict path below is the point of the feature; everything
- * else is the machinery that gets a person to it.
+ * overwrite. A binary file is listed too, and the read that refuses it is the
+ * sentence the library shows: nothing is opened and nothing is written. The
+ * conflict path below is the point of the feature; everything else is the
+ * machinery that gets a person to it.
  *
  * It stays mounted while closed, and that is deliberate: a draft typed in the
  * last second before the drawer is shut still has an autosave coming, and
@@ -33,6 +35,7 @@ import {
   afterWrite,
   filterFiles,
   groupFiles,
+  isMarkdownPath,
   modifiedLabel,
   suggestChatName,
 } from '../documents.js';
@@ -348,6 +351,9 @@ export function Documents({
   /** Puts a document the server just handed back on screen. */
   const adopt = useCallback((into: Workspace, doc: DocumentRead): void => {
     openSequence.current += 1;
+    // A file that opened is the answer to whatever row failed before it, so the
+    // refusal sentence above the library does not outlive the attempt.
+    setProblem(null);
     setEditor({
       spaceId: into.id,
       spaceName: into.name,
@@ -585,6 +591,8 @@ export function Documents({
   const groups = useMemo(() => groupFiles(visible), [visible]);
   const draft = editor?.text ?? '';
   const dirty = editor !== null && editor.text !== editor.saved;
+  /** Only markdown has a rendered view; every other text file is source only. */
+  const previewable = editor !== null && isMarkdownPath(editor.path);
   /** The line under the file name: what just happened, in as few words. */
   const stateLine = conflict
     ? 'Your draft is not saved.'
@@ -680,7 +688,7 @@ export function Documents({
                 beginNaming(naming === 'new' ? 'none' : 'new');
               }}
             >
-              New document
+              New file
             </button>
             {/*
               Here rather than in the composer's `+` menu. That menu is a list of
@@ -763,8 +771,8 @@ export function Documents({
             )}
             {files !== null && files.length === 0 && (
               <li className="documents-note">
-                This Space holds no markdown files yet. New document writes the
-                first one here — and anything the bot writes lands beside it.
+                This Space holds no files yet. New file writes the first one
+                here — and anything the bot writes lands beside it.
               </li>
             )}
             {files !== null && files.length > 0 && visible.length === 0 && (
@@ -820,29 +828,31 @@ export function Documents({
             <span className="documents-path" title={editor.path}>
               {editor.path}
             </span>
-            <div className="documents-modes" role="group" aria-label="View">
-              {/*
-                Edit and Preview, and not the third: this column is one narrow
-                measure, and side by side would leave roughly 180px for each
-                half — too narrow to write markdown in and too narrow to read
-                what it renders to. The preview is still the live one in the
-                sense that matters: it draws the draft, not the last saved text,
-                so it is current the moment it is switched to.
-              */}
-              {(['edit', 'preview'] as const).map((which) => (
-                <button
-                  key={which}
-                  type="button"
-                  className="documents-mode"
-                  aria-pressed={mode === which}
-                  onClick={() => {
-                    setMode(which);
-                  }}
-                >
-                  {which === 'edit' ? 'Edit' : 'Preview'}
-                </button>
-              ))}
-            </div>
+            {previewable && (
+              <div className="documents-modes" role="group" aria-label="View">
+                {/*
+                  Edit and Preview, and not the third: this column is one narrow
+                  measure, and side by side would leave roughly 180px for each
+                  half — too narrow to write markdown in and too narrow to read
+                  what it renders to. The preview is still the live one in the
+                  sense that matters: it draws the draft, not the last saved text,
+                  so it is current the moment it is switched to.
+                */}
+                {(['edit', 'preview'] as const).map((which) => (
+                  <button
+                    key={which}
+                    type="button"
+                    className="documents-mode"
+                    aria-pressed={mode === which}
+                    onClick={() => {
+                      setMode(which);
+                    }}
+                  >
+                    {which === 'edit' ? 'Edit' : 'Preview'}
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               type="button"
               className="documents-close"
@@ -925,10 +935,11 @@ export function Documents({
             </div>
           )}
 
-          {mode === 'edit' ? (
+          {mode === 'edit' || !previewable ? (
             <textarea
               className="documents-textarea"
               value={draft}
+              spellCheck={false}
               aria-label={`Editing ${editor.path}`}
               onChange={(event) => {
                 const text = event.target.value;

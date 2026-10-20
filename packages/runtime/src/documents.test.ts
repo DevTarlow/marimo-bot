@@ -104,11 +104,17 @@ describe('DocumentService', () => {
     throw new Error(`"${candidate}" was expected to leave the space.`);
   }
 
-  it('lists the markdown files, nested, and skips the folders nobody means', async () => {
+  it('lists every file, hidden ones included, and skips the folders nobody means', async () => {
     await place('notes.md', 'at the top');
+    await place('README', 'no extension');
+    await place('index.html', '<h1>Hello</h1>');
     await place('docs/guide.md', 'a guide');
     await place('docs/deep/more.markdown', 'deeper');
-    await place('docs/notes.txt', 'not a document');
+    await place('docs/notes.txt', 'not markdown any more');
+    await place('assets/logo.png', 'not really a png');
+    await place('.env', 'SECRET=1');
+    await place('.gitignore', 'node_modules');
+    await place('.github/workflows/ci.yml', 'name: CI');
     await place('.marimo/memory.md', "the agent's own memory");
     await place('.git/COMMIT_EDITMSG.md', 'history');
     await place('node_modules/pkg/readme.md', 'a dependency');
@@ -116,10 +122,22 @@ describe('DocumentService', () => {
 
     const {files, notes} = await documents.list();
 
+    /*
+     * Hidden files are documents of the user's too — `.env`, `.gitignore` and
+     * `.github` are listed. What is absent is the agent's own skip list: the
+     * `.marimo` memory, `.git` history and the dependency/build folders.
+     */
     expect(files.map((entry) => entry.path)).toEqual([
+      '.env',
+      '.github/workflows/ci.yml',
+      '.gitignore',
+      'assets/logo.png',
       'docs/deep/more.markdown',
       'docs/guide.md',
+      'docs/notes.txt',
+      'index.html',
       'notes.md',
+      'README',
     ]);
     expect(notes).toEqual([]);
     const guide = files.find((entry) => entry.path === 'docs/guide.md');
@@ -130,7 +148,10 @@ describe('DocumentService', () => {
     });
     expect(guide?.modifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/u);
     // At the top there is no directory, and the row is drawn from the name.
-    expect(files[2]).toMatchObject({name: 'notes.md', dir: ''});
+    expect(files.find((entry) => entry.path === 'notes.md')).toMatchObject({
+      name: 'notes.md',
+      dir: '',
+    });
   });
 
   it('says so when the count cap stopped the listing', async () => {
@@ -144,7 +165,7 @@ describe('DocumentService', () => {
 
     expect(files).toHaveLength(MAX_DOCUMENTS);
     expect(notes).toEqual([
-      `Showing the first ${MAX_DOCUMENTS} markdown files in this space, and there are more.`,
+      `Showing the first ${MAX_DOCUMENTS} files in this space, and there are more.`,
     ]);
   });
 
@@ -163,7 +184,7 @@ describe('DocumentService', () => {
       `${levels.join('/')}/found.md`,
     ]);
     expect(notes).toEqual([
-      `Folders more than ${MAX_DOCUMENT_DEPTH} levels below this space were not opened, so any documents in them are not listed.`,
+      `Folders more than ${MAX_DOCUMENT_DEPTH} levels below this space were not opened, so any files in them are not listed.`,
     ]);
   });
 
@@ -217,14 +238,44 @@ describe('DocumentService', () => {
     });
   });
 
-  it('refuses a file that is not a markdown document, and one that is gone', async () => {
+  it('reads a text file that is not markdown, and keeps a BOM', async () => {
     await place('notes.txt', 'plain');
+    await expect(documents.read('notes.txt')).resolves.toMatchObject({
+      path: 'notes.txt',
+      text: 'plain',
+    });
 
-    await expect(documents.read('notes.txt')).rejects.toThrow(
-      /not a markdown document/u,
+    /*
+     * The BOM is part of the file. A decoder that stripped it would make the
+     * first save quietly rewrite the opening bytes of somebody's file.
+     */
+    await writeFile(fileIn('bom.txt'), '\uFEFFhello\n', 'utf8');
+    const read = await documents.read('bom.txt');
+    expect(read.text).toBe('\uFEFFhello\n');
+    const answer = await documents.write('bom.txt', read.text, read.revision);
+    expect(answer.ok).toBe(true);
+    expect(await readFile(fileIn('bom.txt'), 'utf8')).toBe('\uFEFFhello\n');
+  });
+
+  it('refuses a binary file, invalid UTF-8, and one that is gone', async () => {
+    await writeFile(
+      fileIn('logo.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x1a]),
     );
-    await expect(documents.read('missing.md')).rejects.toThrow(
-      /There is no document at "missing.md"/u,
+    await expect(documents.read('logo.png')).rejects.toThrow(
+      /looks like a binary file/u,
+    );
+
+    await writeFile(
+      fileIn('latin1.txt'),
+      Buffer.from([0xff, 0xfe, 0x41]),
+    );
+    await expect(documents.read('latin1.txt')).rejects.toThrow(
+      /is not UTF-8 text/u,
+    );
+
+    await expect(documents.read('missing.txt')).rejects.toThrow(
+      /There is no document at "missing.txt"/u,
     );
 
     /*
@@ -232,9 +283,9 @@ describe('DocumentService', () => {
      * so this check is what turns the EISDIR that would arrive from reading one
      * into a sentence about what the path actually is.
      */
-    await mkdir(fileIn('folder.md'));
-    await expect(documents.read('folder.md')).rejects.toThrow(
-      /"folder.md" is a folder, not a document/u,
+    await mkdir(fileIn('folder.txt'));
+    await expect(documents.read('folder.txt')).rejects.toThrow(
+      /"folder.txt" is a folder, not a document/u,
     );
   });
 
@@ -292,6 +343,22 @@ describe('DocumentService', () => {
     );
   });
 
+  it('writes a text file that is not markdown', async () => {
+    await place('index.html', '<h1>old</h1>\n');
+    const read = await documents.read('index.html');
+
+    const answer = await documents.write(
+      'index.html',
+      '<h1>new</h1>\n',
+      read.revision,
+    );
+
+    expect(answer.ok).toBe(true);
+    expect(await readFile(fileIn('index.html'), 'utf8')).toBe(
+      '<h1>new</h1>\n',
+    );
+  });
+
   /*
    * The convention for a file that is not there, spelled out: zero bytes and the
    * epoch mean "I am making this", and anything else is a caller that read
@@ -345,14 +412,19 @@ describe('DocumentService', () => {
     // it, and the library does not list debris.
     await place('notes.md', 'the original\n');
     await writeFile(
-      fileIn(`notes.md.${randomUUID()}.tmp`),
+      fileIn(`.marimo-${randomUUID()}.tmp`),
       'half a draft',
       'utf8',
     );
+    // A user's own `.tmp` is not the app's debris, so it is still listed.
+    await place('report.tmp', 'mine');
 
     const {files} = await documents.list();
 
-    expect(files.map((entry) => entry.path)).toEqual(['notes.md']);
+    expect(files.map((entry) => entry.path)).toEqual([
+      'notes.md',
+      'report.tmp',
+    ]);
     await expect(documents.read('notes.md')).resolves.toMatchObject({
       text: 'the original\n',
     });
@@ -391,12 +463,20 @@ describe('DocumentService', () => {
     );
   });
 
-  it('creates a document that is not there, and refuses one that is', async () => {
+  it('creates a file that is not there, and refuses one that is', async () => {
     await mkdir(fileIn('docs'));
 
     const created = await documents.create('docs', 'guide.md');
     expect(created).toMatchObject({path: 'docs/guide.md', text: ''});
     expect(await readFile(fileIn('docs/guide.md'), 'utf8')).toBe('');
+
+    // Any extension, or none: the editor opens text files rather than markdown.
+    await expect(
+      documents.create(undefined, 'index.html'),
+    ).resolves.toMatchObject({path: 'index.html'});
+    await expect(documents.create(undefined, 'README')).resolves.toMatchObject({
+      path: 'README',
+    });
 
     await expect(documents.create('docs', 'guide.md')).rejects.toThrow(
       /already exists/u,
@@ -406,10 +486,10 @@ describe('DocumentService', () => {
     ).resolves.toMatchObject({path: 'at-the-top.md'});
   });
 
-  it('refuses a name that is not a document name', async () => {
-    for (const name of ['notes', 'notes.txt', '..', 'docs/guide.md']) {
+  it('refuses a name that is not a file name', async () => {
+    for (const name of ['..', 'docs/guide.md', 'bad\u0000name']) {
       await expect(documents.create(undefined, name)).rejects.toThrow(
-        /is not a (markdown file|document) name/u,
+        /is not a file name/u,
       );
     }
   });
@@ -455,6 +535,12 @@ describe('DocumentService', () => {
     expect(await readFile(fileIn('chats/2026-01-01.md'), 'utf8')).toBe(
       renderChatDocument(chat),
     );
+
+    // The rendering is markdown, so a saved conversation is markdown too.
+    await expect(
+      documents.saveChat('chats/2026-01-02.txt', chat),
+    ).rejects.toThrow(/is not a markdown file/u);
+    await expect(stat(fileIn('chats/2026-01-02.txt'))).rejects.toThrow();
   });
 });
 

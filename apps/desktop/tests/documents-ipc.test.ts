@@ -68,6 +68,7 @@ const SESSION_ID = 'parser-chat';
 
 describe('the docs.* calls', () => {
   let dir: string;
+  let spaceDir: string;
   let paths: AppPaths;
   let service: AgentService;
 
@@ -103,6 +104,13 @@ describe('the docs.* calls', () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(process.cwd(), '.marimo-docs-ipc-'));
+    /*
+     * The Space is a folder inside the throwaway user data, not the user data
+     * root: an install's stores (`profiles.json`, `sessions/`) are files too
+     * now, and they are not documents of the Space.
+     */
+    spaceDir = join(dir, 'space');
+    await mkdir(spaceDir, {recursive: true});
     paths = resolveAppPaths(dir);
     /*
      * The documents and the conversation are seeded as files rather than through
@@ -114,7 +122,7 @@ describe('the docs.* calls', () => {
       paths.workspaces,
       `${JSON.stringify({
         version: 1,
-        workspaces: [{id: 'space', name: 'space', path: dir}],
+        workspaces: [{id: 'space', name: 'space', path: spaceDir}],
         activeWorkspaceId: 'space',
       })}\n`,
       'utf8',
@@ -192,10 +200,14 @@ describe('the docs.* calls', () => {
   });
 
   it('lists, reads, writes and creates inside a space', async () => {
-    await writeFile(join(dir, 'notes.md'), 'first\n', 'utf8');
+    await writeFile(join(spaceDir, 'notes.md'), 'first\n', 'utf8');
+    await writeFile(join(spaceDir, 'page.html'), '<h1>first</h1>\n', 'utf8');
 
     const listed = await call('docs.list', {spaceId: 'space'});
-    expect(listed.files.map((entry) => entry.path)).toEqual(['notes.md']);
+    expect(listed.files.map((entry) => entry.path)).toEqual([
+      'notes.md',
+      'page.html',
+    ]);
     expect(listed.notes).toEqual([]);
 
     const read = await call('docs.read', {spaceId: 'space', path: 'notes.md'});
@@ -208,14 +220,37 @@ describe('the docs.* calls', () => {
       revision: read.revision,
     });
     expect(written.ok).toBe(true);
-    expect(await readFile(join(dir, 'notes.md'), 'utf8')).toBe('second\n');
+    expect(await readFile(join(spaceDir, 'notes.md'), 'utf8')).toBe('second\n');
+
+    // The extension rule is gone end to end, not only in the service.
+    const html = await call('docs.read', {
+      spaceId: 'space',
+      path: 'page.html',
+    });
+    expect(html.text).toBe('<h1>first</h1>\n');
+    const htmlWritten = await call('docs.write', {
+      spaceId: 'space',
+      path: 'page.html',
+      text: '<h1>second</h1>\n',
+      revision: html.revision,
+    });
+    expect(htmlWritten.ok).toBe(true);
+    expect(await readFile(join(spaceDir, 'page.html'), 'utf8')).toBe(
+      '<h1>second</h1>\n',
+    );
 
     const created = await call('docs.create', {
       spaceId: 'space',
       name: 'new.md',
     });
     expect(created).toMatchObject({path: 'new.md', text: ''});
-    expect(await readFile(join(dir, 'new.md'), 'utf8')).toBe('');
+    expect(await readFile(join(spaceDir, 'new.md'), 'utf8')).toBe('');
+
+    const createdHtml = await call('docs.create', {
+      spaceId: 'space',
+      name: 'another.html',
+    });
+    expect(createdHtml).toMatchObject({path: 'another.html', text: ''});
 
     /*
      * And the one case the whole revision exists for: the file moved on, so the
@@ -223,7 +258,7 @@ describe('the docs.* calls', () => {
      * text is still on disk.
      */
     await writeFile(
-      join(dir, 'notes.md'),
+      join(spaceDir, 'notes.md'),
       'somebody else typed this\n',
       'utf8',
     );
@@ -234,7 +269,7 @@ describe('the docs.* calls', () => {
       revision: read.revision,
     });
     expect(conflict).toMatchObject({ok: false, conflict: true});
-    expect(await readFile(join(dir, 'notes.md'), 'utf8')).toBe(
+    expect(await readFile(join(spaceDir, 'notes.md'), 'utf8')).toBe(
       'somebody else typed this\n',
     );
   });
@@ -248,7 +283,7 @@ describe('the docs.* calls', () => {
     });
 
     expect(saved.path).toBe('from-chat.md');
-    const markdown = await readFile(join(dir, 'from-chat.md'), 'utf8');
+    const markdown = await readFile(join(spaceDir, 'from-chat.md'), 'utf8');
     expect(markdown).toContain('# Parser output');
     expect(markdown).toContain('## You\n\nshow me the parser output');
     expect(markdown).toContain('## Marimo Bot\n\nHere it is.');

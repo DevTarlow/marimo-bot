@@ -1,8 +1,11 @@
 /**
- * A Space's documents: the markdown files in the folder it points at.
+ * A Space's documents: the files in the folder it points at.
  *
  * A space is a folder the user loaded and this app does not own, so a document
  * is an ordinary file — no version field, no manifest, no copy inside user data.
+ * The library lists every regular file in the folder, hidden ones included,
+ * except the agent's own skip list; the editor opens the UTF-8 text ones and
+ * refuses a binary file with a sentence rather than decoding it into mojibake.
  * What the app keeps is the *revision* a caller read, because the one thing an
  * editor must never do is write over a file that moved on while somebody had it
  * open.
@@ -31,11 +34,21 @@ import type {
 /** The largest document the editor will open, or save. */
 export const MAX_DOCUMENT_BYTES = 1024 * 1024;
 
-/** How many documents one listing returns. */
+/** How many files one listing returns. */
 export const MAX_DOCUMENTS = 500;
 
 /** How far below the root a listing looks. */
 export const MAX_DOCUMENT_DEPTH = 8;
+
+/**
+ * The name an atomic write gives its temporary, beside the file it will become.
+ *
+ * Hidden files are documents too, so the dot prefix alone cannot keep this out
+ * of the library: the listing recognizes the exact shape instead. A user's own
+ * `.tmp` file is still their file.
+ */
+const SCRATCH_FILE =
+  /^\.marimo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/u;
 
 /**
  * The revision a caller sends for a document it believes does not exist yet.
@@ -56,7 +69,7 @@ export interface DocumentList {
   /**
    * What the listing could not show, in the app's own words.
    *
-   * Both caps speak here: the number of documents and the depth of the tree. A
+   * Both caps speak here: the number of files and the depth of the tree. A
    * library that stopped and said nothing reads as a folder that holds exactly
    * that much — invariant 7, and the window prints these rather than working out
    * for itself whether something was dropped.
@@ -92,15 +105,17 @@ export class DocumentService {
   constructor(private readonly options: DocumentServiceOptions) {}
 
   /**
-   * Every markdown file in the space, sorted by path.
+   * Every regular file in the space, sorted by path.
    *
-   * Dot-directories are skipped because one of them is the app's own
-   * `.marimo/<profile>/memory.md` — the agent's memory is not a document of the
-   * user's project — and the rest of the skip list is the one the agent's own
-   * walk uses (`SKIPPED_DIRECTORIES`), so a file the library shows is a file the
-   * agent can find and quote. A second list would be a second answer to "which
-   * files are in this folder", which shows up as a document the agent cannot
-   * mention.
+   * Hidden files and directories are included: a person who opens this drawer
+   * is looking at their own folder, and `.env` or `.github` is as much a file of
+   * theirs as `README` is. What stays out is the agent's own skip list
+   * (`SKIPPED_DIRECTORIES`) — `.marimo/<profile>/memory.md` is the agent's memory
+   * rather than a document of the user's project, `.git` is history, and the
+   * dependency and build folders are noise. That is the same list the agent's
+   * walk uses, so a file the library shows is a file the agent can find and
+   * quote. A second list would be a second answer to "which files are in this
+   * folder", which shows up as a document the agent cannot mention.
    */
   async list(): Promise<DocumentList> {
     const base = await this.base();
@@ -130,10 +145,7 @@ export class DocumentService {
 
       for (const entry of entries) {
         if (entry.isDirectory()) {
-          if (
-            entry.name.startsWith('.') ||
-            SKIPPED_DIRECTORIES.has(entry.name)
-          ) {
+          if (SKIPPED_DIRECTORIES.has(entry.name)) {
             continue;
           }
           if (depth >= MAX_DOCUMENT_DEPTH) {
@@ -149,7 +161,7 @@ export class DocumentService {
          * them: one that points at a parent is a walk that never ends, and one
          * that leaves the space is a file `read` would refuse anyway.
          */
-        if (!entry.isFile() || !isMarkdown(entry.name)) {
+        if (!entry.isFile() || isScratchFile(entry.name)) {
           continue;
         }
         if (files.length >= MAX_DOCUMENTS) {
@@ -178,12 +190,12 @@ export class DocumentService {
     const notes: string[] = [];
     if (moreFiles) {
       notes.push(
-        `Showing the first ${MAX_DOCUMENTS} markdown files in this space, and there are more.`,
+        `Showing the first ${MAX_DOCUMENTS} files in this space, and there are more.`,
       );
     }
     if (deeperFolders) {
       notes.push(
-        `Folders more than ${MAX_DOCUMENT_DEPTH} levels below this space were not opened, so any documents in them are not listed.`,
+        `Folders more than ${MAX_DOCUMENT_DEPTH} levels below this space were not opened, so any files in them are not listed.`,
       );
     }
     return {files, notes};
@@ -198,9 +210,10 @@ export class DocumentService {
    * overwrite the one they did not see. Reading through the handle that was
    * statted is what makes the pair one answer.
    *
-   * Refuses anything but a markdown file, and anything over the cap: an editor
-   * that is handed a megabyte of text has to draw it, and the read that is
-   * refused with a sentence is cheaper for the user than the read that arrives.
+   * Refuses a file that is not UTF-8 text, and anything over the cap: a binary
+   * file decoded as text would be saved back as mojibake, an editor that is
+   * handed a megabyte of text has to draw it, and the read that is refused with
+   * a sentence is cheaper for the user than the read that arrives.
    */
   async read(path: string): Promise<DocumentRead> {
     const base = await this.base();
@@ -224,9 +237,38 @@ export class DocumentService {
           `Refusing to open "${path}": it is ${info.size} bytes, and a document is capped at ${MAX_DOCUMENT_BYTES} bytes.`,
         );
       }
+      const bytes = await handle.readFile();
+      // A file can grow between the stat above and this read, and the cap has
+      // to be true of the bytes the editor is actually handed.
+      if (bytes.byteLength > MAX_DOCUMENT_BYTES) {
+        throw new Error(
+          `Refusing to open "${path}": it is ${bytes.byteLength} bytes, and a document is capped at ${MAX_DOCUMENT_BYTES} bytes.`,
+        );
+      }
+      if (bytes.includes(0)) {
+        throw new Error(
+          `"${path}" looks like a binary file (${bytes.byteLength} bytes); the editor opens UTF-8 text files only.`,
+        );
+      }
+      let text: string;
+      try {
+        /*
+         * `ignoreBOM` keeps a leading byte-order mark in the text. The default
+         * strips it, which would make the first save quietly rewrite the file's
+         * opening bytes.
+         */
+        text = new TextDecoder('utf-8', {
+          fatal: true,
+          ignoreBOM: true,
+        }).decode(bytes);
+      } catch {
+        throw new Error(
+          `"${path}" is not UTF-8 text (${bytes.byteLength} bytes); the editor opens UTF-8 text files only.`,
+        );
+      }
       return {
         path: relativeToRoot(base, target),
-        text: await handle.readFile({encoding: 'utf8'}),
+        text,
         revision: revisionOf(info),
       };
     } finally {
@@ -323,6 +365,16 @@ export class DocumentService {
   async saveChat(path: string, chat: ChatDocument): Promise<DocumentRead> {
     const base = await this.base();
     const target = await this.documentPath(base, path);
+    /*
+     * A saved conversation is markdown — the rendering below is the format. The
+     * editor now opens any text file, so this is the one place that still needs
+     * to say what the document it is making will be.
+     */
+    if (!isMarkdown(target)) {
+      throw new Error(
+        `"${path}" is not a markdown file: a saved conversation is written as markdown.`,
+      );
+    }
     const text = renderChatDocument(chat);
     this.requireWithinCap(path, text);
     const relativePath = relativeToRoot(base, target);
@@ -341,20 +393,14 @@ export class DocumentService {
   }
 
   /**
-   * A document's absolute path, or the guard's own refusal.
+   * A file's absolute path, or the guard's own refusal.
    *
-   * The extension is checked *after* resolution on purpose: a path that leaves
-   * the space has to arrive as the one refusal the file tools give, not as a
-   * complaint about its name.
+   * Resolution is the whole check. Every regular file is a document of the
+   * space now, and whether it is text is the read's question rather than the
+   * path's.
    */
   private async documentPath(base: string, path: string): Promise<string> {
-    const resolved = await resolveInsideWorkspace(base, path);
-    if (!isMarkdown(resolved)) {
-      throw new Error(
-        `"${path}" is not a markdown document: a space's documents are its ".md" and ".markdown" files.`,
-      );
-    }
-    return resolved;
+    return await resolveInsideWorkspace(base, path);
   }
 
   /**
@@ -414,8 +460,9 @@ export class DocumentService {
    *
    * A crash between the two steps leaves the original exactly as it was and a
    * `.tmp` file nobody reads — which is the point: an editor saving a document
-   * must never be the reason a file is half-written. The temporary name has no
-   * markdown extension, so it cannot appear in a listing while it lives, and it
+   * must never be the reason a file is half-written. The temporary name carries
+   * the app's own marker, and the listing recognizes that exact shape, so it
+   * cannot appear while it lives even though hidden files are documents too; it
    * is removed when the write itself fails rather than left in the user's
    * folder.
    */
@@ -424,7 +471,7 @@ export class DocumentService {
     text: string,
     path: string,
   ): Promise<void> {
-    const temporary = `${target}.${randomUUID()}.tmp`;
+    const temporary = join(dirname(target), `.marimo-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, text, 'utf8');
       await rename(temporary, target);
@@ -462,25 +509,33 @@ function dateStamp(when: Date): string {
   return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
 }
 
-/** Why a name cannot be a document's, or nothing. */
+/** Why a name cannot be a file's, or nothing. */
 function nameProblem(name: string): string | undefined {
+  // A name is not a path, and `.` and `..` are the two names that would stop
+  // being one if they were allowed.
+  if (name.length === 0 || name === '.' || name === '..') {
+    return `"${name}" is not a file name.`;
+  }
   /*
    * The folder is `dir`, so a separator here is a path where a name goes — and
    * it is also the only way a caller could name something the folder it asked
    * for does not contain.
    */
   if (name.includes('/') || name.includes('\\') || name.includes('\u0000')) {
-    return `"${name}" is not a document name: name the folder with "dir", and give a plain file name here.`;
-  }
-  if (!isMarkdown(name)) {
-    return `"${name}" is not a markdown file name: a document ends in ".md" or ".markdown".`;
+    return `"${name}" is not a file name: name the folder with "dir", and give a plain file name here.`;
   }
   return undefined;
 }
 
+/** Whether a path is markdown, which is the one format with a preview. */
 function isMarkdown(name: string): boolean {
   const lower = name.toLowerCase();
   return lower.endsWith('.md') || lower.endsWith('.markdown');
+}
+
+/** The app's own atomic-write debris rather than a file of the user's. */
+function isScratchFile(name: string): boolean {
+  return SCRATCH_FILE.test(name);
 }
 
 /** A path relative to the root, with forward slashes whatever the platform. */

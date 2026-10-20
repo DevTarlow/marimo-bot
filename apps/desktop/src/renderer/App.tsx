@@ -808,7 +808,7 @@ export function App(): React.JSX.Element {
           <button
             type="button"
             className="button button-quiet button-small"
-            title="The markdown files in this Space"
+            title="The files in this Space"
             /* Pressed is open: the same button closes it, which is what the
                `aria-expanded` says to anything that cannot see the column. */
             aria-expanded={documents}

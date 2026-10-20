@@ -97,23 +97,27 @@ export interface DismissedSummary {
 }
 
 /**
- * What to say about the facts the user refused.
+ * What to say about facts the user refused or removed.
  *
  * The count leads because it is the only part that is actionable in a glance —
  * the text is there to be checked, not read — and it is phrased as a sentence
  * rather than as a number because "3 being suppressed" is a fragment nobody
- * finishes. Singular and plural both, since one refusal is the state a user
- * reaches first and the one most likely to be read.
+ * finishes. Singular and plural both, since one is the state a user reaches
+ * first and the one most likely to be read.
+ *
+ * The wording covers both ways a fact gets here. A refusal is an answer to a
+ * suggestion; a removal is an answer to a fact the bot wrote on its own, and
+ * both end at the same place — the reviewer will not bring it up again.
  */
 export function summarizeDismissed(count: number): DismissedSummary {
   if (count <= 0) {
     return {count: ''};
   }
   return {
-    heading: 'What it has stopped suggesting',
+    heading: 'What it will not bring up again',
     count:
       count === 1
-        ? 'One suggestion is being suppressed.'
-        : `${String(count)} suggestions are being suppressed.`,
+        ? 'One fact will stay forgotten.'
+        : `${String(count)} facts will stay forgotten.`,
   };
 }

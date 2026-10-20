@@ -36,10 +36,7 @@ import {dirname, join} from 'node:path';
 import {memoryProvenanceFileSchema} from '@marimo/protocol';
 import type {MemoryProvenanceEntry} from '@marimo/protocol';
 
-import {
-  assertWritable,
-  readVersionedDocument,
-} from './../migrations.js';
+import {assertWritable, readVersionedDocument} from './../migrations.js';
 import type {ReadVersionedOptions} from './../migrations.js';
 import {scopeForSection} from './sections.js';
 import {MEMORY_SOFT_LIMIT_BYTES} from './size.js';
@@ -150,6 +147,30 @@ export interface MemoryPruneRequest {
   content: string;
   /** Why the prune happened, echoed back to the model. */
   reason?: string;
+}
+
+/**
+ * One remembered bullet to remove by name.
+ *
+ * The scope, section and text are exactly what `provenance()` reports, because
+ * the panel that offers the button drew its list from there. Naming the scope
+ * rather than searching both files matters: the same sentence can legitimately
+ * be remembered in both halves, and removing the person's copy when they meant
+ * the project's would be a fact about them disappearing.
+ */
+export interface MemoryForgetRequest {
+  scope: MemoryScope;
+  /** The `##` heading it sits under — empty for the preamble. */
+  section: string;
+  /** The bullet's text, as the provenance list spells it. */
+  text: string;
+}
+
+export interface ForgetReport {
+  /** The whole memory as it now stands, both files merged. */
+  content: string;
+  /** False when no bullet matched, so the caller can say so rather than lie. */
+  removed: boolean;
 }
 
 /** What a prune did, and the one thing it refused to do. */
@@ -408,6 +429,39 @@ export class MemoryStore {
     });
   }
 
+  /**
+   * Removes one remembered bullet, by the name provenance gave it.
+   *
+   * This is the person's own edit, not a correction the model proposed: it is
+   * the button under a fact in Settings. It deliberately has no fuzzy matching
+   * beyond the same collapsed-text comparison the store uses everywhere else —
+   * a provenance entry came from the file, so an exact name is available and a
+   * prefix search would make "forget this" able to take a neighbouring fact.
+   */
+  async forget(request: MemoryForgetRequest): Promise<ForgetReport> {
+    await this.ensureAdopted();
+    await this.ensureProvenanceSeeded();
+    return await this.withLock(async () => {
+      const file =
+        request.scope === 'person' && this.personFile !== undefined
+          ? this.personFile
+          : this.file;
+      const next = removeBullet(
+        await this.readFileAt(file),
+        request.section,
+        request.text,
+      );
+      if (next === undefined) {
+        return {content: await this.readMerged(), removed: false};
+      }
+      await this.writeFileAt(file, next);
+      // The sync drops the date of the bullet that just went, and leaves every
+      // date it did not touch alone.
+      await this.syncProvenance('tool');
+      return {content: await this.readMerged(), removed: true};
+    });
+  }
+
   /** Replaces the document, keeping each previous file as `memory.md.bak`. */
   async prune(request: MemoryPruneRequest): Promise<PruneReport> {
     await this.ensureAdopted();
@@ -445,11 +499,15 @@ export class MemoryStore {
     const blocks = splitMemory(content);
     const personBlocks = blocks.filter(
       (block) =>
-        block.heading !== undefined && scopeForSection(block.heading) === 'person',
+        block.heading !== undefined &&
+        scopeForSection(block.heading) === 'person',
     );
     const workspaceBlocks = blocks.filter(
       (block) =>
-        !(block.heading !== undefined && scopeForSection(block.heading) === 'person'),
+        !(
+          block.heading !== undefined &&
+          scopeForSection(block.heading) === 'person'
+        ),
     );
 
     const person = this.personFile;
@@ -462,7 +520,11 @@ export class MemoryStore {
       await this.writeFileAt(person, renderMemory(personBlocks));
     }
 
-    await this.backupThenWrite(this.file, renderMemory(workspaceBlocks), options);
+    await this.backupThenWrite(
+      this.file,
+      renderMemory(workspaceBlocks),
+      options,
+    );
 
     /*
      * A document with person-level sections and no workspace-level ones is a
@@ -496,7 +558,8 @@ export class MemoryStore {
   /** The merged document, with no adoption attempt of its own. */
   private async readMerged(): Promise<string> {
     const person = this.personFile;
-    const personText = person === undefined ? '' : await this.readFileAt(person);
+    const personText =
+      person === undefined ? '' : await this.readFileAt(person);
     const workspaceText = await this.readFileAt(this.file);
     if (personText.trim().length === 0) {
       return workspaceText;
@@ -505,7 +568,10 @@ export class MemoryStore {
       return personText;
     }
     return renderMemory(
-      dedupeBullets([...splitMemory(personText), ...splitMemory(workspaceText)]),
+      dedupeBullets([
+        ...splitMemory(personText),
+        ...splitMemory(workspaceText),
+      ]),
     );
   }
 
@@ -523,7 +589,8 @@ export class MemoryStore {
 
   /** The file one update belongs in. */
   private fileFor(update: MemoryUpdate): string {
-    const heading = (update.section ?? DEFAULT_SECTION).trim() || DEFAULT_SECTION;
+    const heading =
+      (update.section ?? DEFAULT_SECTION).trim() || DEFAULT_SECTION;
     const scope = update.scope ?? scopeForSection(heading);
     const person = this.personFile;
     return scope === 'person' && person !== undefined ? person : this.file;
@@ -571,7 +638,8 @@ export class MemoryStore {
     const blocks = splitMemory(workspaceText);
     const adopted = blocks.filter(
       (block) =>
-        block.heading !== undefined && scopeForSection(block.heading) === 'person',
+        block.heading !== undefined &&
+        scopeForSection(block.heading) === 'person',
     );
     if (adopted.length === 0) {
       return;
@@ -647,16 +715,15 @@ export class MemoryStore {
    * fact is the thing the user asked for, and losing its date is not a reason to
    * lose it.
    */
-  private async syncProvenance(source: MemoryProvenanceEntry['source']): Promise<void> {
+  private async syncProvenance(
+    source: MemoryProvenanceEntry['source'],
+  ): Promise<void> {
     const file = this.provenanceFile;
     if (file === undefined) {
       return;
     }
     try {
-      const read = await readVersionedDocument(
-        file,
-        PROVENANCE_READ_OPTIONS,
-      );
+      const read = await readVersionedDocument(file, PROVENANCE_READ_OPTIONS);
       if (read.state === 'too-new' || read.state === 'unreadable') {
         // A document from a newer build, or one nothing can read: leaving it
         // alone is the same answer both times, and neither is worth a rewrite.
@@ -664,8 +731,8 @@ export class MemoryStore {
       }
       const existing: readonly MemoryProvenanceEntry[] =
         read.state === 'current'
-          ? (memoryProvenanceFileSchema.safeParse(read.document).data?.entries ??
-            [])
+          ? (memoryProvenanceFileSchema.safeParse(read.document).data
+              ?.entries ?? [])
           : [];
       /*
        * The first sync of all dates everything `adopted`, because on an install
@@ -675,8 +742,11 @@ export class MemoryStore {
        */
       const seeding = read.state === 'absent';
 
-      const present: Array<{scope: MemoryScope; section: string; text: string}> =
-        [];
+      const present: Array<{
+        scope: MemoryScope;
+        section: string;
+        text: string;
+      }> = [];
       const person = this.personFile;
       if (person !== undefined) {
         parseBullets(await this.readFileAt(person), 'person', present);
@@ -908,6 +978,59 @@ export function toBullets(content: string): string[] {
 
 function comparable(text: string): string {
   return text.trim().toLowerCase();
+}
+
+/**
+ * Drops the one bullet a person named, and the heading if it was the last one.
+ *
+ * `undefined` means nothing matched, which the caller reports rather than
+ * pretending the file changed. A heading left behind with no bullets reads as a
+ * layer that exists and is empty, and the next writer appends into a section
+ * nobody chose — the same failure `applyUpdate` removes an emptied heading for.
+ * Only the section this call emptied goes: a blank heading the user wrote is not
+ * this function's to remove, and a preamble with prose in it is not empty.
+ */
+function removeBullet(
+  text: string,
+  section: string,
+  bullet: string,
+): string | undefined {
+  const wantedSection = comparable(section);
+  const wanted = collapse(bullet);
+  if (wanted.length === 0) {
+    return undefined;
+  }
+
+  let found = false;
+  const blocks: Block[] = [];
+  for (const block of splitMemory(text)) {
+    const sameSection = comparable(block.heading ?? '') === wantedSection;
+    if (!sameSection) {
+      blocks.push(block);
+      continue;
+    }
+
+    let removedHere = false;
+    const lines = block.lines.filter((line) => {
+      const match = /^\s*[-*]\s+(.+?)\s*$/u.exec(line);
+      if (match === null || collapse(match[1] ?? '') !== wanted) {
+        return true;
+      }
+      removedHere = true;
+      found = true;
+      return false;
+    });
+
+    if (removedHere && lines.every((line) => line.trim().length === 0)) {
+      continue;
+    }
+    blocks.push({
+      ...(block.heading === undefined ? {} : {heading: block.heading}),
+      lines,
+    });
+  }
+
+  return found ? renderMemory(blocks) : undefined;
 }
 
 /**

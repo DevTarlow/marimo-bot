@@ -508,27 +508,6 @@
   user-select: text;
 }
 
-/*
- * The dot that says something is waiting in Settings.
- *
- * A dot rather than a count: nothing here needs acting on now, and a number
- * beside a button invites reading it as a task. The title attribute carries the
- * count for anybody who wants it.
- */
-.head-settings {
-  position: relative;
-}
-
-.head-dot {
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 .head-theme {
   display: flex;
   gap: var(--space-1);
@@ -2845,6 +2824,33 @@
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-1);
+}
+
+.memory-search {
+  margin-top: var(--space-2);
+}
+
+/*
+ * One remembered line and its Forget button.
+ *
+ * The text takes the room and the button stays at the end rather than wrapping
+ * under it: a long fact would otherwise put the control somewhere different on
+ * every row, and the point of the list is that the last column is scannable.
+ */
+.memory-remembered-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.memory-remembered-text {
+  flex: 1;
+  min-width: 0;
+  user-select: text;
+}
+
+.memory-forget {
+  flex: none;
 }
 
 .memory-section {

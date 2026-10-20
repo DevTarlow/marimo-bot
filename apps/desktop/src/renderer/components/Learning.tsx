@@ -1,18 +1,18 @@
 /**
  * Learning: the one place a suggestion becomes a decision.
  *
- * Memory suggestions, capability requests and changes to how a bot runs are
- * different documents with different lifetimes, and to the person they are one
- * thing — something the bot wants to do differently. This card is that one
- * thing. It sits above Memory because a suggestion is about the *next* turn,
- * while the memory card is about what the bot already carries.
+ * Capability requests and changes to how a bot runs are the decisions that
+ * still need a person. A fact the bot decides to remember is not one of them:
+ * it is written straight into memory, where the Memory card can search it and
+ * offer to forget it. This card sits above Memory because a change is about the
+ * *next* turn, while the memory card is about what the bot already carries.
  *
  * Two decisions shape it.
  *
- * **The evidence comes before the reasoning.** A memory proposal carries a
- * quote checked against the transcript; a capability request carries the turn it
- * came from. The model's own explanation is folded away, because it is the part
- * that costs nothing to invent.
+ * **The evidence comes before the reasoning.** A capability request carries the
+ * turn it came from, and the memory fact that still needs an answer carries the
+ * quote that was checked against the transcript. The model's own explanation is
+ * folded away, because it is the part that costs nothing to invent.
  *
  * **A refusal is a decision, not a dismissal.** Saying no records a lesson, and
  * the lesson is listed here with a way to clear it. A queue that forgets its
@@ -55,7 +55,7 @@ export function Learning({
   /** The active bot, for the outcome counts. Absent while the roster loads. */
   profileId?: string;
   onChange?: () => void;
-  lastReview?: {events: number; found: number} | null;
+  lastReview?: {events: number; remembered: number} | null;
 }): React.JSX.Element {
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [report, setReport] = useState<HarnessReport | null>(null);
@@ -175,10 +175,12 @@ export function Learning({
   return (
     <SettingsSection title="Learning" opened={opened} onToggle={onToggle}>
       <p className="settings-muted">
-        What the bot wants to change about itself. It can suggest a fact, ask
-        for a capability, or propose a change to how it runs; none of it happens
-        until you say yes. A no is remembered, so it does not ask again in
-        different words.
+        What the bot wants to change about itself. It can ask for a capability,
+        propose a change to how it runs, or suggest housekeeping; none of that
+        happens until you say yes. A no is remembered, so it does not ask again
+        in different words. Facts it decides are worth remembering are written
+        straight into Memory instead — search them there and forget any you do
+        not want.
       </p>
 
       {report !== null && <Stats report={report} />}
@@ -186,7 +188,8 @@ export function Learning({
       {lastReview !== undefined && lastReview !== null && (
         <p className="settings-why">
           The last look read {lastReview.events} message
-          {lastReview.events === 1 ? '' : 's'} and found {lastReview.found}.
+          {lastReview.events === 1 ? '' : 's'} and remembered{' '}
+          {lastReview.remembered}.
         </p>
       )}
 
@@ -195,8 +198,10 @@ export function Learning({
         <p className="settings-muted">Reading…</p>
       ) : waiting.length === 0 ? (
         <p className="settings-muted">
-          Nothing waiting. Most conversations have nothing in them worth
-          changing — that is the expected answer, not a problem.
+          Nothing waiting. Memories are written as the bot finds them; only
+          changes to what it can do stop here for an answer. Most conversations
+          have nothing in them worth changing — that is the expected answer, not
+          a problem.
         </p>
       ) : (
         waiting.map((entry) => (
@@ -309,7 +314,14 @@ function Stats({report}: {report: HarnessReport}): React.JSX.Element {
   );
 }
 
-/** A fact the reviewer proposed, drawn the same way the Memory card used to. */
+/**
+ * A remembered fact that still needs an answer.
+ *
+ * Normally unreachable — the review writes rather than queues — but a write that
+ * failed, or an entry an older build left behind, is a fact that has nowhere
+ * else to be shown. Drawing it here means a failure is visible instead of
+ * silently a fact the bot thinks it kept.
+ */
 function MemoryItem({proposal}: {proposal: MemoryProposal}): React.JSX.Element {
   return (
     <>

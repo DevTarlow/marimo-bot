@@ -1,5 +1,5 @@
-import {mkdtemp, rm} from 'node:fs/promises';
-import {join} from 'node:path';
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {dirname, join} from 'node:path';
 
 import {afterEach, describe, expect, it} from 'vitest';
 
@@ -7,6 +7,7 @@ import {
   MemoryEventStore,
   MemoryStore,
   resolveHarness,
+  resolvePersonMemoryFile,
   type DriverEvent,
   type DriverResume,
   type DriverRun,
@@ -20,6 +21,7 @@ import {WorkspaceStore} from '../workspaces.js';
 import {HarnessRuntime} from './harness-runtime.js';
 import {HarnessVersionStore} from '../harness-versions.js';
 import {LearningProposalStore} from '../learning-proposals.js';
+import {MemoryProposalStore} from '../memory-proposals.js';
 import {SkillStore} from '../skills.js';
 
 const roots: string[] = [];
@@ -381,7 +383,11 @@ describe('HarnessRuntime', () => {
         return 'Tabs are better.';
       },
     );
-    const answer = await runtime.askAgent(profileId, 'Reader', 'Tabs or spaces?');
+    const answer = await runtime.askAgent(
+      profileId,
+      'Reader',
+      'Tabs or spaces?',
+    );
     expect(answer).toEqual({ok: true, result: 'Tabs are better.'});
     expect(seen).toContain('You are Reader.');
     expect(seen).toContain('Tabs or spaces?');
@@ -412,13 +418,19 @@ describe('HarnessRuntime', () => {
       [
         {type: 'step'},
         {type: 'message', text: 'One'},
-        {type: 'usage', usage: {promptTokens: 10, completionTokens: 4, totalTokens: 14}},
+        {
+          type: 'usage',
+          usage: {promptTokens: 10, completionTokens: 4, totalTokens: 14},
+        },
         {type: 'done'},
       ],
       [
         {type: 'step'},
         {type: 'message', text: 'Two'},
-        {type: 'usage', usage: {promptTokens: 20, completionTokens: 6, totalTokens: 26}},
+        {
+          type: 'usage',
+          usage: {promptTokens: 20, completionTokens: 6, totalTokens: 26},
+        },
         {type: 'done'},
       ],
     ]);
@@ -483,7 +495,10 @@ describe('HarnessRuntime', () => {
       [
         {type: 'step'},
         {type: 'message', text: 'One'},
-        {type: 'usage', usage: {promptTokens: 7, completionTokens: 3, totalTokens: 10}},
+        {
+          type: 'usage',
+          usage: {promptTokens: 7, completionTokens: 3, totalTokens: 10},
+        },
         {type: 'done'},
       ],
     ]);
@@ -499,7 +514,11 @@ describe('HarnessRuntime', () => {
   it('starts a task in its own conversation and returns immediately', async () => {
     const driver = new ScriptedDriver([
       [{type: 'step'}, {type: 'message', text: 'Starting.'}, {type: 'done'}],
-      [{type: 'step'}, {type: 'message', text: 'The task is done.'}, {type: 'done'}],
+      [
+        {type: 'step'},
+        {type: 'message', text: 'The task is done.'},
+        {type: 'done'},
+      ],
     ]);
     const {deps, profileId} = await setup();
     const other = await deps.profiles.create({
@@ -531,9 +550,7 @@ describe('HarnessRuntime', () => {
     for (let attempt = 0; attempt < 50; attempt += 1) {
       const transcript = await runtime.transcript('s1', profileId);
       posted =
-        transcript.find(
-          (message) => message.agentId === other.id,
-        )?.text ?? '';
+        transcript.find((message) => message.agentId === other.id)?.text ?? '';
       if (posted.length > 0) {
         break;
       }
@@ -617,8 +634,16 @@ describe('HarnessRuntime', () => {
 
   it('compacts a v2 conversation into a summary that covers the old events', async () => {
     const driver = new ScriptedDriver([
-      [{type: 'step'}, {type: 'message', text: 'First answer.'}, {type: 'done'}],
-      [{type: 'step'}, {type: 'message', text: 'Second answer.'}, {type: 'done'}],
+      [
+        {type: 'step'},
+        {type: 'message', text: 'First answer.'},
+        {type: 'done'},
+      ],
+      [
+        {type: 'step'},
+        {type: 'message', text: 'Second answer.'},
+        {type: 'done'},
+      ],
     ]);
     const {deps, profileId} = await setup();
     const runtime = runtimeFrom(
@@ -662,7 +687,11 @@ describe('HarnessRuntime', () => {
 
   it('keeps a builder session’s purpose in its own log', async () => {
     const driver = new ScriptedDriver([
-      [{type: 'step'}, {type: 'message', text: 'What should it do?'}, {type: 'done'}],
+      [
+        {type: 'step'},
+        {type: 'message', text: 'What should it do?'},
+        {type: 'done'},
+      ],
     ]);
     const {deps, profileId} = await setup();
     const runtime = runtimeFrom(deps, () => driver);
@@ -695,7 +724,8 @@ describe('HarnessRuntime', () => {
     const recorded = await store.record({
       kind: 'policy',
       patch: {memoryPolicy: 'all', maxToolCalls: 10},
-      summary: 'carry all of memory in the prompt; allow 10 tool calls per turn',
+      summary:
+        'carry all of memory in the prompt; allow 10 tool calls per turn',
       profileId,
       sessionId: null,
       reason: 'Memory was being narrowed when it did not need to be.',
@@ -741,8 +771,7 @@ describe('HarnessRuntime', () => {
         '## Notes',
         ...Array.from(
           {length: 300},
-          (_value, index) =>
-            `- fact number ${String(index)} ${'x'.repeat(40)}`,
+          (_value, index) => `- fact number ${String(index)} ${'x'.repeat(40)}`,
         ),
       ].join('\n'),
     );
@@ -952,7 +981,7 @@ describe('HarnessRuntime', () => {
     expect(inbox.lessons[0]?.summary).toBe('tool:read_file');
   });
 
-  it('answers a memory proposal through the same learning call', async () => {
+  it('remembers a fact without waiting for a click', async () => {
     const driver = new ScriptedDriver([
       [
         {type: 'step'},
@@ -977,13 +1006,110 @@ describe('HarnessRuntime', () => {
     await collect(runtime.run(profileId, 's1', 'I prefer tabs.'));
 
     const found = await runtime.reviewMemory('s1');
-    const id = found.proposals[0]?.id ?? '';
-    const answer = await runtime.resolveLearningProposal(id, true);
-    expect(answer.ok).toBe(true);
-    expect((await runtime.learningProposals()).memory).toEqual([]);
+    expect(found.remembered).toBe(1);
+    expect(found.waiting).toEqual([]);
+
+    const active = await deps.workspaces.active();
+    if (active === undefined) {
+      throw new Error('expected a workspace');
+    }
+    const memory = new MemoryStore({
+      workspaceRoot: active.path,
+      personMemoryRoot: deps.paths.personMemoryDir,
+      profileId,
+    });
+    expect(await memory.read()).toContain('prefers tabs');
+    // Nothing was left for the person to answer, because there was nothing to
+    // decide: the fact is in memory, where it can be searched and forgotten.
+    expect((await runtime.learningProposals(profileId)).memory).toEqual([]);
   });
 
-  it('proposes a memory from a conversation and remembers it was read', async () => {
+  it('queues a fact it could not write rather than losing it', async () => {
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'I will remember that.'},
+        {type: 'done'},
+      ],
+    ]);
+    const reviewer = async (): Promise<string> =>
+      JSON.stringify({
+        proposals: [
+          {
+            section: 'About the user',
+            text: '- has a cat',
+            reason: 'They said so.',
+            replaces: '',
+            quote: 'I have a cat',
+          },
+        ],
+      });
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver, reviewer);
+    await collect(runtime.run(profileId, 's1', 'I have a cat.'));
+
+    /*
+     * A person file already past the hard cap: the write the review is about to
+     * make cannot land. The fact must not disappear between the quote check and
+     * the prompt, so it becomes the one kind of memory entry the queue still
+     * exists for.
+     */
+    const personFile = resolvePersonMemoryFile(
+      deps.paths.personMemoryDir,
+      profileId,
+    );
+    await mkdir(dirname(personFile), {recursive: true});
+    await writeFile(
+      personFile,
+      `## About the user\n- ${'x'.repeat(70_000)}\n`,
+      'utf8',
+    );
+
+    const found = await runtime.reviewMemory('s1');
+    expect(found.remembered).toBe(0);
+    expect(found.waiting).toHaveLength(1);
+    expect((await runtime.learningProposals(profileId)).memory).toHaveLength(1);
+  });
+
+  it('applies the queue an older build left behind when the inbox opens', async () => {
+    const driver = new ScriptedDriver([]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+    const proposals = new MemoryProposalStore({
+      file: deps.paths.memoryProposals,
+    });
+    await proposals.record('s1', 1, [
+      {
+        sessionId: 's1',
+        profileId,
+        section: 'Preferences and tone',
+        text: '- prefers tabs',
+        reason: 'They said so.',
+      },
+    ]);
+
+    const inbox = await runtime.learningProposals(profileId);
+    expect(inbox.memory).toEqual([]);
+
+    const active = await deps.workspaces.active();
+    if (active === undefined) {
+      throw new Error('expected a workspace');
+    }
+    const memory = new MemoryStore({
+      workspaceRoot: active.path,
+      personMemoryRoot: deps.paths.personMemoryDir,
+      profileId,
+    });
+    expect(await memory.read()).toContain('prefers tabs');
+    // Read through a new store: the one that recorded the entry is entitled to
+    // its cache, and what matters is what the next process would see.
+    expect(
+      (await new MemoryProposalStore({file: deps.paths.memoryProposals}).load())
+        .proposals,
+    ).toEqual([]);
+  });
+
+  it('remembers it was read, so the same exchange is not reviewed twice', async () => {
     const driver = new ScriptedDriver([
       [
         {type: 'step'},
@@ -1007,35 +1133,10 @@ describe('HarnessRuntime', () => {
     const runtime = runtimeFrom(deps, () => driver, reviewer);
     await collect(runtime.run(profileId, 's1', 'I prefer tabs.'));
 
-    const first = await runtime.reviewMemory('s1');
-    expect(first.proposals).toHaveLength(1);
-    expect(first.proposals[0]).toMatchObject({
-      section: 'Preferences and tone',
-      text: '- prefers tabs',
-      profileId,
-      evidence: {quote: 'I prefer tabs'},
-    });
-
+    expect((await runtime.reviewMemory('s1')).remembered).toBe(1);
     const second = await runtime.reviewMemory('s1');
-    expect(second.proposals).toEqual([]);
+    expect(second.remembered).toBe(0);
     expect(second.events).toBe(0);
-
-    const proposed = first.proposals[0];
-    if (proposed === undefined) {
-      throw new Error('expected a proposal');
-    }
-    const accepted = await runtime.resolveMemoryProposal(proposed.id, true);
-    expect(accepted).toMatchObject({ok: true});
-    const active = await deps.workspaces.active();
-    if (active === undefined) {
-      throw new Error('expected a workspace');
-    }
-    const memory = new MemoryStore({
-      workspaceRoot: active.path,
-      personMemoryRoot: deps.paths.personMemoryDir,
-      profileId,
-    });
-    expect(await memory.read()).toContain('prefers tabs');
   });
 
   it('records a denial as a failed tool result and clears the card', async () => {

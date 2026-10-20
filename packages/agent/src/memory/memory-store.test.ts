@@ -604,6 +604,83 @@ describe('MemoryStore, split by layer', () => {
     });
   });
 
+  /*
+   * The person's own edit, made from the Memory card rather than proposed by the
+   * model. It is deliberately exact: the list it is drawn from came from the file,
+   * so "forget this" must not be able to take a neighbouring fact by prefix.
+   */
+  describe('forgetting one remembered fact', () => {
+    it('removes the named bullet from the file it belongs to', async () => {
+      const memory = store();
+      await memory.update({section: 'About the user', content: 'Has a dog'});
+      await memory.update({section: 'About the user', content: 'Uses pnpm'});
+      await memory.update({
+        section: 'Project pointers',
+        content: 'State in TODO.md',
+      });
+
+      const report = await memory.forget({
+        scope: 'person',
+        section: 'About the user',
+        text: 'Has a dog',
+      });
+
+      expect(report.removed).toBe(true);
+      expect(report.content).toContain('Uses pnpm');
+      expect(report.content).not.toContain('Has a dog');
+      // The other half is untouched, which is what naming the scope buys.
+      expect(report.content).toContain('State in TODO.md');
+      expect(await readFile(memory.personFile ?? '', 'utf8')).not.toContain(
+        'Has a dog',
+      );
+    });
+
+    it('reports a line that is no longer there instead of writing a change', async () => {
+      const memory = store();
+      await memory.update({section: 'About the user', content: 'Has a dog'});
+
+      const report = await memory.forget({
+        scope: 'person',
+        section: 'About the user',
+        text: 'Has a cat',
+      });
+
+      expect(report.removed).toBe(false);
+      expect(await memory.read()).toContain('Has a dog');
+    });
+
+    it('does not treat a shared opening as the same fact', async () => {
+      const memory = store();
+      await memory.update({
+        section: 'About the user',
+        content: 'Has a dog called Sunshine',
+      });
+
+      const report = await memory.forget({
+        scope: 'person',
+        section: 'About the user',
+        text: 'Has a dog',
+      });
+
+      expect(report.removed).toBe(false);
+      expect(await memory.read()).toContain('Has a dog called Sunshine');
+    });
+
+    it('removes the heading when the last fact under it goes', async () => {
+      const memory = store();
+      await memory.update({section: 'About the user', content: 'Has a dog'});
+
+      await memory.forget({
+        scope: 'person',
+        section: 'About the user',
+        text: 'Has a dog',
+      });
+
+      expect(await memory.read()).not.toContain('About the user');
+      expect(await memory.provenance()).toEqual([]);
+    });
+  });
+
   describe('adoption of a file written before the split', () => {
     /** A workspace file in the old one-file layout. */
     async function seedOldLayout(text: string): Promise<void> {

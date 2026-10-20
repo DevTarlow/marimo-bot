@@ -1,5 +1,5 @@
 /**
- * Memory, in two halves: how much of it there is, and what the agent would add.
+ * Memory: how much of it there is, and everything the bot carries.
  *
  * The size control is first because it is what the rest is measured against. A
  * byte limit means nothing on its own — "8 KB" is not a quantity anybody has a
@@ -8,15 +8,13 @@
  * readout is the same number the agent's `read_memory` quotes, read from the
  * same place, so the bar cannot drift from the warning.
  *
- * The suggestions themselves moved to the Learning card, where a fact and a
- * capability are one list of decisions. What is left here is what the bot
- * already carries: its size, its cadence, and the facts the user turned down.
- * Keeping the refusal list here is deliberate — it is memory's own history, and
- * it is what stops the reviewer proposing a rejected fact again.
+ * Facts are written by the bot as it finds them, so this card is the person's
+ * control over them rather than a queue: search the list, read the date, and
+ * forget a line. Forgetting also records a refusal, because a fact removed now
+ * must not be quietly written back the next time the subject comes up.
  *
- * Both buttons remove an entry, and that is deliberate: a suggestion that stayed
- * after being refused would be proposed again on every idle look, and a queue
- * that refills itself with things already rejected is one nobody reads.
+ * The refusal list stays here rather than in Learning: it is memory's own
+ * history, and it is what stops the reviewer bringing a rejected fact back.
  */
 import {useEffect, useState} from 'react';
 
@@ -68,6 +66,15 @@ export function Memory({
    */
   const [provenance, setProvenance] = useState<MemoryProvenanceEntry[]>([]);
   /**
+   * What the person is looking for in what the bot remembers.
+   *
+   * Client-side rather than a recall query: this list is already in the window,
+   * and searching a document the user is looking at should not need the
+   * embedding engine, a model, or a round trip. The semantic search in the
+   * command palette is still the way to look by meaning.
+   */
+  const [filter, setFilter] = useState('');
+  /**
    * The slider's own value while it is being dragged.
    *
    * Held apart from `usage.limitBytes` so dragging is smooth: the stored value
@@ -76,6 +83,7 @@ export function Memory({
    */
   const [draftLimit, setDraftLimit] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = async (): Promise<void> => {
@@ -124,6 +132,15 @@ export function Memory({
   const dismissals = summarizeDismissed(dismissed.length);
   const limit =
     draftLimit ?? usage?.limitBytes ?? DEFAULT_MEMORY_SOFT_LIMIT_BYTES;
+  const query = filter.trim().toLowerCase();
+  const remembered = [...provenance]
+    .sort((left, right) => left.at.localeCompare(right.at))
+    .filter(
+      (entry) =>
+        query.length === 0 ||
+        entry.text.toLowerCase().includes(query) ||
+        entry.section.toLowerCase().includes(query),
+    );
 
   /**
    * The cadence, which is a number of events rather than of turns.
@@ -169,6 +186,55 @@ export function Memory({
       const result = await window.marimo.call('memory.forgetDismissals', {});
       setDismissed(result.dismissed);
       onChange?.();
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Forgets one remembered line, after asking.
+   *
+   * The question is here because there is no undo: the fact is removed from the
+   * file the bot reads at the start of every conversation, and the only way back
+   * is saying it again. The whole point of the button is that it is easy to
+   * reach, so the confirmation is what keeps an easy button from being an
+   * accidental one.
+   */
+  const forget = async (entry: MemoryProvenanceEntry): Promise<void> => {
+    const shown =
+      entry.text.length > 90 ? `${entry.text.slice(0, 87)}…` : entry.text;
+    if (
+      !window.confirm(
+        `Forget "${shown}"? The bot will not be told it again unless you say it.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    setNote(null);
+    try {
+      const result = await window.marimo.call('memory.forget', {
+        scope: entry.scope,
+        section: entry.section,
+        text: entry.text,
+      });
+      setProvenance(result.entries);
+      if (!result.removed) {
+        setProblem('That fact was no longer in memory.');
+      } else {
+        setNote('Forgotten.');
+        /*
+         * The removal also records a refusal, so re-read the list that says what
+         * the reviewer will not bring up again — otherwise the panel shows a
+         * stale count until it is reopened.
+         */
+        const listed = await window.marimo.call('memory.proposals', {});
+        setDismissed(listed.dismissed);
+        onChange?.();
+      }
     } catch (failure) {
       setProblem(describe(failure));
     } finally {
@@ -279,9 +345,11 @@ export function Memory({
       )}
 
       <p className="settings-muted">
-        Suggestions are answered in Learning, above. This card is what the bot
-        already carries: how large memory is kept, how often a conversation is
-        read back, and the facts you have turned down.
+        The bot writes a fact it decides is worth keeping straight into memory;
+        there is nothing to approve. What it wants to change about how it works
+        still waits in Learning, above. Here you can see what it carries, search
+        it, forget a line, and set how large memory is kept and how often a
+        conversation is read back.
       </p>
 
       {/*
@@ -293,10 +361,10 @@ export function Memory({
         <>
           <h4 className="memory-proposals-heading">{dismissals.heading}</h4>
           <p className="settings-muted">
-            Facts you turned down, so the bot does not ask about them twice.
-            It learns from the refusal only: a fact you decline here is still
-            stored the moment you state it yourself, and this list never reaches
-            the prompt.
+            Facts you turned down or forgot, so the bot does not bring them up
+            again. It learns from the refusal only: a fact you remove here is
+            still stored the moment you state it yourself, and this list never
+            reaches the bot's own prompt.
           </p>
           <p className="settings-why">{dismissals.count}</p>
           <details className="memory-why">
@@ -335,29 +403,66 @@ export function Memory({
           <h4 className="memory-proposals-heading">
             {provenance.length === 1
               ? 'One thing remembered'
-              : `Everything remembered, by when`}
+              : 'Everything remembered, by when'}
           </h4>
           <p className="settings-muted">
             Oldest first. This is what the bot is shown at the start of every
-            conversation; the dates are when each line was first written, and they
-            are here so you can tell what has been sitting there a year.
+            conversation; the dates are when each line was first written, so you
+            can tell what has been sitting there a year. Forget a line to take
+            it out of the file the bot reads, and to stop the reviewer
+            suggesting it again.
           </p>
-          <details className="memory-why">
-            <summary>Show them</summary>
-            <ul className="memory-dismissed">
-              {[...provenance]
-                .sort((left, right) => left.at.localeCompare(right.at))
-                .map((entry) => (
-                  <li key={`${entry.scope}\u0000${entry.section}\u0000${entry.text}`}>
-                    <span className="memory-age">{describeAge(entry.at)}</span>{' '}
-                    {entry.text}
-                  </li>
-                ))}
+          <label className="settings-field memory-search">
+            <input
+              className="settings-input"
+              type="search"
+              placeholder="Search what it remembers…"
+              value={filter}
+              disabled={busy}
+              aria-label="Search memory"
+              onChange={(event) => {
+                setFilter(event.target.value);
+              }}
+            />
+          </label>
+          <details
+            className="memory-why"
+            {...(query.length > 0 ? {open: true} : {})}
+          >
+            <summary>
+              {query.length > 0
+                ? `${String(remembered.length)} of ${String(provenance.length)} match`
+                : 'Show them'}
+            </summary>
+            <ul className="memory-dismissed memory-remembered">
+              {remembered.map((entry) => (
+                <li
+                  key={`${entry.scope}\u0000${entry.section}\u0000${entry.text}`}
+                  className="memory-remembered-item"
+                >
+                  <span className="memory-age">{describeAge(entry.at)}</span>{' '}
+                  <span className="memory-remembered-text">{entry.text}</span>
+                  <button
+                    type="button"
+                    className="button button-quiet button-small memory-forget"
+                    disabled={busy}
+                    onClick={() => {
+                      void forget(entry);
+                    }}
+                  >
+                    Forget
+                  </button>
+                </li>
+              ))}
+              {remembered.length === 0 && (
+                <li className="settings-muted">Nothing matches.</li>
+              )}
             </ul>
           </details>
         </>
       )}
 
+      {note !== null && <p className="settings-why">{note}</p>}
       {problem !== null && (
         <p className="connector-detail connector-error">{problem}</p>
       )}

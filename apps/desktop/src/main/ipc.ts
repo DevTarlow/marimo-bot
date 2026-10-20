@@ -446,6 +446,16 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
       entries: await agent().memoryProvenance(params.profileId),
     }),
 
+    'memory.forget': async (params) =>
+      await agent().forgetMemoryFact(
+        {
+          scope: params.scope,
+          section: params.section,
+          text: params.text,
+        },
+        params.profileId,
+      ),
+
     'memory.resolve': async (params) =>
       await agent().resolveMemoryProposal(params.proposalId, params.accept),
 

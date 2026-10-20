@@ -47,6 +47,7 @@ import {
   type LearningToolService,
   type McpToolsetSource,
   type RecallLookup,
+  type ReviewProposal,
   type SkillToolService,
   type WebSearchProvider,
   type TurnDriver,
@@ -139,6 +140,15 @@ export interface HarnessRuntimeOptions {
   mcpServers?: () => readonly McpToolsetSource[];
   /** The frozen-spec ledger, when this install keeps one. */
   versions?: HarnessVersionStore;
+  /**
+   * The memory queue, shared with the runtime that draws Settings.
+   *
+   * Two instances over one file would each cache their own copy, and a dismissal
+   * written through one would quietly restore a watermark the other had just
+   * moved. Injected so the app has one store; a test that does not care can
+   * leave it out and get the old private one.
+   */
+  memoryProposals?: MemoryProposalStore;
   /** The index's Space for a session that has no v2 log yet. */
   sessionSpace?: (sessionId: string) => Promise<string | undefined>;
   /** Opens a conversation for a task, when this install can list one. */
@@ -230,9 +240,11 @@ export class HarnessRuntime {
       profiles: options.profiles,
       usage: this.skillUsage,
     });
-    this.proposals = new MemoryProposalStore({
-      file: options.paths.memoryProposals,
-    });
+    this.proposals =
+      options.memoryProposals ??
+      new MemoryProposalStore({
+        file: options.paths.memoryProposals,
+      });
     this.learning = new LearningProposalStore({
       file: options.paths.learningProposals,
     });
@@ -327,7 +339,10 @@ export class HarnessRuntime {
       if (gate === undefined) {
         throw new GateNotFoundError(params.callId);
       }
-      prepared = await this.prepare(gate.agentId ?? profileId, params.sessionId);
+      prepared = await this.prepare(
+        gate.agentId ?? profileId,
+        params.sessionId,
+      );
     } catch (error) {
       yield failed(params.sessionId, error);
       return;
@@ -367,7 +382,11 @@ export class HarnessRuntime {
   async report(profileId: string): Promise<{
     conversations: {v2: number};
     turns: number;
-    usage: {promptTokens: number; completionTokens: number; totalTokens: number};
+    usage: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    };
     unreadableLogs: number;
     harnessVersions: number;
     versions: Array<{hash: string; harnessVersion: number; recordedAt: string}>;
@@ -465,7 +484,9 @@ export class HarnessRuntime {
       this.options.versions === undefined
         ? []
         : await this.options.versions.list().catch(() => []);
-    const ownVersions = versions.filter((record) => record.spec.id === profileId);
+    const ownVersions = versions.filter(
+      (record) => record.spec.id === profileId,
+    );
     const proposalFile = await this.proposals.load();
     const learningFile = await this.learning.load();
     const currentLessons = await this.learning.currentLessons();
@@ -484,8 +505,7 @@ export class HarnessRuntime {
      */
     const dismissedProposals =
       proposalFile.dismissed.length +
-      currentLessons.filter((lesson) => lesson.profileId === profileId)
-        .length;
+      currentLessons.filter((lesson) => lesson.profileId === profileId).length;
     const reviewedConversations = Object.keys(proposalFile.reviewed).length;
     outcomes.corrections = (await this.feedback.forProfile(profileId)).length;
     const skillList = await this.skillStore.load();
@@ -554,10 +574,7 @@ export class HarnessRuntime {
       {
         id: randomUUID(),
         sessionId,
-        at:
-          first?.createdAt ??
-          gates[0]?.askedAt ??
-          new Date().toISOString(),
+        at: first?.createdAt ?? gates[0]?.askedAt ?? new Date().toISOString(),
         type: 'session.created',
         profileId,
         title: info.title,
@@ -569,10 +586,7 @@ export class HarnessRuntime {
       events.push({
         id: randomUUID(),
         sessionId,
-        at:
-          first?.createdAt ??
-          gates[0]?.askedAt ??
-          new Date().toISOString(),
+        at: first?.createdAt ?? gates[0]?.askedAt ?? new Date().toISOString(),
         type: 'participants.changed',
         agentIds: [...info.agentIds],
         by: profileId,
@@ -651,7 +665,11 @@ export class HarnessRuntime {
     sessionId: string,
   ): Promise<{
     turns: number;
-    usage: {promptTokens: number; completionTokens: number; totalTokens: number};
+    usage: {
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    };
   }> {
     await this.assertOwner(sessionId, profileId);
     const events = await this.store.read(sessionId);
@@ -685,11 +703,15 @@ export class HarnessRuntime {
     hash: string,
   ): Promise<import('@marimo/protocol').AgentProfile> {
     if (this.options.versions === undefined) {
-      throw new HarnessRuntimeError('There is no harness ledger to restore from.');
+      throw new HarnessRuntimeError(
+        'There is no harness ledger to restore from.',
+      );
     }
     const record = await this.options.versions.load(hash);
     if (record === undefined || record.spec.id !== profileId) {
-      throw new HarnessRuntimeError('That harness version does not belong to this bot.');
+      throw new HarnessRuntimeError(
+        'That harness version does not belong to this bot.',
+      );
     }
     const spec = record.spec;
     const profile = await this.options.profiles.update(profileId, {
@@ -699,9 +721,7 @@ export class HarnessRuntime {
       enabledTools: [...spec.tools.grants],
       enabledSkills: [...spec.context.skills.enabled],
       mcpServerIds:
-        spec.tools.mcpServerIds === 'all'
-          ? null
-          : [...spec.tools.mcpServerIds],
+        spec.tools.mcpServerIds === 'all' ? null : [...spec.tools.mcpServerIds],
       model: spec.model,
       /*
        * The safe policy comes back too. A version is a whole harness, and
@@ -738,11 +758,14 @@ export class HarnessRuntime {
       };
     }
     const messages = await this.transcript(sessionId, profileId);
-    const visible = messages.filter((message) => message.text.trim().length > 0);
+    const visible = messages.filter(
+      (message) => message.text.trim().length > 0,
+    );
     if (visible.length < 4) {
       return {
         compacted: false,
-        reason: 'This conversation is short enough to fit; nothing was replaced.',
+        reason:
+          'This conversation is short enough to fit; nothing was replaced.',
       };
     }
     const conversation = visible
@@ -979,26 +1002,43 @@ export class HarnessRuntime {
   }
 
   /**
-   * Reads the conversation back and proposes what is worth remembering.
+   * Reads the conversation back and remembers what is worth keeping.
    *
-   * Proposals go to the same `memory-proposals.json` the v1 review uses, so the
-   * existing Memory card can show and resolve them. The watermark is moved
-   * whether or not anything was found; a look that found nothing is still a look.
+   * A fact the reviewer could support with a quote is written immediately, with
+   * source `review`. It is not a second approval queue: memory is the thing the
+   * person can edit, search and forget afterwards, and making them come back to
+   * answer "did you mean this?" is a fact nobody asked for sitting in a list. A
+   * capability, a policy change or a deletion still waits for a click — those
+   * change what the bot can do, which is a different question from what it knows.
+   *
+   * A write that fails is the one exception, and it is queued rather than
+   * dropped: memory over its cap or an unreadable file is not the same thing as
+   * a fact the reviewer was wrong about, and the person can still decide it. The
+   * watermark moves whether or not anything was found; a look that found nothing
+   * is still a look.
    */
   async reviewMemory(sessionId: string): Promise<{
-    proposals: MemoryProposal[];
+    remembered: number;
+    waiting: MemoryProposal[];
     events: number;
   }> {
     const events = await this.store.read(sessionId);
     const owner = ownerOf(events);
     if (owner === undefined) {
-      return {proposals: [], events: 0};
+      return {remembered: 0, waiting: [], events: 0};
     }
     const prepared = await this.prepare(owner, sessionId);
+    /*
+     * Anything left in the queue predates facts being written straight through.
+     * Applying it here, with the same memory the review is about to read, means
+     * the first look after upgrading settles the old queue instead of leaving
+     * the screenshot's card waiting forever.
+     */
+    await this.adoptPendingMemory(owner, prepared.memory);
     const reviewable = reviewEvents(events);
     const from = await this.proposals.reviewedUpTo(sessionId);
     if (reviewable.length <= from) {
-      return {proposals: [], events: 0};
+      return {remembered: 0, waiting: [], events: 0};
     }
     const refused = (await this.proposals.load()).dismissed
       .filter((entry) => entry.profileId === owner)
@@ -1016,10 +1056,35 @@ export class HarnessRuntime {
           this.askOnce(prepared, prompt)),
     });
 
+    let remembered = 0;
+    const unremembered: ReviewProposal[] = [];
+    for (const proposal of found.proposals) {
+      try {
+        await prepared.memory.update(
+          {
+            content: proposal.text,
+            section: proposal.section,
+            ...(proposal.replaces === undefined
+              ? {}
+              : {replaces: proposal.replaces}),
+          },
+          'review',
+        );
+        remembered += 1;
+      } catch {
+        /*
+         * A cap or an unreadable file is the case this queue still exists for.
+         * Swallowing it would be a review that says it remembered something the
+         * prompt will never show.
+         */
+        unremembered.push(proposal);
+      }
+    }
+
     const recorded = await this.proposals.record(
       sessionId,
       from + found.used,
-      found.proposals.map((proposal) => ({
+      unremembered.map((proposal) => ({
         sessionId,
         profileId: owner,
         section: proposal.section,
@@ -1033,21 +1098,95 @@ export class HarnessRuntime {
           : {evidence: proposal.evidence}),
       })),
     );
-    const added = new Set(found.proposals.map((proposal) => proposal.text));
+    const waitingFor = new Set(unremembered.map((proposal) => proposal.text));
     return {
-      proposals: recorded.proposals.filter((proposal) =>
-        added.has(proposal.text),
+      remembered,
+      waiting: recorded.proposals.filter(
+        (proposal) =>
+          proposal.profileId === owner && waitingFor.has(proposal.text),
       ),
       events: found.used,
     };
   }
 
   /**
-   * Accepts or refuses a proposal the v2 review recorded.
+   * Applies the memory queue an older build left behind.
    *
-   * The proposal store is shared with v1, so the window does not need a second
-   * queue. What differs is who writes the fact: a v2 proposal belongs to a v2
-   * conversation, and its memory is the one this facade knows how to reach.
+   * Before this change the reviewer wrote facts into `memory-proposals.json` and
+   * waited for a click. Those entries were already checked against a quote and
+   * against memory, so the only thing outstanding is the write — and the person
+   * has said they want facts remembered without being asked. A failure leaves the
+   * entry in the queue, which is exactly the fallback `reviewMemory` uses.
+   */
+  private async adoptPendingMemory(
+    profileId?: string,
+    memory?: MemoryStore,
+  ): Promise<void> {
+    const pending = (await this.proposals.load()).proposals.filter(
+      (proposal) => profileId === undefined || proposal.profileId === profileId,
+    );
+    if (pending.length === 0) {
+      return;
+    }
+
+    const byProfile = new Map<string, MemoryProposal[]>();
+    for (const proposal of pending) {
+      const group = byProfile.get(proposal.profileId) ?? [];
+      group.push(proposal);
+      byProfile.set(proposal.profileId, group);
+    }
+
+    for (const [owner, proposals] of byProfile) {
+      const store =
+        owner === profileId && memory !== undefined
+          ? memory
+          : await this.memoryStoreForId(owner);
+      if (store === undefined) {
+        // The bot is gone, so the suggestion can never be shown again.
+        for (const proposal of proposals) {
+          await this.proposals.remove(proposal.id);
+        }
+        continue;
+      }
+      for (const proposal of proposals) {
+        try {
+          await store.update(
+            {
+              content: proposal.text,
+              section: proposal.section,
+              ...(proposal.replaces === undefined
+                ? {}
+                : {replaces: proposal.replaces}),
+            },
+            'review',
+          );
+        } catch {
+          continue;
+        }
+        await this.proposals.remove(proposal.id);
+      }
+    }
+  }
+
+  /** One profile's memory store, when the profile still exists. */
+  private async memoryStoreForId(
+    profileId: string,
+  ): Promise<MemoryStore | undefined> {
+    const profile = (await this.options.profiles.profiles()).find(
+      (candidate) => candidate.id === profileId,
+    );
+    return profile === undefined
+      ? undefined
+      : await this.memoryStoreFor(profile);
+  }
+
+  /**
+   * Accepts or refuses one queued memory fact.
+   *
+   * New reviews write their facts, so this is the path left for a write that
+   * failed and for a queue an older build left behind that the inbox adoption
+   * could not apply. It is shared with the v1 surface, and it is the one place
+   * that knows which memory file the conversation belonged to.
    */
   async resolveMemoryProposal(
     proposalId: string,
@@ -1091,12 +1230,13 @@ export class HarnessRuntime {
   }
 
   /**
-   * The one inbox: facts waiting, changes waiting, and the refusals.
+   * The one inbox: changes waiting, and the refusals.
    *
-   * Two documents, one answer. Memory has a watermark and an exact-text refusal
-   * list; a grant has neither. Merging them here rather than in the window keeps
-   * the two stores' different shapes from leaking into a component that only
-   * wants a list of decisions.
+   * `memory` is normally empty now, because a reviewed fact is written rather
+   * than queued. It survives for the two cases that still need an answer: a
+   * write that failed, and an entry an older build left behind that this could
+   * not apply. Two documents, one answer; merging them here keeps a grant's
+   * shape and a fact's shape from leaking into the window.
    */
   async learningProposals(profileId?: string): Promise<{
     proposals: LearningProposal[];
@@ -1104,11 +1244,12 @@ export class HarnessRuntime {
     lessons: LearningLesson[];
   }> {
     /*
-     * Opening the inbox is also the moment to look for housekeeping the bot
-     * could do. It is on demand rather than a background timer because the
-     * evidence is the library itself — size, age, use — and a card nobody has
-     * opened should not spend writes discovering that.
+     * Opening the inbox is also the moment to settle anything older builds left
+     * waiting, and to look for housekeeping the bot could do. Both are on demand
+     * rather than background timers because a card nobody has opened should not
+     * spend writes discovering that.
      */
+    await this.adoptPendingMemory(profileId).catch(() => undefined);
     if (profileId !== undefined) {
       await this.proposeMaintenance(profileId).catch(() => undefined);
     }
@@ -1142,12 +1283,13 @@ export class HarnessRuntime {
   }
 
   /**
-   * Answers a proposal of any kind.
+   * Answers a change, or a memory fact whose write failed.
    *
-   * A memory proposal is resolved by the memory path, because it is the one that
-   * knows how to write a bullet and report a failed supersede. Everything else is
-   * a grant here, and the grant is the person's click: the profile is updated
-   * only inside this method, after `accept`, never by the tool that asked.
+   * A queued memory fact is resolved by the memory path, because it is the one
+   * that knows how to write a bullet and report a failed supersede. Everything
+   * else is a grant, a policy or maintenance here, and that is the person's
+   * click: the profile is updated only inside this method, after `accept`, never
+   * by the tool that asked.
    */
   async resolveLearningProposal(
     proposalId: string,
@@ -1310,7 +1452,8 @@ export class HarnessRuntime {
   private async memoryStoreFor(profile: AgentProfile): Promise<MemoryStore> {
     const settings = await this.options.settings.load();
     const workspaces = await this.options.workspaces.load();
-    const spaceId = profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
+    const spaceId =
+      profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
     const workspaceRoot =
       workspaceRootFor(workspaces, spaceId) ??
       this.options.paths.defaultWorkspace;
@@ -1462,8 +1605,7 @@ export class HarnessRuntime {
     const server = settings.mcpServers.find(
       (entry) =>
         entry.id === proposal.name ||
-        entry.name.toLocaleLowerCase() ===
-          proposal.name.toLocaleLowerCase(),
+        entry.name.toLocaleLowerCase() === proposal.name.toLocaleLowerCase(),
     );
     if (server === undefined) {
       await this.learning.remove(proposal.id);
@@ -1579,8 +1721,7 @@ export class HarnessRuntime {
          * when the TTL had already let the question back in.
          */
         const refused = (await this.learning.lessonsFor(profileId)).some(
-          (lesson) =>
-            lesson.kind === 'grant' && lesson.summary === subject,
+          (lesson) => lesson.kind === 'grant' && lesson.summary === subject,
         );
         if (refused) {
           return {
@@ -1612,7 +1753,8 @@ export class HarnessRuntime {
         if (Object.keys(patch).length === 0) {
           return {
             ok: false,
-            result: 'That proposal named no setting, so there is nothing to decide.',
+            result:
+              'That proposal named no setting, so there is nothing to decide.',
           };
         }
         const summary = describePolicy(patch);
@@ -1637,8 +1779,7 @@ export class HarnessRuntime {
         });
         const subject = `policy:${JSON.stringify(patch)}`;
         const refused = (await this.learning.lessonsFor(profileId)).some(
-          (lesson) =>
-            lesson.kind === 'policy' && lesson.summary === subject,
+          (lesson) => lesson.kind === 'policy' && lesson.summary === subject,
         );
         if (refused) {
           return {
@@ -1706,7 +1847,8 @@ export class HarnessRuntime {
         ? undefined
         : await this.options.sessionSpace?.(sessionId));
     const sessionModel = modelOf(events);
-    const spaceId = filed ?? profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
+    const spaceId =
+      filed ?? profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
     const workspaceRoot = workspaceRootFor(workspaces, spaceId);
     if (workspaceRoot === undefined) {
       throw new HarnessRuntimeError(
@@ -1761,7 +1903,7 @@ export class HarnessRuntime {
         memorySoftLimitBytes: settings.memorySoftLimitBytes,
         learning: {mode: 'propose' as const, retainTraces: false},
       },
-      version: previous?.harnessVersion ?? (this.options.version ?? 1),
+      version: previous?.harnessVersion ?? this.options.version ?? 1,
       workspaceRoot,
       ...(sessionModel === undefined
         ? {}
@@ -1887,9 +2029,7 @@ export class HarnessRuntime {
     const definitions: AnyToolDefinition[] = [];
     for (const source of allowed) {
       try {
-        definitions.push(
-          ...buildMcpToolDefinitions({...source, reserved}),
-        );
+        definitions.push(...buildMcpToolDefinitions({...source, reserved}));
       } catch {
         /*
          * The manager already reports a collision or a bad name under the
@@ -1957,7 +2097,9 @@ export class HarnessRuntime {
         profile.name.trim().toLocaleLowerCase() === wanted,
     );
     if (target === undefined) {
-      return {problem: `There is no bot called "${agent.trim()}" on this computer.`};
+      return {
+        problem: `There is no bot called "${agent.trim()}" on this computer.`,
+      };
     }
     try {
       const prepared = await this.prepare(target.id, sessionId);
@@ -2307,7 +2449,6 @@ function reviewEvents(
   return reviewable;
 }
 
-
 function spaceIdOf(
   events: readonly import('@marimo/agent').SessionEvent[],
 ): string | undefined {
@@ -2322,7 +2463,6 @@ function spaceIdOf(
   return filed;
 }
 
-
 function modelOf(
   events: readonly import('@marimo/agent').SessionEvent[],
 ): import('@marimo/protocol').AgentModel | undefined {
@@ -2334,7 +2474,6 @@ function modelOf(
   }
   return model;
 }
-
 
 /** A profile's policy, in the shape the harness resolver merges. */
 function policyOverrides(
@@ -2356,7 +2495,6 @@ function policyOverrides(
     },
   };
 }
-
 
 /** One proposal's change, in the words the card uses. */
 function describePolicy(patch: {

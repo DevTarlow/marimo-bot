@@ -80,11 +80,11 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                             |
 | Done        | A first run in five steps: load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and choose the service that answers — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                                                                                                                                                                                                  |
-| Done        | A memory review: after a conversation goes quiet the agent proposes what is worth remembering and asks before writing it — reading a long session in stretches rather than only once it ends, and remembering the facts you turned down                                                                                                                                                                                                                                                                                            |
+| Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                                    |
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool                                                                                                                                                                                                                                                                                            |
-| Done        | Learning: turn outcomes, memory evidence, capability and policy proposals, a refusal that expires, and one inbox where the person decides |
+| Done        | Learning: turn outcomes, capability and policy proposals, a refusal that expires, and one inbox where the person decides — while a fact the bot remembers is written straight into the Memory card, searchable and forgettable |
 | In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ## Why it is built this way
@@ -318,8 +318,8 @@ leaves that half exactly as it was and says so in the tool result: the document
 the model sends replaces memory, and with two files "I did not mention it" and "I
 want it gone" are otherwise the same sentence. And no layer is ever deleted for
 being old — `provenance.json` records when each bullet was first written and the
-Memory card shows them oldest first, so what is stale is visible and the decision
-stays with the person.
+Memory card shows them oldest first, with a search box and a Forget button, so
+what is stale is visible and the decision stays with the person.
 
 ### An answer can be judged, and the judgement goes to the reviewer
 
@@ -356,11 +356,14 @@ profile, because one agent being told it was wrong about a deployment is not a
 fact about the other one. It reads leniently so a corrupt file still opens the
 window, and it moves that file aside before writing rather than over it.
 
-### Learning: the bot proposes, the person decides, and the log says what it cost
+### Learning: the bot remembers, the person edits, and a change asks first
 
 Self-improvement here is not a model editing itself. It is a small set of
-channels through which the bot can ask for a change, a person answering each
-one, and a record of whether the change moved anything.
+channels: facts the bot writes down, changes it must ask for, and a record of
+whether either moved anything. The line between them is what the change can do,
+not how confident the model sounded. A remembered fact is knowledge the person
+can read, search and delete afterwards. A capability, a policy or a deletion is a
+change to the bot's reach, and those wait for a click.
 
 **A turn records its outcome.** `turn.completed`, `turn.failed` and
 `turn.aborted` carry steps, tool calls, failed tool calls, approval cards and
@@ -368,16 +371,18 @@ the invocation's wall time. The fields are optional because a log written before
 they existed has none. The Settings report adds the user's corrections, which is
 the only outcome the person states directly.
 
-**There are four proposal kinds, and two documents.** Memory keeps
-`memory-proposals.json` because it has a review watermark and an exact-text
-refusal list that mean nothing to a grant. Grants, policy changes and
-maintenance live in `learning/proposals.json`. The window asks
-`learning.proposals` and gets both, so there is one inbox even though the shapes
-are different.
+**There are two queues, and memory is not normally one of them.**
+`memory-proposals.json` keeps the review watermark and the exact-text refusals.
+Grants, policy changes and maintenance live in `learning/proposals.json`. The
+window asks `learning.proposals` and merges both, so there is one inbox even
+though the shapes are different — but a memory entry is only there when a write
+failed or an older build left it behind.
 
-- **Memory.** The idle review proposes facts, and every proposal carries a quote
-  checked against the transcript. A fact nobody said is dropped before the card
-  is drawn, which is the deterministic half of "do not infer".
+- **Memory.** The idle review writes each fact it can support with a quote
+  checked against the transcript, with `review` provenance. A fact nobody said is
+  dropped before the write, which is the deterministic half of "do not infer".
+  The Memory card is the control: every bullet is listed, searchable, and has a
+  Forget button that also records a refusal so the reviewer cannot re-add it.
 - **Grants.** `request_tool` and `request_connector` name a capability from the
   catalogue with a reason and the turn it came from. `run_shell` is not in the
   catalogue the prompt shows, is refused by the tool, and is refused again at
@@ -399,11 +404,13 @@ does not get through. A lesson is current for six months; after that the bot may
 ask again, because a bot that asked a year ago was a different bot. The window
 shows only current lessons and can clear them.
 
-**The one write is the answer.** `resolveLearningProposal` is the only method
-that changes a profile from a proposal, and it runs only after the click. The
-harness ledger is the audit: a change that alters the resolved spec produces a
-new version with the old one as its parent, and restoring a version restores
-the policy too.
+**A change is answered; a fact is written.** `resolveLearningProposal` is the
+only method that changes a profile from a proposal, and it runs only after the
+click. Memory is deliberately the exception: `reviewMemory` is its writer, the
+quote check is its guard, and forgetting a line is the person's own edit through
+`memory.forget`. The harness ledger is the audit for the rest: a change that
+alters the resolved spec produces a new version with the old one as its parent,
+and restoring a version restores the policy too.
 
 ### One settings screen, and one grant behind it
 
@@ -926,7 +933,8 @@ workspaces.json         the folders every agent can work in, and the current one
 jobs.json               scheduled jobs and how their last run went
 settings.json           preferences and connectors
 skills/<name>/SKILL.md  a procedure you wrote or copied in
-memory-proposals.json   what the agent would remember, waiting for an answer
+memory-proposals.json   how far the review has read, the refusals it keeps, and
+                        any fact whose write failed or an older build queued
 feedback.json           answers the user said were wrong, each naming the turn it
                         was about: the next review reads the words, and the
                         learning report counts it

@@ -71,7 +71,8 @@ export interface AppPaths {
   /** Scheduled jobs: what to do, when, and which conversation they report into. */
   jobs: string;
   /**
-   * The agent's memory suggestions, waiting for the user to agree.
+   * How far the memory review has read, what it refused, and what could not be
+   * written.
    *
    * A file of its own rather than part of settings: it is neither a preference
    * nor a secret, it is written by a background review rather than by a person,
@@ -110,10 +111,10 @@ export interface AppPaths {
   /**
    * What the user told the app about its own answers.
    *
-   * "That was wrong" has nowhere else to go: a memory proposal's refusal is a
-   * judgement about a *suggestion*, and it deliberately does not silence the
-   * agent's own `update_memory`. This is the record of the answers themselves,
-   * which is what the next review reads so it stops heading the same way.
+   * "That was wrong" has nowhere else to go: refusing a remembered fact is a
+   * judgement about *memory*, and it deliberately does not silence the agent's
+   * own `update_memory`. This is the record of the answers themselves, which is
+   * what the next review reads so it stops heading the same way.
    */
   feedback: string;
   /**
@@ -274,7 +275,10 @@ export function defaultUserDataDir(options: {
     // context; falling back to the profile directory beats returning a relative
     // path that would resolve against whatever the working directory happens to
     // be.
-    return join(appData && appData.length > 0 ? appData : home, options.appName);
+    return join(
+      appData && appData.length > 0 ? appData : home,
+      options.appName,
+    );
   }
 
   const configHome = env['XDG_CONFIG_HOME'];

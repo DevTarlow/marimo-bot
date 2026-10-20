@@ -296,7 +296,6 @@ describe('AgentRuntime', () => {
       expect(usage.bytes).toBe(0);
       expect(usage.limitBytes).toBe(DEFAULT_MEMORY_SOFT_LIMIT_BYTES);
     });
-
   });
 
   /*
@@ -321,8 +320,6 @@ describe('AgentRuntime', () => {
       // And not under an agent that did not.
       expect(await agent.listSessions('someone-else')).toEqual([]);
     });
-
-
   });
 
   describe('state', () => {
@@ -330,8 +327,7 @@ describe('AgentRuntime', () => {
       expect(runtime().isBusy()).toBe(false);
     });
 
-    it('aborts a conversation it has never heard of without complaining', () => {
-    });
+    it('aborts a conversation it has never heard of without complaining', () => {});
 
     /*
      * A host holds the session service and the conversation state, so one per
@@ -386,10 +382,9 @@ describe('AgentRuntime', () => {
         reason: 'Said so.',
       },
     ]);
-    const accepted = await agent.harness().resolveMemoryProposal(
-      recorded.proposals[0]?.id ?? '',
-      true,
-    );
+    const accepted = await agent
+      .harness()
+      .resolveMemoryProposal(recorded.proposals[0]?.id ?? '', true);
     expect(accepted.ok).toBe(true);
 
     const entries = await agent.memoryProvenance(profileId);
@@ -403,6 +398,48 @@ describe('AgentRuntime', () => {
 
   it('reports nothing rather than failing for an agent that remembers nothing', async () => {
     expect(await runtime().memoryProvenance(profileId)).toEqual([]);
+  });
+
+  /*
+   * The other end of remembering: a person reads the list and takes one line
+   * out. The removal has to reach the file the prompt reads, and it has to leave
+   * a refusal behind — otherwise the next review of a conversation about the same
+   * subject writes it straight back, and the button appears not to work.
+   */
+  it('forgets one remembered fact and stops it being suggested again', async () => {
+    const agent = runtime();
+    await mkdir(join(dir, 'alpha'), {recursive: true});
+    await agent.addWorkspace(join(dir, 'alpha'));
+    const session = await agent.createSession(profileId);
+    const proposals = new MemoryProposalStore({file: paths.memoryProposals});
+    const recorded = await proposals.record(session?.id ?? '', 1, [
+      {
+        sessionId: session?.id ?? null,
+        profileId,
+        section: 'About the user',
+        text: 'Has a dog called Sunshine.',
+        reason: 'Said so.',
+      },
+    ]);
+    const accepted = await agent
+      .harness()
+      .resolveMemoryProposal(recorded.proposals[0]?.id ?? '', true);
+    expect(accepted.ok).toBe(true);
+
+    const result = await agent.forgetMemoryFact(
+      {
+        scope: 'person',
+        section: 'About the user',
+        text: 'Has a dog called Sunshine.',
+      },
+      profileId,
+    );
+
+    expect(result.removed).toBe(true);
+    expect(result.entries).toEqual([]);
+    expect((await agent.dismissedMemory()).map((entry) => entry.text)).toEqual([
+      'Has a dog called Sunshine.',
+    ]);
   });
 
   /*
@@ -983,7 +1020,6 @@ describe('reading a conversation without a working provider', () => {
     return new AgentRuntime({paths, readSecret: noKey});
   }
 
-
   it('still reads the stored conversation', async () => {
     const {messages} = await runtime().transcript(profileId, sessionId);
 
@@ -1072,7 +1108,6 @@ describe('reading a conversation without a working provider', () => {
     expect(messages).toEqual([]);
     expect(pending).toEqual([]);
   });
-
 });
 
 /*
@@ -1202,7 +1237,6 @@ describe('folders and filing', () => {
     expect(raw.profiles[0]?.workspaces).toBeUndefined();
     expect(raw.profiles[0]?.activeWorkspaceId).toBeUndefined();
   });
-
 
   /*
    * Where a new conversation is filed.
@@ -1336,7 +1370,9 @@ describe('folders and filing', () => {
     ]);
     const proposal = recorded.proposals[0];
 
-    const result = await agent.harness().resolveMemoryProposal(proposal?.id ?? '', true);
+    const result = await agent
+      .harness()
+      .resolveMemoryProposal(proposal?.id ?? '', true);
     expect(result.ok).toBe(true);
     expect(
       await readFile(resolveMemoryFile(join(dir, 'alpha'), profileId), 'utf8'),
@@ -1375,10 +1411,9 @@ describe('folders and filing', () => {
       'utf8',
     );
 
-    const result = await agent.harness().resolveMemoryProposal(
-      recorded.proposals[0]?.id ?? '',
-      true,
-    );
+    const result = await agent
+      .harness()
+      .resolveMemoryProposal(recorded.proposals[0]?.id ?? '', true);
 
     expect(result.ok).toBe(true);
     expect(result.supersede).toEqual({
@@ -1410,10 +1445,9 @@ describe('folders and filing', () => {
       },
     ]);
 
-    const result = await agent.harness().resolveMemoryProposal(
-      recorded.proposals[0]?.id ?? '',
-      false,
-    );
+    const result = await agent
+      .harness()
+      .resolveMemoryProposal(recorded.proposals[0]?.id ?? '', false);
 
     expect(result.ok).toBe(true);
     expect(await agent.memoryProposals()).toEqual([]);
@@ -1497,7 +1531,6 @@ describe('the model a turn answers with', () => {
       before.providers.configs.gemini,
     );
   });
-
 });
 
 /*
@@ -1609,7 +1642,6 @@ describe('who is in a conversation', () => {
       runtime().setParticipants(lead, 'no-such-session', [lead]),
     ).rejects.toThrow(/Unknown session/u);
   });
-
 });
 
 /*

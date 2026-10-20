@@ -1,16 +1,16 @@
 /**
- * Where the agent's suggestions wait for an answer.
+ * What the memory review has read, what it refused, and what could not be written.
  *
- * A store rather than a queue in memory, for the same reason the approval gates
- * are stored: the user is not sitting there when a review runs. A proposal that
- * only existed in the process would be lost on the next restart, and the user
- * would never learn it had been made.
+ * The **watermark** is the part that decides whether the feature is usable. It
+ * records how many events of each conversation have been reviewed, so going idle
+ * twice does not review the same exchange twice. A queue that refills itself with
+ * things the user has already dismissed is one they stop opening, and a reviewer
+ * that re-reads the same conversation forever is a model call nobody asked for.
  *
- * The **watermark** is the other half, and it is the part that decides whether
- * the feature is usable. It records how many events of each conversation have
- * been reviewed, so going idle twice does not review the same exchange twice. A
- * queue that refills itself with things the user has already dismissed is one
- * they stop opening.
+ * **Proposals are no longer the ordinary path.** A review writes its fact and
+ * this store keeps no card for it. An entry still lands here in two cases: a
+ * write that failed, so the fact is not silently lost, and an older build's queue
+ * that has not been applied yet. Both are answers the person can still give.
  *
  * Versioned and locked like every other document here: it holds decisions the
  * user has not made yet, and a newer build's file must not be overwritten by

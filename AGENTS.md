@@ -343,18 +343,23 @@ exist; if a control is worth having, put it on the one screen.
 
 ## Learning
 
-The bot improves by proposing, and only the person's answer writes.
+A fact the bot decides to remember is written; a change to what it can do waits
+for a person.
 
-- **Memory** is the one proposal document with a watermark; `memory-proposals.json`
-  also holds the exact-text refusals the reviewer reads.
+- **Memory** is written by the review after its quote is verified, and the person
+  searches and edits it in the Memory card afterwards. `memory-proposals.json`
+  holds the watermark, the exact-text refusals the reviewer reads, and the rare
+  queued fact: one whose write failed, or one an older build left waiting.
 - **Everything else** is `learning/proposals.json`: a grant
   (`request_tool`/`request_connector`), a policy (`propose_policy`) or
-  maintenance. The window asks `learning.proposals` and gets both, so there is
-  one inbox.
+  maintenance. That is the queue that needs an answer, and `learning.proposals`
+  merges it with the memory leftovers so there is one inbox.
 - **A proposal carries evidence.** A memory fact carries a quote verified against
   the transcript; a grant or policy carries the turn it came from.
-- **`resolveLearningProposal` is the only write.** The tool that asks cannot
-  grant, and `run_shell` is refused by the tool, the catalogue and the write.
+- **`resolveLearningProposal` is the only write for a change.** The tool that
+  asks cannot grant, and `run_shell` is refused by the tool, the catalogue and
+  the write. Memory is the exception, by design: the review is the writer, the
+  quote is the guard, and forgetting a fact is the person's own edit.
 - **A refusal is a lesson.** It is keyed by subject (`tool:read_file`), current
   for six months, and listed in the inbox with a way to clear it.
 - **A policy proposal changes only the safe subset.** The schema has no field for

@@ -667,14 +667,8 @@ export class AgentService {
       this.options.sendEvent({
         type: 'memory.reviewed',
         events: result.events,
-        found: result.proposals.length,
+        remembered: result.remembered,
       });
-      if (result.proposals.length > 0) {
-        this.options.sendEvent({
-          type: 'memory.proposed',
-          count: result.proposals.length,
-        });
-      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       console.error(`[marimo] the v2 memory review did not finish: ${detail}`);
@@ -709,14 +703,8 @@ export class AgentService {
       this.options.sendEvent({
         type: 'memory.reviewed',
         events: result.events,
-        found: result.proposals.length,
+        remembered: result.remembered,
       });
-      if (result.proposals.length > 0) {
-        this.options.sendEvent({
-          type: 'memory.proposed',
-          count: result.proposals.length,
-        });
-      }
     } catch (error) {
       /*
        * Reported and swallowed. This runs on a timer with nobody waiting, so a
@@ -889,7 +877,7 @@ export class AgentService {
     return document.jobs;
   }
 
-  /** The agent's memory suggestions, waiting for an answer. */
+  /** Facts still waiting for an answer, which is normally none. */
   async memoryProposals() {
     return await this.runtime.memoryProposals();
   }
@@ -902,6 +890,14 @@ export class AgentService {
   /** When each remembered bullet was first written, for the age list. */
   async memoryProvenance(profileId?: string) {
     return await this.runtime.memoryProvenance(profileId);
+  }
+
+  /** Removes one remembered bullet the person pointed at. */
+  async forgetMemoryFact(
+    fact: {scope: 'person' | 'workspace'; section: string; text: string},
+    profileId?: string,
+  ) {
+    return await this.runtime.forgetMemoryFact(fact, profileId);
   }
 
   /** Accepts one into memory, or drops it. */
@@ -964,7 +960,7 @@ export class AgentService {
     return await this.runtime.harness().forgetLearningLessons();
   }
 
-  /** Reads a conversation back and proposes what is worth remembering. */
+  /** Reads a conversation back, and remembers what is worth keeping. */
   async reviewMemory(profileId: string, sessionId: string) {
     try {
       await this.runtime.migrateLegacy(profileId, sessionId);
@@ -972,9 +968,9 @@ export class AgentService {
       // A conversation that cannot migrate has nothing v2 can review.
     }
     if (!(await this.harnessHasLog(sessionId))) {
-      return [];
+      return 0;
     }
-    return (await this.runtime.harness().reviewMemory(sessionId)).proposals;
+    return (await this.runtime.harness().reviewMemory(sessionId)).remembered;
   }
 
   /**
@@ -1139,7 +1135,9 @@ export class AgentService {
     sessionId: string,
   ): Promise<SessionUsage> {
     if (await this.harnessHasLog(sessionId)) {
-      const usage = await this.runtime.harness().sessionUsage(profileId, sessionId);
+      const usage = await this.runtime
+        .harness()
+        .sessionUsage(profileId, sessionId);
       return {engine: 'v2', ...usage};
     }
     return {
@@ -1149,10 +1147,7 @@ export class AgentService {
     };
   }
 
-  async restoreHarness(
-    profileId: string,
-    hash: string,
-  ): Promise<void> {
+  async restoreHarness(profileId: string, hash: string): Promise<void> {
     await this.runtime.harness().restoreHarness(profileId, hash);
   }
 
@@ -1367,9 +1362,7 @@ export class AgentService {
 
   /** Replaces the older part of a conversation with a summary. */
   async compact(profileId: string, sessionId: string): Promise<CompactResult> {
-    if (
-      !(await this.harnessHasLog(sessionId))
-    ) {
+    if (!(await this.harnessHasLog(sessionId))) {
       try {
         await this.runtime.migrateLegacy(profileId, sessionId);
       } catch {
@@ -1498,9 +1491,7 @@ export class AgentService {
      * left alone. A pending card stays on v1, because its click belongs to the
      * old invocation.
      */
-    if (
-      !(await this.harnessHasLog(sessionId))
-    ) {
+    if (!(await this.harnessHasLog(sessionId))) {
       try {
         await this.runtime.migrateLegacy(profileId, sessionId);
       } catch {
@@ -1613,9 +1604,7 @@ export class AgentService {
      * into the canonical log and the next turn continues there. An addressed
      * turn or the escape hatch stays on v1.
      */
-    if (
-      !(await this.harnessHasLog(sessionId))
-    ) {
+    if (!(await this.harnessHasLog(sessionId))) {
       try {
         await this.runtime.migrateLegacy(profileId, sessionId);
       } catch {
@@ -1683,9 +1672,7 @@ export class AgentService {
      */
     this.busyProfileId = profileId;
 
-    if (
-      !(await this.harnessHasLog(sessionId))
-    ) {
+    if (!(await this.harnessHasLog(sessionId))) {
       try {
         await this.runtime.migrateLegacy(profileId, sessionId);
       } catch {

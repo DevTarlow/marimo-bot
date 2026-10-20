@@ -108,9 +108,9 @@ describe('summarizeMemory', () => {
 });
 
 /*
- * The refusals, which are the one part of the memory panel that only appears
- * after a user has decided something — so the case that has to hold is the one
- * where there is nothing to draw.
+ * The refusals and removals, which are the part of the memory panel that only
+ * appears after a user has decided something — so the case that has to hold is
+ * the one where there is nothing to draw.
  */
 describe('summarizeDismissed', () => {
   it('draws nothing at all when nothing has been refused', () => {
@@ -126,13 +126,11 @@ describe('summarizeDismissed', () => {
   it('says one refusal in the singular', () => {
     const summary = summarizeDismissed(1);
     expect(summary.heading).toBeDefined();
-    expect(summary.count).toBe('One suggestion is being suppressed.');
+    expect(summary.count).toBe('One fact will stay forgotten.');
   });
 
   it('counts many', () => {
-    expect(summarizeDismissed(4).count).toBe(
-      '4 suggestions are being suppressed.',
-    );
+    expect(summarizeDismissed(4).count).toBe('4 facts will stay forgotten.');
   });
 
   /*

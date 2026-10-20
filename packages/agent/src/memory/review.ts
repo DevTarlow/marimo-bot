@@ -10,10 +10,13 @@
  * Four decisions shape it, and each is the difference between a feature and a
  * nuisance.
  *
- * **It proposes; it does not write.** Long-term memory is injected into every
+ * **It proposes; the caller writes.** Long-term memory is injected into every
  * future system prompt, so a wrong entry is not a wrong answer once — it is a
- * wrong belief the agent carries into every later conversation. The user sees
- * what would be written and decides.
+ * wrong belief the agent carries into every later conversation. That is why the
+ * check happens before the write, and why nothing reaches here without a quote
+ * from the conversation. The caller applies what survives this function, because
+ * the person can see every fact and forget one afterwards; waiting on an
+ * approval for each is a second queue they did not ask for.
  *
  * **It reviews only what it has not seen.** A watermark records how far the
  * review has read, so an idle conversation is not re-read and re-proposed every
@@ -32,7 +35,7 @@ import {z} from 'zod';
 import {splitMemory} from './memory-store.js';
 import {CANONICAL_SECTIONS, renderSectionGuide} from './sections.js';
 
-/** One thing the agent would remember, if the user agrees. */
+/** One fact the reviewer thinks is worth keeping. */
 export interface MemoryProposal {
   /** Where it would go in `memory.md`. */
   section: string;
@@ -250,9 +253,9 @@ export function reviewPrompt(
     '',
     'Every proposal must carry "quote": a short phrase copied word for word',
     'from the conversation that supports the fact. Do not paraphrase it, do not',
-    'join two sentences with an ellipsis, and do not quote the agent\'s own',
+    "join two sentences with an ellipsis, and do not quote the agent's own",
     'reasoning. A proposal whose quote cannot be found in the conversation is',
-    'discarded before the user sees it.',
+    'discarded before it is remembered.',
     '',
     'Answer with JSON only, no prose around it:',
     '{"proposals":[{"section":"' +
@@ -298,9 +301,10 @@ export function existingMemoryList(memory: string): {
   const lines: string[] = [];
   let used = 0;
   for (const bullet of bullets.slice(0, MAX_EXISTING_BULLETS)) {
-    const line = bullet.section.length > 0
-      ? `- [${bullet.section}] ${bullet.text}`
-      : `- ${bullet.text}`;
+    const line =
+      bullet.section.length > 0
+        ? `- [${bullet.section}] ${bullet.text}`
+        : `- ${bullet.text}`;
     if (used + line.length + 1 > MAX_EXISTING_CHARS) {
       break;
     }
@@ -361,7 +365,8 @@ function withoutEmptyReplaces(proposal: {
   quote?: string | undefined;
 }): MemoryProposal {
   const {replaces, quote, ...rest} = proposal;
-  const evidence = quote === undefined || quote.length === 0 ? undefined : quote;
+  const evidence =
+    quote === undefined || quote.length === 0 ? undefined : quote;
   return {
     ...rest,
     ...(replaces === undefined || replaces.length === 0 ? {} : {replaces}),
@@ -378,7 +383,9 @@ function withoutEmptyReplaces(proposal: {
  * because a model asked for a phrase often supplies the quotation marks too.
  */
 function quoteAppears(quote: string, text: string): boolean {
-  const wanted = comparable(quote.replaceAll(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/gu, ''));
+  const wanted = comparable(
+    quote.replaceAll(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/gu, ''),
+  );
   if (wanted.length < 3) {
     return false;
   }
@@ -407,7 +414,11 @@ function turnOfQuote(
       .filter((part) => part.thought !== true)
       .map((part) => part.text ?? '')
       .join(' ');
-    if (text.length > 0 && quoteAppears(quote, text) && event?.turnId !== undefined) {
+    if (
+      text.length > 0 &&
+      quoteAppears(quote, text) &&
+      event?.turnId !== undefined
+    ) {
       return event.turnId;
     }
   }
@@ -585,11 +596,13 @@ export interface ReviewResult {
 }
 
 /**
- * Reads a conversation and proposes what is worth remembering.
+ * Reads a conversation and returns the facts worth remembering.
  *
  * The orchestration is here rather than in the host so the whole thing — the
  * transcript rendering, the prompt, the parse, the filter against memory — can be
- * tested with a function instead of a provider.
+ * tested with a function instead of a provider. What comes back has been checked
+ * against the transcript and against memory; the caller writes it, and the
+ * person's control is the editable memory list rather than a second approval.
  *
  * A failure from the model answers no proposals. A review is something that
  * happens on its own while nobody is watching, so an exception would surface as
@@ -598,9 +611,7 @@ export interface ReviewResult {
  * was handed to the model — advancing only on success would re-send a failing
  * prompt on every idle moment.
  */
-export async function runReview(
-  request: ReviewRequest,
-): Promise<ReviewResult> {
+export async function runReview(request: ReviewRequest): Promise<ReviewResult> {
   const stretch = renderConversation(request.events);
   if (stretch.text.trim().length === 0) {
     return {proposals: [], used: stretch.used};

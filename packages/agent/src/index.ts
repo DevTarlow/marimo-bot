@@ -147,12 +147,15 @@ export {
   toBullets,
 } from './memory/index.js';
 export type {
+  ForgetReport,
+  MemoryForgetRequest,
   MemoryPruneRequest,
   MemoryScope,
   MemorySelection,
   MemorySource,
   MemoryStoreOptions,
   MemoryUpdate,
+  MemoryProposal as ReviewProposal,
   RecalledBullet,
   ReviewEvent,
   ReviewRequest,

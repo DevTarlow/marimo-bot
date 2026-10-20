@@ -41,6 +41,7 @@ import type {
   DeskService,
   DiscordService,
   JobService,
+  MemoryForgetRequest,
   RecallLookup,
   McpToolsetSource,
   SessionIndexEntry,
@@ -210,7 +211,7 @@ export class AgentRuntime {
    * capability every unit test has and no install does.
    */
   private readonly skillService: RuntimeSkillService;
-  /** The agent's suggestions, waiting for an answer. */
+  /** The review's watermark and refusals, and the rare fact still waiting. */
   private readonly proposals: MemoryProposalStore;
   /** What the user said about the agent's own answers. */
   private readonly feedbackStore: FeedbackStore;
@@ -558,9 +559,7 @@ export class AgentRuntime {
     const catalog = await this.catalog();
     const available = new Set(catalog.tools.map((tool) => tool.name));
     const requested = draft.tools ?? template?.tools ?? [...SAFE_DEFAULT_TOOLS];
-    const tools = [...new Set(requested)].filter((name) =>
-      available.has(name),
-    );
+    const tools = [...new Set(requested)].filter((name) => available.has(name));
     const avatarId = draft.avatar ?? template?.avatar;
     const avatar = BOT_AVATAR_PRESETS.some((preset) => preset.id === avatarId)
       ? {kind: 'preset' as const, id: avatarId as string}
@@ -576,7 +575,9 @@ export class AgentRuntime {
     return await this.profileStore.create({
       ...(name === undefined ? {} : {name}),
       role: (resolved) => botRoleFor(resolved, template),
-      ...(persona === undefined ? {persona: botPersonaFor(template)} : {persona}),
+      ...(persona === undefined
+        ? {persona: botPersonaFor(template)}
+        : {persona}),
       tools,
       ...(avatar === undefined ? {} : {avatar}),
       ...(template === undefined ? {} : {templateId: template.id}),
@@ -651,7 +652,7 @@ export class AgentRuntime {
 
     return file;
   }
-  /** The suggestions waiting for this agent. */
+  /** The facts still waiting for this agent, which is normally none. */
   async memoryProposals(profileId?: string): Promise<MemoryProposal[]> {
     const file = await this.proposals.load();
     return profileId === undefined
@@ -706,9 +707,7 @@ export class AgentRuntime {
    * be opened before any turn has run, and building a host to answer a question
    * about a file would dial every MCP server and start the model to draw a list.
    */
-  async memoryProvenance(
-    profileId?: string,
-  ): Promise<MemoryProvenanceEntry[]> {
+  async memoryProvenance(profileId?: string): Promise<MemoryProvenanceEntry[]> {
     const id = profileId ?? (await this.profileStore.activeProfile()).id;
     const profile = await this.profileFor(id);
     const workspace =
@@ -722,13 +721,43 @@ export class AgentRuntime {
     return await store.provenance();
   }
   /**
+   * Forgets one remembered bullet, at the person's request.
+   *
+   * The same store the provenance list was drawn from, so the line removed is
+   * the line they clicked. The text is also recorded as a refusal: removing a
+   * fact is the same instruction as turning a suggestion down, and without it
+   * the next review of a conversation that mentions the subject would put it
+   * straight back.
+   */
+  async forgetMemoryFact(
+    fact: MemoryForgetRequest,
+    profileId?: string,
+  ): Promise<{entries: MemoryProvenanceEntry[]; removed: boolean}> {
+    const id = profileId ?? (await this.profileStore.activeProfile()).id;
+    const profile = await this.profileFor(id);
+    const workspace =
+      workspaceRootFor(await this.workspaceStore.load()) ??
+      this.options.paths.defaultWorkspace;
+    const store = new MemoryStore({
+      workspaceRoot: workspace,
+      personMemoryRoot: this.options.paths.personMemoryDir,
+      ...(profile !== undefined ? {profileId: profile.id} : {}),
+    });
+    const report = await store.forget(fact);
+    if (report.removed) {
+      await this.proposals.dismiss({profileId: id, text: fact.text});
+    }
+    return {entries: await store.provenance(), removed: report.removed};
+  }
+
+  /**
    * What the user has refused, newest last.
    *
    * Read for the memory panel rather than for the reviewer, so it answers with
    * the whole list and lets the caller group it: the dialog shows how many
    * judgements are being carried, and that is a number about the app's behaviour
    * rather than about one agent.
-   */  async dismissedMemory(): Promise<DismissedMemory[]> {
+   */ async dismissedMemory(): Promise<DismissedMemory[]> {
     return (await this.proposals.load()).dismissed;
   }
 
@@ -743,8 +772,8 @@ export class AgentRuntime {
    * Nothing is written to memory here and nothing is said back to the model: the
    * conversation log is left exactly as it was, because a correction is a note
    * *about* a turn rather than a turn in it. What it changes is the next review,
-   * which reads it — and the review still only proposes, so the fact reaches
-   * memory through the same human answer as everything else.
+   * which reads it — and that review writes the fact it can support, which the
+   * person can then search and forget like any other.
    *
    * The turn is recorded beside the message because the two documents that will
    * want this note name the turn differently: a transcript message is titled with
@@ -1162,7 +1191,10 @@ export class AgentRuntime {
     provider: ProviderId,
     models: string[],
   ): Promise<StoredSettings> {
-    const stored = await this.settingsStore.setAvailableModels(provider, models);
+    const stored = await this.settingsStore.setAvailableModels(
+      provider,
+      models,
+    );
     /*
      * The applied signatures are dropped and the hosts are left standing: the
      * placeholder-config host holds conversations and their file positions, so
@@ -1215,7 +1247,10 @@ export class AgentRuntime {
     return entries
       .filter((entry) => entry.profileId === profile)
       .map(summaryOf)
-      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+      .sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      );
   }
 
   /**
@@ -1522,6 +1557,12 @@ export class AgentRuntime {
       jobsFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))?.jobService,
       versions: this.harnessVersions,
+      /*
+       * The same store, not a second one over the same file: it caches what it
+       * read, so a dismissal here and a watermark write there would each undo
+       * the other.
+       */
+      memoryProposals: this.proposals,
       sessionSpace: async (sessionId) =>
         (await this.sessionIndex.getIndexEntry(sessionId))?.workspaceId,
       createSession: async (profileId, title) => {
@@ -1566,7 +1607,6 @@ export class AgentRuntime {
     );
   }
 
-
   private async createIndexedSession(
     profileId: string,
     title: string | undefined,
@@ -1604,7 +1644,6 @@ export class AgentRuntime {
       ...(purpose === undefined ? {} : {purpose}),
     };
   }
-
 }
 
 /**
@@ -1648,8 +1687,6 @@ function connectorBlurb(server: McpServer): string {
   return `${server.transport === 'http' ? 'At' : 'Runs'} ${where}. Its own tools are offered beside the built-in ones.`;
 }
 
-
-
 function requireEntry(
   entry: SessionIndexEntry | undefined,
   sessionId: string,
@@ -1668,7 +1705,9 @@ function summaryOf(entry: SessionIndexEntry): SessionSummary {
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt,
     messageCount: entry.messageCount,
-    ...(entry.workspaceId === undefined ? {} : {workspaceId: entry.workspaceId}),
+    ...(entry.workspaceId === undefined
+      ? {}
+      : {workspaceId: entry.workspaceId}),
     ...(entry.source === undefined ? {} : {source: entry.source}),
     ...(entry.purpose === undefined ? {} : {purpose: entry.purpose}),
     ...(entry.model === undefined ? {} : {model: entry.model}),

@@ -371,9 +371,9 @@ which is what names the record.
 
 **The Harness card** in Settings reads a report on demand: v1 and v2
 conversation counts for the active bot, turns, the token totals the provider
-reported, the frozen specs, waiting memory suggestions, conversations reviewed
-and refusals, the skill library and its earlier bodies, jobs, and the two data
-paths. It reads every v2 log, so it mounts only when the card is opened
+reported, the frozen specs, memory facts still queued because a write failed,
+conversations reviewed and refusals, the skill library and its earlier bodies,
+jobs, and the two data paths. It reads every v2 log, so it mounts only when the card is opened
 and has its own Refresh; it is not on the turn path. One conversation's own menu
 reads its turns and token total from its log; a v1 conversation says that token
 usage was not recorded rather than showing zeros.
@@ -385,7 +385,7 @@ alone, because they are not the harness. It asks for a second click and reloads
 the bot. The next turn records a new version, so the restore is itself
 reversible.
 
-The same card carries the learning totals: memory suggestions waiting, reviews
+The same card carries the learning totals: memory writes still queued, reviews
 run and refusals remembered, plus the number of skill bodies kept in history.
 There is no separate timeline surface; the Memory and Skills cards are where the
 individual items are read and acted on.

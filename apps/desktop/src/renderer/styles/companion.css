@@ -234,7 +234,9 @@ body.companion-body {
   font-size: var(--text-lg);
   line-height: 1;
   box-shadow: 0 6px 20px rgb(0 0 0 / 30%);
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    color var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .pet-new:hover:not(:disabled) {
@@ -321,23 +323,6 @@ body.companion-body {
 
 /* Shown on hover, because a floating pet with a permanent toolbar is a window
    again. Always reachable by keyboard, so it is not pointer-only. */
-/*
- * The waiting dot, on the moss itself.
- *
- * Positioned against the moss rather than the hover row, because it has to be
- * visible without hovering — a hint that only appears when the pointer is already
- * over the pet is one nobody sees.
- */
-.pet-dot {
-  position: absolute;
-  top: -2px;
-  left: -2px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
 .pet-hover-actions {
   position: absolute;
   top: -6px;

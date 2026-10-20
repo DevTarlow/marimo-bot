@@ -36,7 +36,7 @@ export type {ResetReport} from './reset.js';
 export {FileSecretStore} from './secrets.js';
 export type {SecretCipher, SecretRead} from './secrets.js';
 
-/* The agent's memory suggestions, waiting for an answer. */
+/* The review's watermark and refusals, and any fact a failed write left waiting. */
 export {
   MAX_PENDING_PROPOSALS,
   MemoryProposalStore,
@@ -265,10 +265,7 @@ export type {ReviewDelay, ReviewDueOptions} from '@marimo/agent';
 
 /* The agent, assembled from what the user configured. */
 export {AgentRuntime} from './agent/runtime.js';
-export type {
-  AgentRuntimeOptions,
-  RuntimeServices,
-} from './agent/runtime.js';
+export type {AgentRuntimeOptions, RuntimeServices} from './agent/runtime.js';
 export {parseProfile, resolveAgentConfig} from './agent/resolve.js';
 export {createJobRunner} from './agent/job-runner.js';
 export type {JobRunnerOptions} from './agent/job-runner.js';

@@ -2216,11 +2216,13 @@ export const jobsFileSchema = z.object({
 /* -------------------------------------------------------------------------- */
 
 /**
- * Something the agent would remember, waiting for the user to agree.
+ * A fact the reviewer found, in the cases where it could not be written.
  *
- * Proposed rather than written, because long-term memory is injected into every
- * future system prompt: a wrong entry is not a wrong answer once, it is a wrong
- * belief the agent carries into every later conversation.
+ * Not the ordinary path: a reviewed fact is written straight into memory and
+ * shown in the Memory card afterwards. This shape survives for a write that
+ * failed — memory over its cap, an unreadable file — and for a queue an older
+ * build left waiting. Either way the person can still answer it, and it carries
+ * the same evidence the reviewer used.
  */
 export const memoryProposalSchema = z.object({
   id: z.string().min(1),
@@ -2296,8 +2298,8 @@ export type MemorySupersede = z.infer<typeof memorySupersedeSchema>;
  *
  * The one thing in this app that is neither a preference nor a suggested fact:
  * it is a judgement about something the agent *said*, and until this existed
- * there was nowhere for it to go. A memory proposal's refusal is a judgement
- * about a suggestion and deliberately does not silence the agent's own
+ * there was nowhere for it to go. Refusing a fact is a judgement about what the
+ * reviewer wrote and deliberately does not silence the agent's own
  * `update_memory`; "How to talk to me" is the user writing rules for themselves.
  * Neither of them records that an answer was wrong.
  *
@@ -2390,9 +2392,7 @@ export const memoryProvenanceEntrySchema = z.object({
   source: z.enum(['tool', 'review', 'adopted']),
 });
 
-export type MemoryProvenanceEntry = z.infer<
-  typeof memoryProvenanceEntrySchema
->;
+export type MemoryProvenanceEntry = z.infer<typeof memoryProvenanceEntrySchema>;
 
 export const memoryProvenanceFileSchema = z.object({
   version: z.literal(1),
@@ -2422,13 +2422,6 @@ export const memoryUsageSchema = z.object({
 export type MemoryUsage = z.infer<typeof memoryUsageSchema>;
 
 /**
- * The proposals, and how far the review has read.
- *
- * The watermark is per conversation and lives here rather than in memory: a
- * review that forgot how far it had read would re-propose the same facts every
- * time the app went quiet, and a queue that refills itself is one nobody reads.
- */
-/**
  * One thing the user said no to.
  *
  * Kept because the *absence* of a fact from memory is not evidence that it was
@@ -2451,11 +2444,13 @@ export const dismissedMemorySchema = z.object({
 export type DismissedMemory = z.infer<typeof dismissedMemorySchema>;
 
 /**
- * The proposals, how far the review has read, and what the user has refused.
+ * How far the review has read, what it could not write, and what was refused.
  *
  * The watermark is per conversation and lives here rather than in memory: a
  * review that forgot how far it had read would re-propose the same facts every
  * time the app went quiet, and a queue that refills itself is one nobody reads.
+ * `proposals` is normally empty — the review writes its facts — and is kept for
+ * a failed write and for a queue an older build left behind.
  *
  * **Version 2 added `dismissed`, and that is why the version moved.** A build
  * that understood only version 1 would parse this file, drop the field it did not
@@ -2504,11 +2499,7 @@ export function emptyMemoryProposals(): MemoryProposalsFile {
  * Every kind is a *proposal*. Nothing here is applied by being recorded. The
  * window turns one into a decision, and the decision is the write.
  */
-export const learningKindSchema = z.enum([
-  'grant',
-  'policy',
-  'maintenance',
-]);
+export const learningKindSchema = z.enum(['grant', 'policy', 'maintenance']);
 
 /**
  * A pointer back into the log, for a suggestion that is not a quotation.
@@ -2560,7 +2551,6 @@ export type GrantProposal = z.infer<typeof grantProposalSchema>;
  * them. What is here is the tunable context: how memory is recalled, how much
  * room a turn gets before compaction, and how many tool calls it may spend.
  */
-
 
 export const policyProposalSchema = z.object({
   ...learningBase,
@@ -2862,24 +2852,18 @@ export type AgentUiEvent =
    */
   | {type: 'companion.changed'; settings: CompanionSettings}
   /*
-   * An idle look at the conversation turned something up.
+   * A look at the conversation finished, what it read and what it remembered.
    *
-   * A count rather than the proposals themselves: the window fetches the queue
-   * when it wants to draw it, and a review finds nothing most of the time — so
-   * this is only ever "there is something to see".
-   */
-  | {type: 'memory.proposed'; count: number}
-  /*
-   * A look at the conversation finished, and what it read.
+   * Emitted whether or not anything was written — which is the point, because
+   * finding nothing is the usual answer. `remembered` is what makes the cadence
+   * visible: the look either waits for the conversation to go quiet or fires
+   * once enough of it has piled up, and a window with no event to draw it looks
+   * exactly like a review that never ran.
    *
-   * Emitted whether or not anything was proposed — which is the point, because
-   * finding nothing is the usual answer. The count is what makes the review
-   * cadence visible at all: the look either waits for the conversation to go
-   * quiet or fires once enough of it has piled up, and when the second of those
-   * happens a window with no event to draw it looks exactly like a review that
-   * never ran.
+   * There is no second event for the facts themselves. They are not waiting for
+   * anything, and the Memory card reads the list from the store when it opens.
    */
-  | {type: 'memory.reviewed'; events: number; found: number};
+  | {type: 'memory.reviewed'; events: number; remembered: number};
 
 export const IPC_CALL_CHANNEL = 'marimo:call';
 export const IPC_EVENT_CHANNEL = 'marimo:event';
@@ -3273,17 +3257,13 @@ export const agentCallSchemas = {
   }),
 
   /*
-   * What the agent would remember, waiting for an answer, and what the user has
-   * already refused.
+   * What is still waiting for an answer, and what the user has already refused.
    *
-   * Both in one call because the dialog shows them together and one of them is
-   * the explanation for the other: a queue that looks short is partly a queue of
-   * things already rejected, and the count is what makes that visible. Two calls
-   * would be two chances for the window to draw one of them from a stale read.
-   *
-   * `accept` writes a proposal into memory, `dismiss` does not — and both remove
-   * it from the queue and, when dismissed, record the refusal, because both are
-   * answers.
+   * A review writes its facts rather than queueing them, so `proposals` is
+   * normally empty; it survives for a write that failed, and for entries an
+   * older build left behind. `dismissed` is not a queue at all — it is the list
+   * that keeps the reviewer quiet, and it is shown beside the queue because one
+   * explains the other.
    */
   'memory.proposals': z.object({}),
   /*
@@ -3309,6 +3289,19 @@ export const agentCallSchemas = {
    * questions — "is memory full" and "what in here is stale".
    */
   'memory.provenance': z.object({profileId: z.string().min(1).optional()}),
+  /**
+   * Forgets one remembered bullet.
+   *
+   * The three fields are exactly a provenance entry's address. Naming the scope
+   * keeps the same sentence remembered in both halves — a fact about the person
+   * and a rule of the project — from taking the wrong copy with it.
+   */
+  'memory.forget': z.object({
+    profileId: z.string().min(1).optional(),
+    scope: z.enum(['person', 'workspace']),
+    section: z.string(),
+    text: z.string().min(1),
+  }),
   'memory.resolve': z.object({
     proposalId: z.string().min(1),
     accept: z.boolean(),
@@ -3633,6 +3626,8 @@ export interface AgentCallResults {
   'memory.forgetDismissals': {dismissed: DismissedMemory[]};
   'memory.usage': MemoryUsage;
   'memory.provenance': {entries: MemoryProvenanceEntry[]};
+  /** The list after the removal, and whether the bullet was actually there. */
+  'memory.forget': {entries: MemoryProvenanceEntry[]; removed: boolean};
   'memory.resolve': {
     ok: boolean;
     problem?: string;

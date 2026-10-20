@@ -19,6 +19,8 @@ export {
   toBullets,
 } from './memory-store.js';
 export type {
+  ForgetReport,
+  MemoryForgetRequest,
   MemoryPruneRequest,
   MemoryScope,
   MemorySource,
@@ -44,6 +46,7 @@ export {
 } from './review.js';
 export type {
   Correction,
+  MemoryProposal,
   RefusedFact,
   ReviewEvent,
   ReviewRequest,

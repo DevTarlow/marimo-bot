@@ -147,8 +147,8 @@ export function Settings({
    * success; a refusal comes back here as a sentence under the dialog.
    */
   onStartBotBuilder?: () => Promise<{ok: boolean; problem?: string}>;
-  /** What the last background look read and found, for the Memory card. */
-  lastReview?: {events: number; found: number} | null;
+  /** What the last background look read and remembered, for the Learning card. */
+  lastReview?: {events: number; remembered: number} | null;
   /**
    * A card to open on the first read, for a caller that sent the user here.
    *
@@ -834,8 +834,8 @@ export function Settings({
               <span>Persona</span>
               <em className="settings-why">
                 Who this bot is, what it is for, and how you want to be spoken
-                to. This is your text; the app seeds it once and never resets
-                it on its own.
+                to. This is your text; the app seeds it once and never resets it
+                on its own.
               </em>
               <textarea
                 className="settings-input settings-preferences"
@@ -1270,9 +1270,9 @@ export function Settings({
         */}
         <SettingsSection title="Commands" opened={opened} onToggle={fold}>
           <p className="settings-muted">
-            Commands run against a conversation from the composer&rsquo;s + menu.
-            They are off the model&rsquo;s list entirely when switched off here,
-            rather than merely discouraged.
+            Commands run against a conversation from the composer&rsquo;s +
+            menu. They are off the model&rsquo;s list entirely when switched off
+            here, rather than merely discouraged.
           </p>
           {COMMAND_IDS.map((id) => (
             <label className="settings-check" key={id}>
@@ -1318,10 +1318,10 @@ export function Settings({
         />
 
         {/*
-          Learning sits before Memory because a suggestion is about the next
-          turn, while memory is about what the bot already carries. The proposal
-          list moved here from the Memory card so there is one inbox rather than
-          two places to look for the same decision.
+          Learning sits before Memory because a change is about the next turn,
+          while memory is about what the bot already carries. What waits here is
+          only the changes that need a person; a remembered fact is written and
+          shown in the Memory card below.
         */}
         <Learning
           opened={opened}
@@ -2098,7 +2098,8 @@ function HarnessCard({
             <div className="harness-version" key={version.hash}>
               <span>
                 {new Date(version.recordedAt).toLocaleString()} · v
-                {version.harnessVersion} · <code>{version.hash.slice(0, 10)}</code>
+                {version.harnessVersion} ·{' '}
+                <code>{version.hash.slice(0, 10)}</code>
               </span>
               {confirming === version.hash ? (
                 <span className="harness-version-actions">
@@ -2310,7 +2311,9 @@ function SkillsCard({
               disabled={busy}
               maxLength={SKILL_INSTRUCTIONS_MAX}
               rows={12}
-              placeholder={'1. Read the unread mail.\n2. Group it by sender.\n3. …'}
+              placeholder={
+                '1. Read the unread mail.\n2. Group it by sender.\n3. …'
+              }
               onChange={(event) => {
                 setEditing({
                   ...editing,
@@ -2319,8 +2322,8 @@ function SkillsCard({
               }}
             />
             <em className="settings-why">
-              The procedure, in the imperative. This text is loaded only when the
-              skill is used.
+              The procedure, in the imperative. This text is loaded only when
+              the skill is used.
             </em>
           </label>
 
@@ -2487,12 +2490,14 @@ function SkillsCard({
                           disabled={busy || restoring !== null}
                           onClick={() => {
                             setRestoring(entry.id);
-                            void onRestore(skill.id, entry.id).then((restored) => {
-                              setRestoring(null);
-                              if (restored) {
-                                setHistory(null);
-                              }
-                            });
+                            void onRestore(skill.id, entry.id).then(
+                              (restored) => {
+                                setRestoring(null);
+                                if (restored) {
+                                  setHistory(null);
+                                }
+                              },
+                            );
                           }}
                         >
                           {restoring === entry.id ? 'Restoring…' : 'Restore'}

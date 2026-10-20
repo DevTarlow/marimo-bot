@@ -198,12 +198,8 @@ export interface AgentController {
    * different values, or the second one opens nothing.
    */
   openSettings: number;
-  /** Suggestions that have arrived since the panel was last opened. */
-  memoryWaiting: number;
-  /** What the last background look at the conversation read, and found. */
-  lastReview: {events: number; found: number} | null;
-  /** Clears that, when the panel opens and the user is looking at them. */
-  clearMemoryWaiting: () => void;
+  /** What the last background look at the conversation read, and remembered. */
+  lastReview: {events: number; remembered: number} | null;
   /** The stored theme preference, kept in step with the settings file. */
   themeMode: ThemeMode;
   /**
@@ -266,10 +262,7 @@ export interface AgentController {
   renameWorkspace: (workspaceId: string, name: string) => Promise<void>;
   removeWorkspace: (workspaceId: string) => Promise<void>;
   openWorkspace: (workspaceId: string) => Promise<void>;
-  moveSession: (
-    sessionId: string,
-    workspaceId: string | null,
-  ) => Promise<void>;
+  moveSession: (sessionId: string, workspaceId: string | null) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   /**
    * Points one conversation at a model of its own, or `null` to stop.
@@ -304,31 +297,23 @@ export function useAgent(): AgentController {
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [storedPending, setStoredPending] = useState<PendingGate[]>([]);
   const [live, setLive] = useState<LiveTurn | null>(null);
-  const [delegations, setDelegations] = useState<Record<string, Delegation>>({});
+  const [delegations, setDelegations] = useState<Record<string, Delegation>>(
+    {},
+  );
   const [outbox, setOutbox] = useState<string | null>(null);
   const [openSettings, setOpenSettings] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   /**
-   * How many suggestions have arrived since the user last looked at the panel.
-   *
-   * A count rather than the proposals themselves: this exists to put a dot
-   * somewhere, and the panel already reads the real list from the store when it
-   * opens. Held here because the event arrives while Settings is closed, which is
-   * the whole reason the count is worth having — a suggestion nobody is told
-   * about is one that only exists if they happen to reopen a dialog.
-   */
-  const [memoryWaiting, setMemoryWaiting] = useState(0);
-  /**
    * What the last background look did.
    *
-   * Kept apart from the count above and deliberately not cleared when the panel
-   * opens: the count answers "is there something new", and this answers "is the
-   * thing working at all" — a question a user asks precisely when a look has run
-   * and proposed nothing, which is the answer most of the time.
+   * Deliberately not cleared when the panel opens: it answers "is the thing
+   * working at all", a question a user asks precisely when a look has run and
+   * remembered nothing, which is the answer most of the time.
    */
-  const [lastReview, setLastReview] = useState<{events: number; found: number} | null>(
-    null,
-  );
+  const [lastReview, setLastReview] = useState<{
+    events: number;
+    remembered: number;
+  } | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
     null,
@@ -424,7 +409,10 @@ export function useAgent(): AgentController {
    * which space is current.
    */
   const applyWorkspaceState = useCallback(
-    (state: {workspaces: Workspace[]; activeWorkspaceId: string | null}): void => {
+    (state: {
+      workspaces: Workspace[];
+      activeWorkspaceId: string | null;
+    }): void => {
       setWorkspaces(state.workspaces);
       setActiveWorkspaceId(state.activeWorkspaceId);
     },
@@ -513,9 +501,8 @@ export function useAgent(): AgentController {
     try {
       const listed = await window.marimo.call('profiles.list', {});
       const active =
-        listed.profiles.find(
-          (entry) => entry.id === listed.activeProfileId,
-        ) ?? listed.profiles[0];
+        listed.profiles.find((entry) => entry.id === listed.activeProfileId) ??
+        listed.profiles[0];
       setProfile(active);
       // The roster, not just the active agent: a group chat is drawn with names
       // this window has to look up by id, including agents that are not talking.
@@ -630,20 +617,19 @@ export function useAgent(): AgentController {
       }
 
       /*
-       * A background look at the conversation found something worth remembering.
+       * A background look at the conversation finished.
        *
-       * Handled before the conversation filter because a proposal belongs to the
+       * Handled before the conversation filter because a review belongs to the
        * *agent* rather than to whichever chat is on screen, and the event carries
-       * no session id to be filtered by. Counted rather than replaced, because
-       * two looks since the user last opened the panel are two more suggestions
-       * waiting, not the latest one.
+       * no session id to be filtered by. What it remembered is kept as a fact
+       * about the last look, not as a badge: a fact is written rather than
+       * waiting, so there is nothing for the window to prompt about.
        */
-      if (event.type === 'memory.proposed') {
-        setMemoryWaiting((count) => count + event.count);
-        return;
-      }
       if (event.type === 'memory.reviewed') {
-        setLastReview({events: event.events, found: event.found});
+        setLastReview({
+          events: event.events,
+          remembered: event.remembered,
+        });
         return;
       }
 
@@ -668,9 +654,7 @@ export function useAgent(): AgentController {
         case 'text.delta':
           if (forUs) {
             setLive((turn) =>
-              turn === null
-                ? turn
-                : {...turn, text: turn.text + event.text},
+              turn === null ? turn : {...turn, text: turn.text + event.text},
             );
           }
           return;
@@ -705,7 +689,11 @@ export function useAgent(): AgentController {
                         ...work,
                         toolCalls: [
                           ...work.toolCalls,
-                          {callId: event.callId, tool: event.tool, args: event.args},
+                          {
+                            callId: event.callId,
+                            tool: event.tool,
+                            args: event.args,
+                          },
                         ],
                       },
                     };
@@ -719,7 +707,11 @@ export function useAgent(): AgentController {
                     ...turn,
                     toolCalls: [
                       ...turn.toolCalls,
-                      {callId: event.callId, tool: event.tool, args: event.args},
+                      {
+                        callId: event.callId,
+                        tool: event.tool,
+                        args: event.args,
+                      },
                     ],
                   },
             );
@@ -816,7 +808,9 @@ export function useAgent(): AgentController {
                       done: true,
                       ok: event.ok,
                       ms: event.ms,
-                      ...(event.error === undefined ? {} : {error: event.error}),
+                      ...(event.error === undefined
+                        ? {}
+                        : {error: event.error}),
                     },
                   };
             });
@@ -1087,7 +1081,10 @@ export function useAgent(): AgentController {
     problem?: string;
   }> => {
     if (profile === undefined) {
-      return {ok: false, problem: 'There is no bot to start this conversation.'};
+      return {
+        ok: false,
+        problem: 'There is no bot to start this conversation.',
+      };
     }
     try {
       const {session} = await window.marimo.call('sessions.startBuilder', {
@@ -1227,10 +1224,16 @@ export function useAgent(): AgentController {
         return;
       }
       try {
-        await window.marimo.call('sessions.delete', {profileId: profile.id, sessionId});
-        const {sessions: remaining} = await window.marimo.call('sessions.list', {
+        await window.marimo.call('sessions.delete', {
           profileId: profile.id,
+          sessionId,
         });
+        const {sessions: remaining} = await window.marimo.call(
+          'sessions.list',
+          {
+            profileId: profile.id,
+          },
+        );
         setSessions(remaining);
         if (sessionId !== openSession.current) {
           return;
@@ -1305,11 +1308,7 @@ export function useAgent(): AgentController {
     refresh,
     openSettings,
     themeMode,
-    memoryWaiting,
     lastReview,
-    clearMemoryWaiting: () => {
-      setMemoryWaiting(0);
-    },
     reload: boot,
     newSession,
     startBotBuilder,

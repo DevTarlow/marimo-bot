@@ -26,6 +26,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 
 import type {AgentProfile, SessionSummary, Workspace} from '@marimo/protocol';
 
+import {clampRailWidth, MAX_RAIL_WIDTH, MIN_RAIL_WIDTH} from '../layout.js';
 import {groupSessions} from '../workspace-groups.js';
 import {BotAvatar} from './BotAvatar.js';
 import {KeepRunning} from './KeepRunning.js';
@@ -49,6 +50,9 @@ export function WorkspaceRail({
   activeSessionId,
   activeWorkspaceId,
   disabled,
+  width,
+  onResize,
+  onResizeEnd,
   onSelectProfile,
   onNewBot,
   onOpenSession,
@@ -71,6 +75,12 @@ export function WorkspaceRail({
   activeSessionId: string | null;
   activeWorkspaceId: string | null;
   disabled: boolean;
+  /** The rail's live width, in pixels. */
+  width: number;
+  /** Applies a width while the handle is moving. */
+  onResize: (width: number) => void;
+  /** Writes the width the drag settled on, so it survives a restart. */
+  onResizeEnd: (width: number) => void;
   onSelectProfile: (profileId: string) => void;
   /** Opens the New bot dialog, the same one Settings uses. */
   onNewBot: () => void;
@@ -102,6 +112,30 @@ export function WorkspaceRail({
    * begins.
    */
   const cancelled = useRef(false);
+  /** Whether the rail's right edge is being dragged, so it can stay lit. */
+  const [resizing, setResizing] = useState(false);
+  /*
+   * The drag in flight. `startWidth` is measured from the element rather than
+   * taken from the prop, so a width the window clamped is the width the pointer
+   * starts from and the first move does not jump.
+   */
+  const drag = useRef<{
+    startX: number;
+    startWidth: number;
+    width: number;
+  } | null>(null);
+
+  /*
+   * The body class the drag puts on the whole window has to come off on every
+   * path out, including this component disappearing mid-drag: Settings replaces
+   * the window, and a stale resize cursor would outlive the rail.
+   */
+  useEffect(
+    () => () => {
+      document.body.classList.remove('resizing-rail');
+    },
+    [],
+  );
 
   /*
    * The space of the conversation on screen is never collapsed. Selecting
@@ -197,6 +231,77 @@ export function WorkspaceRail({
     />
   );
 
+  /*
+   * The rail's right edge, dragged the way the documents drawer's left edge is.
+   *
+   * The width is layout rather than a fact about a bot or a Space, so it is
+   * applied to the live column while the pointer moves and written once the
+   * drag settles — see App.
+   */
+  const startResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    if (drag.current !== null) {
+      return;
+    }
+    event.preventDefault();
+    // `preventDefault` stops the click from selecting text; focus still has to
+    // be put back on the handle so a drag can be followed by the arrow keys.
+    event.currentTarget.focus();
+    const startWidth =
+      event.currentTarget.parentElement?.getBoundingClientRect().width ?? width;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = {startX: event.clientX, startWidth, width: startWidth};
+    // The pointer spends the drag over the conversation, so the element under
+    // it does not keep the resize cursor by itself.
+    document.body.classList.add('resizing-rail');
+    setResizing(true);
+  };
+
+  const moveResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const current = drag.current;
+    if (current === null) {
+      return;
+    }
+    // The rail's right edge moving right makes it wider.
+    const next = clampRailWidth(
+      current.startWidth + (event.clientX - current.startX),
+    );
+    current.width = next;
+    onResize(next);
+  };
+
+  const endResize = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const current = drag.current;
+    if (current === null) {
+      return;
+    }
+    drag.current = null;
+    document.body.classList.remove('resizing-rail');
+    setResizing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onResizeEnd(current.width);
+  };
+
+  /**
+   * Arrow keys move the edge by a line, Shift by a wider step. A resize handle
+   * that only answers a mouse is a control half the users cannot operate.
+   */
+  const resizeByKey = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    const step = event.shiftKey ? 48 : 16;
+    let next: number;
+    if (event.key === 'ArrowLeft') {
+      next = clampRailWidth(width - step);
+    } else if (event.key === 'ArrowRight') {
+      next = clampRailWidth(width + step);
+    } else {
+      return;
+    }
+    event.preventDefault();
+    onResize(next);
+    onResizeEnd(next);
+  };
+
   const menuSession =
     menu?.kind === 'session'
       ? sessions.find((entry) => entry.id === menu.sessionId)
@@ -263,6 +368,30 @@ export function WorkspaceRail({
 
   return (
     <aside className="rail" aria-label="Bots and spaces">
+      {/*
+        The rail's right edge, and the only pointer target that is not content.
+        It sits inside the aside rather than in a grid column of its own: a
+        column for a six-pixel strip would be a second thing the layout has to
+        keep in step with the width.
+      */}
+      <div
+        className="rail-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the sidebar"
+        aria-valuemin={MIN_RAIL_WIDTH}
+        aria-valuemax={MAX_RAIL_WIDTH}
+        aria-valuenow={width}
+        data-resizing={resizing ? 'true' : undefined}
+        title="Drag to resize"
+        tabIndex={0}
+        onPointerDown={startResize}
+        onPointerMove={moveResize}
+        onPointerUp={endResize}
+        onPointerCancel={endResize}
+        onLostPointerCapture={endResize}
+        onKeyDown={resizeByKey}
+      />
       <nav
         className="rail-list"
         // The menu is anchored to a rectangle that scrolls away beneath it.

@@ -140,6 +140,17 @@ describe('SettingsStore', () => {
     expect((await store().load()).documentsWidth).toBe(360);
   });
 
+  /*
+   * The split is a share rather than a height, so what comes back is the
+   * fraction the drag settled on — not a measurement of one window that would
+   * be the wrong size in the next.
+   */
+  it('remembers how much of the drawer the file list keeps', async () => {
+    await store().patch({documentsLibraryShare: 0.5});
+
+    expect((await store().load()).documentsLibraryShare).toBe(0.5);
+  });
+
   it('falls back on a block that does not validate, keeping the rest', async () => {
     await write({
       notesWidth: 260,

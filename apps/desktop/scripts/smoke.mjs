@@ -695,6 +695,89 @@ async function main() {
     }
 
     /*
+     * The rail's right edge, dragged the way the documents drawer's left edge is
+     * below. The shape is deliberately the same control — a separator with a
+     * live width and a remembered preference — because the failure a unit test
+     * cannot see is the same one: a handle that never receives the pointer.
+     */
+    const beforeRail = await evaluate(`(() => {
+      const rail = document.querySelector('.rail');
+      const handle = document.querySelector('.rail-resizer');
+      if (rail === null || handle === null) return JSON.stringify({});
+      const rect = handle.getBoundingClientRect();
+      return JSON.stringify({
+        width: rail.getBoundingClientRect().width,
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      });
+    })()`);
+    const startRail = JSON.parse(beforeRail ?? '{}');
+    if (
+      typeof startRail.width !== 'number' ||
+      typeof startRail.x !== 'number' ||
+      typeof startRail.y !== 'number'
+    ) {
+      fail('the rail has no resize handle');
+    } else {
+      const target = startRail.x + 40;
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: startRail.x,
+        y: startRail.y,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1,
+      });
+      // Two moves rather than a jump, for the reason the drawer's drag has two.
+      for (const x of [startRail.x + 15, target]) {
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x,
+          y: startRail.y,
+          button: 'left',
+          buttons: 1,
+        });
+      }
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: target,
+        y: startRail.y,
+        button: 'left',
+        buttons: 0,
+        clickCount: 1,
+      });
+
+      const widened = await until('the rail to widen', async () => {
+        const width = await evaluate(
+          `document.querySelector('.rail').getBoundingClientRect().width`,
+        );
+        return typeof width === 'number' && width > startRail.width + 20
+          ? width
+          : undefined;
+      }).catch(() => undefined);
+      if (widened === undefined) {
+        fail(`the rail did not widen from ${startRail.width}px`);
+      } else {
+        const remembered = await until(
+          'the rail width to be remembered',
+          async () => {
+            const width = await evaluate(
+              `window.marimo.call('settings.get', {}).then(({settings}) => settings.sidebarWidth)`,
+            );
+            return typeof width === 'number' && width > startRail.width + 20
+              ? width
+              : undefined;
+          },
+        ).catch(() => undefined);
+        if (remembered === undefined) {
+          fail('the rail width was not written to settings');
+        } else {
+          ok(`the sidebar resizes, and remembers ${String(remembered)}px`);
+        }
+      }
+    }
+
+    /*
      * The other door into making a bot: the `+` beside the Bots heading. It
      * opens the same dialog Settings does, over the conversation rather than in
      * place of it, and Escape has to put it away without creating anything.
@@ -1493,6 +1576,138 @@ async function main() {
             } else {
               ok(
                 `the documents drawer resizes, and remembers ${String(remembered)}px`,
+              );
+            }
+          }
+        }
+
+        /*
+         * The split between the library and a file's editor.
+         *
+         * The divider only exists with a file open, and the Space a smoke run
+         * starts in holds none, so this makes one through the drawer's own "New
+         * file" form — the form is also what opens it. What is asserted is the
+         * pair the feature comes down to: the library grows when the divider is
+         * dragged down, and the share it settles on is the one settings keeps.
+         */
+        const madeFile = await evaluate(`(() => {
+          const button = [...document.querySelectorAll('.documents-actions button')]
+            .find((entry) => (entry.textContent ?? '').trim() === 'New file');
+          if (button === undefined) return false;
+          button.click();
+          return true;
+        })()`);
+        if (madeFile !== true) {
+          fail('the documents drawer has no New file action');
+        }
+        await until('the New file form', async () =>
+          (await evaluate(
+            `document.querySelector('.documents-form input') !== null`,
+          )) === true
+            ? true
+            : undefined,
+        );
+        const namedFile = await evaluate(`(() => {
+          const input = document.querySelector('.documents-form input');
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(input, 'smoke.md');
+          input.dispatchEvent(new Event('input', {bubbles: true}));
+          return input.value;
+        })()`);
+        if (namedFile !== 'smoke.md') {
+          fail(`the new file form did not take a name: ${String(namedFile)}`);
+        }
+        await evaluate(
+          `document.querySelector('.documents-form button[type="submit"]')?.click()`,
+        );
+        const beforeSplit = await until(
+          'the editor and its divider',
+          async () => {
+            const state = await evaluate(`(() => {
+              const body = document.querySelector('.documents-body');
+              const library = document.querySelector('.documents-library');
+              const divider = document.querySelector('.documents-divider');
+              if (body === null || library === null || divider === null) {
+                return undefined;
+              }
+              const bodyBox = body.getBoundingClientRect();
+              const libraryBox = library.getBoundingClientRect();
+              const dividerBox = divider.getBoundingClientRect();
+              return JSON.stringify({
+                bodyHeight: bodyBox.height,
+                libraryHeight: libraryBox.height,
+                share: libraryBox.height / bodyBox.height,
+                x: dividerBox.left + dividerBox.width / 2,
+                y: dividerBox.top + dividerBox.height / 2,
+              });
+            })()`);
+            return state === undefined ? undefined : JSON.parse(state);
+          },
+        ).catch(() => undefined);
+        if (beforeSplit === undefined) {
+          fail('a new document did not open with a divider over it');
+        } else {
+          const targetY = beforeSplit.y + 50;
+          await send('Input.dispatchMouseEvent', {
+            type: 'mousePressed',
+            x: beforeSplit.x,
+            y: beforeSplit.y,
+            button: 'left',
+            buttons: 1,
+            clickCount: 1,
+          });
+          for (const y of [beforeSplit.y + 20, targetY]) {
+            await send('Input.dispatchMouseEvent', {
+              type: 'mouseMoved',
+              x: beforeSplit.x,
+              y,
+              button: 'left',
+              buttons: 1,
+            });
+          }
+          await send('Input.dispatchMouseEvent', {
+            type: 'mouseReleased',
+            x: beforeSplit.x,
+            y: targetY,
+            button: 'left',
+            buttons: 0,
+            clickCount: 1,
+          });
+
+          const taller = await until(
+            'the library to take room from the editor',
+            async () => {
+              const height = await evaluate(
+                `document.querySelector('.documents-library').getBoundingClientRect().height`,
+              );
+              return typeof height === 'number' &&
+                height > beforeSplit.libraryHeight + 20
+                ? height
+                : undefined;
+            },
+          ).catch(() => undefined);
+          if (taller === undefined) {
+            fail(
+              `the document split did not move from ${String(beforeSplit.libraryHeight)}px`,
+            );
+          } else {
+            const remembered = await until(
+              'the split to be remembered',
+              async () => {
+                const share = await evaluate(
+                  `window.marimo.call('settings.get', {}).then(({settings}) => settings.documentsLibraryShare)`,
+                );
+                return typeof share === 'number' &&
+                  share > beforeSplit.share + 0.02
+                  ? share
+                  : undefined;
+              },
+            ).catch(() => undefined);
+            if (remembered === undefined) {
+              fail('the document split was not written to settings');
+            } else {
+              ok(
+                `the document split moves, and remembers ${String(remembered)}`,
               );
             }
           }

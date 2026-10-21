@@ -90,6 +90,11 @@ export function defaultStoredSettings(): StoredSettings {
     // preference has loaded. Wide enough for a markdown preview, narrow enough
     // to leave the conversation most of a 1180px window.
     documentsWidth: 420,
+    // How much of the drawer the file list keeps when a file is open, matching
+    // the stylesheet's first paint. The library is for finding a file; the
+    // editor is where the time goes, so the split starts in the editor's favour
+    // and the divider is what changes it.
+    documentsLibraryShare: 0.34,
     // The file tree opens folded, like the notes: the to-do list is the rail a
     // fresh install starts with, and it should not have to share the column.
     filesOpen: false,

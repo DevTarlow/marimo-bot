@@ -38,6 +38,11 @@ import type {FirstRunPhase} from './first-run.js';
 import {useAgent} from './hooks/useAgent.js';
 import {modelChoicesFor} from './model-search.js';
 import {sessionMembers} from './participants.js';
+import {
+  DEFAULT_DOCUMENTS_LIBRARY_SHARE,
+  DEFAULT_DOCUMENTS_WIDTH,
+  DEFAULT_RAIL_WIDTH,
+} from './layout.js';
 import {recallOfferOnRead} from './recall-offer.js';
 import {spaceForSession} from './workspace-groups.js';
 
@@ -87,7 +92,26 @@ export function App(): React.JSX.Element {
    * move would put the edge behind the cursor. So this is the width drawn now,
    * filled from settings when they load, and written back when a drag settles.
    */
-  const [documentsWidth, setDocumentsWidth] = useState(420);
+  const [documentsWidth, setDocumentsWidth] = useState(DEFAULT_DOCUMENTS_WIDTH);
+  /**
+   * How much of the drawer's body the file library keeps, live.
+   *
+   * A share rather than a height for the reason the stored one is: the drawer is
+   * as tall as the window, and a split that was right on one monitor has to stay
+   * right on the next. Filled from settings and written when a drag settles,
+   * exactly like the width above.
+   */
+  const [documentsLibraryShare, setDocumentsLibraryShare] = useState(
+    DEFAULT_DOCUMENTS_LIBRARY_SHARE,
+  );
+  /**
+   * The rail's width, live.
+   *
+   * Same shape as the drawer's: the stored width cannot be written per pointer
+   * move without leaving the edge behind the cursor, so the drag draws the live
+   * one and the settled value is what goes to settings.
+   */
+  const [railWidth, setRailWidth] = useState(DEFAULT_RAIL_WIDTH);
   /**
    * Whether the recall offer is up.
    *
@@ -137,13 +161,15 @@ export function App(): React.JSX.Element {
   }, [loadSettings]);
 
   /*
-   * The stored drawer width fills the live one when settings arrive. A drag
-   * applies locally and writes once it settles; that response is deliberately
-   * unwatched, so a slow round trip cannot pull the edge back under the pointer.
+   * The stored layout fills the live one when settings arrive. A drag applies
+   * locally and writes once it settles; that response is deliberately
+   * unwatched, so a slow round trip cannot pull an edge back under the pointer.
    */
   useEffect(() => {
     if (settings !== null) {
       setDocumentsWidth(settings.documentsWidth);
+      setDocumentsLibraryShare(settings.documentsLibraryShare);
+      setRailWidth(settings.sidebarWidth);
     }
   }, [settings]);
 
@@ -270,6 +296,29 @@ export function App(): React.JSX.Element {
     setDocumentsWidth(next);
     void window.marimo
       .call('settings.set', {patch: {documentsWidth: next}})
+      .catch(() => undefined);
+  }, []);
+
+  /** Writes the split a drag settled on, the width's rule one panel over. */
+  const rememberDocumentsLibraryShare = useCallback((next: number): void => {
+    setDocumentsLibraryShare(next);
+    void window.marimo
+      .call('settings.set', {patch: {documentsLibraryShare: next}})
+      .catch(() => undefined);
+  }, []);
+
+  /**
+   * Writes the rail width a drag settled on.
+   *
+   * The setting is `sidebarWidth`, the field the layout has carried since
+   * before this rail could be dragged; it was already the number the stylesheet
+   * named, so consuming it is what makes the drag follow the person between
+   * launches rather than growing a second width beside it.
+   */
+  const rememberRailWidth = useCallback((next: number): void => {
+    setRailWidth(next);
+    void window.marimo
+      .call('settings.set', {patch: {sidebarWidth: next}})
       .catch(() => undefined);
   }, []);
 
@@ -694,10 +743,15 @@ export function App(): React.JSX.Element {
     <div
       className="app"
       data-documents={documents ? 'open' : undefined}
-      // The grid column reads this, so the width is one value rather than a
-      // second copy in the stylesheet. Closed or open, it costs nothing.
+      /*
+       * The grid columns read these, so each width is one value rather than a
+       * second copy in the stylesheet. Closed or open, they cost nothing.
+       */
       style={
-        {'--documents-width': `${documentsWidth}px`} as React.CSSProperties
+        {
+          '--sidebar-width': `${railWidth}px`,
+          '--documents-width': `${documentsWidth}px`,
+        } as React.CSSProperties
       }
     >
       <Search
@@ -756,6 +810,9 @@ export function App(): React.JSX.Element {
         activeSessionId={agent.sessionId}
         activeWorkspaceId={agent.activeWorkspaceId}
         disabled={disabled}
+        width={railWidth}
+        onResize={setRailWidth}
+        onResizeEnd={rememberRailWidth}
         onSelectProfile={(profileId) => {
           void agent.selectProfile(profileId);
         }}
@@ -1135,6 +1192,9 @@ export function App(): React.JSX.Element {
         width={documentsWidth}
         onResize={setDocumentsWidth}
         onResizeEnd={rememberDocumentsWidth}
+        libraryShare={documentsLibraryShare}
+        onLibraryShareChange={setDocumentsLibraryShare}
+        onLibraryShareEnd={rememberDocumentsLibraryShare}
         onClose={() => {
           setDocuments(false);
         }}

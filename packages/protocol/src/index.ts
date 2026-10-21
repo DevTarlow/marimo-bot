@@ -776,6 +776,17 @@ export const settingsSchema = z.object({
    */
   documentsWidth: z.number().int().min(240).max(560),
   /**
+   * How much of the Documents drawer the library keeps while a file is open.
+   *
+   * A fraction rather than a height, because the drawer is as tall as the
+   * window: a height dragged on a tall monitor would leave the editor with
+   * nothing on a shorter one, while a share keeps both halves usable however
+   * the window is resized. The bounds do the same job the widths' pair does —
+   * a drag can end anywhere, and the editor still has to be big enough to write
+   * in.
+   */
+  documentsLibraryShare: z.number().min(0.12).max(0.8),
+  /**
    * Whether the Files rail is open.
    *
    * The to-do and jobs rails keep this in their own documents, because each of

@@ -33,16 +33,21 @@ import {formatBytes} from '../bytes.js';
 import {describe} from '../describe.js';
 import {
   afterWrite,
-  clampDocumentsWidth,
   filterFiles,
   groupFiles,
   isMarkdownPath,
-  MAX_DOCUMENTS_WIDTH,
-  MIN_DOCUMENTS_WIDTH,
   modifiedLabel,
   suggestChatName,
 } from '../documents.js';
 import type {OpenDocument} from '../documents.js';
+import {
+  clampDocumentsLibraryShare,
+  clampDocumentsWidth,
+  MAX_DOCUMENTS_LIBRARY_SHARE,
+  MAX_DOCUMENTS_WIDTH,
+  MIN_DOCUMENTS_LIBRARY_SHARE,
+  MIN_DOCUMENTS_WIDTH,
+} from '../layout.js';
 import {Markdown} from './Markdown.js';
 
 import './documents.css';
@@ -69,6 +74,9 @@ export function Documents({
   width,
   onResize,
   onResizeEnd,
+  libraryShare,
+  onLibraryShareChange,
+  onLibraryShareEnd,
   onClose,
 }: {
   open: boolean;
@@ -85,6 +93,17 @@ export function Documents({
   onResize: (width: number) => void;
   /** Writes the width the drag settled on, so it survives a restart. */
   onResizeEnd: (width: number) => void;
+  /**
+   * The share of the body the file library keeps while a file is open.
+   *
+   * A share rather than a height: the drawer is as tall as the window, so the
+   * split a person chose has to hold its proportion when the window changes.
+   */
+  libraryShare: number;
+  /** Applies a share while the divider is moving. */
+  onLibraryShareChange: (share: number) => void;
+  /** Writes the share the drag settled on, so it survives a restart. */
+  onLibraryShareEnd: (share: number) => void;
   onClose: () => void;
 }): React.JSX.Element {
   const [files, setFiles] = useState<DocumentEntry[] | null>(null);
@@ -115,6 +134,8 @@ export function Documents({
   const [working, setWorking] = useState(false);
   /** Whether the drawer's left edge is being dragged, so it can stay lit. */
   const [resizing, setResizing] = useState(false);
+  /** Whether the library/editor divider is being dragged, for the same reason. */
+  const [resizingLibrary, setResizingLibrary] = useState(false);
 
   /*
    * The values the async paths need, readable at the moment they resume. A
@@ -145,12 +166,13 @@ export function Documents({
   const writes = useRef<Promise<unknown>>(Promise.resolve());
 
   /*
-   * The body class the drag puts on the whole window has to come off on every
-   * path out, including this component disappearing mid-drag.
+   * The body classes the drags put on the whole window have to come off on
+   * every path out, including this component disappearing mid-drag.
    */
   useEffect(
     () => () => {
       document.body.classList.remove('resizing-documents');
+      document.body.classList.remove('resizing-documents-split');
     },
     [],
   );
@@ -166,6 +188,20 @@ export function Documents({
     startX: number;
     startWidth: number;
     width: number;
+  } | null>(null);
+
+  /**
+   * The split's own drag.
+   *
+   * `bodyHeight` is measured once, at the start, and is what turns a pointer
+   * movement in pixels into a share. Measuring it again on every move would
+   * make the divider's speed change with the split it is setting, which feels
+   * like the handle slipping.
+   */
+  const libraryDrag = useRef<{
+    startY: number;
+    bodyHeight: number;
+    share: number;
   } | null>(null);
 
   const refreshList = useCallback(async (): Promise<void> => {
@@ -626,6 +662,103 @@ export function Documents({
     onResizeEnd(next);
   };
 
+  /**
+   * Starts dragging the divider between the library and the editor.
+   *
+   * The share is measured from the two elements rather than taken from the prop
+   * for the reason the width is: a split the window squeezed is the split the
+   * pointer starts from. The body's height, measured once, is what turns a
+   * pointer movement in pixels into the fraction the stylesheet draws.
+   */
+  const startLibraryResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): void => {
+    if (libraryDrag.current !== null) {
+      return;
+    }
+    const body = event.currentTarget.parentElement;
+    const library = event.currentTarget.previousElementSibling;
+    const bodyHeight = body?.getBoundingClientRect().height ?? 0;
+    // Nothing to divide while the drawer is hidden: a share cannot be dragged
+    // against a height of zero, and dividing by it would reach the grid as
+    // `NaN%`.
+    if (bodyHeight <= 0) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.focus();
+    const startShare =
+      library === null
+        ? libraryShare
+        : library.getBoundingClientRect().height / bodyHeight;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    libraryDrag.current = {
+      startY: event.clientY,
+      bodyHeight,
+      share: clampDocumentsLibraryShare(startShare),
+    };
+    document.body.classList.add('resizing-documents-split');
+    setResizingLibrary(true);
+  };
+
+  const moveLibraryResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): void => {
+    const current = libraryDrag.current;
+    if (current === null) {
+      return;
+    }
+    /*
+     * The divider moving down takes room from the editor and gives it to the
+     * library, so a positive `clientY` delta grows the share. The bounds are
+     * applied here rather than only in the sheet, because the value underneath
+     * the pointer has to stop where the panel does.
+     */
+    const next = clampDocumentsLibraryShare(
+      current.share + (event.clientY - current.startY) / current.bodyHeight,
+    );
+    current.share = next;
+    onLibraryShareChange(next);
+  };
+
+  const endLibraryResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): void => {
+    const current = libraryDrag.current;
+    if (current === null) {
+      return;
+    }
+    libraryDrag.current = null;
+    document.body.classList.remove('resizing-documents-split');
+    setResizingLibrary(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    onLibraryShareEnd(current.share);
+  };
+
+  /**
+   * Arrow keys move the divider by a step, Shift by a wider one. Up gives the
+   * room to the editor, which is the direction a person reading a long file
+   * presses — the same reason the pointer's downward drag grows the library.
+   */
+  const resizeLibraryByKey = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ): void => {
+    const step = event.shiftKey ? 0.08 : 0.02;
+    let next: number;
+    if (event.key === 'ArrowUp') {
+      next = clampDocumentsLibraryShare(libraryShare - step);
+    } else if (event.key === 'ArrowDown') {
+      next = clampDocumentsLibraryShare(libraryShare + step);
+    } else {
+      return;
+    }
+    event.preventDefault();
+    onLibraryShareChange(next);
+    onLibraryShareEnd(next);
+  };
+
   const beginNaming = (which: Naming): void => {
     setNaming(which);
     setNameDraft(which === 'chat' ? suggestChatName(sessionTitle ?? '') : '');
@@ -710,15 +843,7 @@ export function Documents({
             : null;
 
   return (
-    <aside
-      className="documents"
-      aria-label="Documents"
-      hidden={!open}
-      // Read by the stylesheet: with a file open the library gives part of the
-      // column to the editor. An attribute rather than `:has`, so the layout is
-      // stated where the editor is decided rather than inferred from the tree.
-      data-editor={editor === null ? undefined : 'true'}
-    >
+    <aside className="documents" aria-label="Documents" hidden={!open}>
       {/*
         The drawer's left edge, and the only pointer target that is not content.
         It sits on the aside's inner edge rather than in the flex column, so the
@@ -790,297 +915,344 @@ export function Documents({
         </p>
       )}
 
-      {space !== null && (
-        <>
-          <div className="documents-find">
-            <input
-              className="documents-input"
-              value={query}
-              spellCheck={false}
-              placeholder="Filter by path…"
-              aria-label="Filter documents by path"
-              onChange={(event) => {
-                setQuery(event.target.value);
-              }}
-            />
-          </div>
-
-          <div className="documents-actions">
-            <button
-              type="button"
-              className="button button-quiet button-small"
-              aria-expanded={naming === 'new'}
-              onClick={() => {
-                beginNaming(naming === 'new' ? 'none' : 'new');
-              }}
-            >
-              New file
-            </button>
-            {/*
-              Here rather than in the composer's `+` menu. That menu is a list of
-              verbs that need nothing but the conversation; this needs a name and
-              a destination, and the drawer already knows both — it is the panel
-              that names the Space and the file. Drawn only when there is a
-              conversation with something in it to write down.
-            */}
-            {sessionId !== null &&
-              profileId !== undefined &&
-              hasConversation && (
-                <button
-                  type="button"
-                  className="button button-quiet button-small"
-                  aria-expanded={naming === 'chat'}
-                  onClick={() => {
-                    beginNaming(naming === 'chat' ? 'none' : 'chat');
-                  }}
-                >
-                  Keep this chat
-                </button>
-              )}
-          </div>
-
-          {naming !== 'none' && (
-            <form
-              className="documents-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitName();
-              }}
-            >
+      {/*
+        Everything below the header, and the box the library and the editor are
+        divided in. A box of its own rather than the aside itself, because the
+        split is a share of *this* height: the header and the Space's name stay
+        above it while the divider moves, instead of scaling with it. `data-editor`
+        is read by the stylesheet for the same reason the attribute was on the
+        aside before — the layout is stated where the editor is decided rather
+        than inferred from the tree.
+      */}
+      <div
+        className="documents-body"
+        data-editor={editor === null ? undefined : 'true'}
+        style={
+          {
+            '--documents-library-share': `${String(libraryShare * 100)}%`,
+          } as React.CSSProperties
+        }
+      >
+        {space !== null && (
+          <div className="documents-library">
+            <div className="documents-find">
               <input
                 className="documents-input"
-                autoFocus
-                value={nameDraft}
+                value={query}
                 spellCheck={false}
-                aria-label={
-                  naming === 'chat'
-                    ? 'File name for this chat'
-                    : 'New file name'
-                }
-                placeholder={naming === 'chat' ? 'chat.md' : 'notes.md'}
+                placeholder="Filter by path…"
+                aria-label="Filter documents by path"
                 onChange={(event) => {
-                  setNameDraft(event.target.value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    setNaming('none');
-                  }
+                  setQuery(event.target.value);
                 }}
               />
+            </div>
+
+            <div className="documents-actions">
               <button
-                type="submit"
-                className="button button-primary button-small"
-                disabled={nameDraft.trim().length === 0 || working}
+                type="button"
+                className="button button-quiet button-small"
+                aria-expanded={naming === 'new'}
+                onClick={() => {
+                  beginNaming(naming === 'new' ? 'none' : 'new');
+                }}
               >
-                {naming === 'chat' ? 'Save chat' : 'Create'}
+                New file
               </button>
-            </form>
-          )}
-
-          {problem !== null && (
-            <p className="documents-problem" role="alert">
-              {problem}
-            </p>
-          )}
-
-          <ul className="documents-list" aria-busy={files === null}>
-            {/*
-              What the server said about the listing, above the rows it is
-              about: a library that stopped at its cap and said nothing would be
-              the window claiming the Space holds exactly this much.
-            */}
-            {listNotes.length > 0 && (
-              <li className="documents-note">{listNotes.join(' ')}</li>
-            )}
-            {files === null && problem === null && (
-              <li className="documents-note">Reading the Space…</li>
-            )}
-            {files !== null && files.length === 0 && (
-              <li className="documents-note">
-                This Space holds no files yet. New file writes the first one
-                here — and anything the bot writes lands beside it.
-              </li>
-            )}
-            {files !== null && files.length > 0 && visible.length === 0 && (
-              <li className="documents-note">
-                Nothing in this Space matches “{query.trim()}”.
-              </li>
-            )}
-            {groups.map((group) => (
-              <li key={group.dir} className="documents-group">
-                <p className="documents-group-head">{group.label}</p>
-                <ul>
-                  {group.files.map((file) => (
-                    <li key={file.path}>
-                      <button
-                        type="button"
-                        className="documents-row"
-                        title={file.path}
-                        data-active={
-                          editor?.path === file.path &&
-                          editor.spaceId === space.id
-                            ? 'true'
-                            : undefined
-                        }
-                        onClick={() => {
-                          void openDocument(file.path);
-                        }}
-                      >
-                        <span className="documents-row-name">{file.name}</span>
-                        <span className="documents-row-when">
-                          {formatBytes(file.bytes)} ·{' '}
-                          {modifiedLabel(file.modifiedAt)}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      {/*
-        Only ever drawn with a file open. An editor over nothing would be a box
-        that cannot be typed into, and the drawer has no room to explain one.
-        Outside the Space branch on purpose: a Space can be removed from the rail
-        while a draft is open, and the draft is still somebody's — with no Space
-        loaded the library goes and the editor stays.
-      */}
-      {editor !== null && (
-        <div className="documents-editor">
-          <div className="documents-editor-head">
-            <span className="documents-path" title={editor.path}>
-              {editor.path}
-            </span>
-            {previewable && (
-              <div className="documents-modes" role="group" aria-label="View">
-                {/*
-                  Edit and Preview, and not the third: this column is one narrow
-                  measure, and side by side would leave roughly 180px for each
-                  half — too narrow to write markdown in and too narrow to read
-                  what it renders to. The preview is still the live one in the
-                  sense that matters: it draws the draft, not the last saved text,
-                  so it is current the moment it is switched to.
-                */}
-                {(['edit', 'preview'] as const).map((which) => (
+              {/*
+                Here rather than in the composer's `+` menu. That menu is a list of
+                verbs that need nothing but the conversation; this needs a name and
+                a destination, and the drawer already knows both — it is the panel
+                that names the Space and the file. Drawn only when there is a
+                conversation with something in it to write down.
+              */}
+              {sessionId !== null &&
+                profileId !== undefined &&
+                hasConversation && (
                   <button
-                    key={which}
                     type="button"
-                    className="documents-mode"
-                    aria-pressed={mode === which}
+                    className="button button-quiet button-small"
+                    aria-expanded={naming === 'chat'}
                     onClick={() => {
-                      setMode(which);
+                      beginNaming(naming === 'chat' ? 'none' : 'chat');
                     }}
                   >
-                    {which === 'edit' ? 'Edit' : 'Preview'}
+                    Keep this chat
                   </button>
-                ))}
+                )}
+            </div>
+
+            {naming !== 'none' && (
+              <form
+                className="documents-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submitName();
+                }}
+              >
+                <input
+                  className="documents-input"
+                  autoFocus
+                  value={nameDraft}
+                  spellCheck={false}
+                  aria-label={
+                    naming === 'chat'
+                      ? 'File name for this chat'
+                      : 'New file name'
+                  }
+                  placeholder={naming === 'chat' ? 'chat.md' : 'notes.md'}
+                  onChange={(event) => {
+                    setNameDraft(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setNaming('none');
+                    }
+                  }}
+                />
+                <button
+                  type="submit"
+                  className="button button-primary button-small"
+                  disabled={nameDraft.trim().length === 0 || working}
+                >
+                  {naming === 'chat' ? 'Save chat' : 'Create'}
+                </button>
+              </form>
+            )}
+
+            {problem !== null && (
+              <p className="documents-problem" role="alert">
+                {problem}
+              </p>
+            )}
+
+            <ul className="documents-list" aria-busy={files === null}>
+              {/*
+                What the server said about the listing, above the rows it is
+                about: a library that stopped at its cap and said nothing would be
+                the window claiming the Space holds exactly this much.
+              */}
+              {listNotes.length > 0 && (
+                <li className="documents-note">{listNotes.join(' ')}</li>
+              )}
+              {files === null && problem === null && (
+                <li className="documents-note">Reading the Space…</li>
+              )}
+              {files !== null && files.length === 0 && (
+                <li className="documents-note">
+                  This Space holds no files yet. New file writes the first one
+                  here — and anything the bot writes lands beside it.
+                </li>
+              )}
+              {files !== null && files.length > 0 && visible.length === 0 && (
+                <li className="documents-note">
+                  Nothing in this Space matches “{query.trim()}”.
+                </li>
+              )}
+              {groups.map((group) => (
+                <li key={group.dir} className="documents-group">
+                  <p className="documents-group-head">{group.label}</p>
+                  <ul>
+                    {group.files.map((file) => (
+                      <li key={file.path}>
+                        <button
+                          type="button"
+                          className="documents-row"
+                          title={file.path}
+                          data-active={
+                            editor?.path === file.path &&
+                            editor.spaceId === space.id
+                              ? 'true'
+                              : undefined
+                          }
+                          onClick={() => {
+                            void openDocument(file.path);
+                          }}
+                        >
+                          <span className="documents-row-name">
+                            {file.name}
+                          </span>
+                          <span className="documents-row-when">
+                            {formatBytes(file.bytes)} ·{' '}
+                            {modifiedLabel(file.modifiedAt)}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/*
+          The divider, and only while there are two halves to divide. With no
+          Space there is no library, so the editor has the body to itself and a
+          handle over nothing would invite a drag that moves nothing.
+        */}
+        {editor !== null && space !== null && (
+          <div
+            className="documents-divider"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the document editor"
+            aria-valuemin={Math.round(MIN_DOCUMENTS_LIBRARY_SHARE * 100)}
+            aria-valuemax={Math.round(MAX_DOCUMENTS_LIBRARY_SHARE * 100)}
+            aria-valuenow={Math.round(libraryShare * 100)}
+            data-resizing={resizingLibrary ? 'true' : undefined}
+            title="Drag to resize"
+            tabIndex={0}
+            onPointerDown={startLibraryResize}
+            onPointerMove={moveLibraryResize}
+            onPointerUp={endLibraryResize}
+            onPointerCancel={endLibraryResize}
+            onLostPointerCapture={endLibraryResize}
+            onKeyDown={resizeLibraryByKey}
+          />
+        )}
+
+        {/*
+          Only ever drawn with a file open. An editor over nothing would be a box
+          that cannot be typed into, and the drawer has no room to explain one.
+          Outside the Space branch on purpose: a Space can be removed from the rail
+          while a draft is open, and the draft is still somebody's — with no Space
+          loaded the library goes and the editor stays.
+        */}
+        {editor !== null && (
+          <div className="documents-editor">
+            <div className="documents-editor-head">
+              <span className="documents-path" title={editor.path}>
+                {editor.path}
+              </span>
+              {previewable && (
+                <div className="documents-modes" role="group" aria-label="View">
+                  {/*
+                    Edit and Preview, and not the third: this column is one narrow
+                    measure, and side by side would leave roughly 180px for each
+                    half — too narrow to write markdown in and too narrow to read
+                    what it renders to. The preview is still the live one in the
+                    sense that matters: it draws the draft, not the last saved text,
+                    so it is current the moment it is switched to.
+                  */}
+                  {(['edit', 'preview'] as const).map((which) => (
+                    <button
+                      key={which}
+                      type="button"
+                      className="documents-mode"
+                      aria-pressed={mode === which}
+                      onClick={() => {
+                        setMode(which);
+                      }}
+                    >
+                      {which === 'edit' ? 'Edit' : 'Preview'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="documents-close"
+                aria-label="Close the file"
+                title="Close the file"
+                onClick={() => {
+                  void closeDocument();
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {stateLine !== null && (
+              <p
+                className="documents-state"
+                role={editorProblem === null ? 'status' : 'alert'}
+              >
+                {stateLine}
+              </p>
+            )}
+
+            {/*
+              Said in full when it happens, because it is the one state where the
+              two halves of the drawer describe different folders: the
+              conversation moved to another Space while this draft was open, and
+              the file stayed where it was opened — which is where it is still
+              saved, whatever the list above is now listing.
+            */}
+            {editor.spaceId !== space?.id && (
+              <p className="documents-note">
+                This file is in {editor.spaceName}.{' '}
+                {space === null
+                  ? 'No Space is loaded now.'
+                  : `The list above is ${space.name}.`}
+              </p>
+            )}
+
+            {conflict && (
+              /*
+               * The point of the feature, and the reason `docs.write` answers
+               * a refusal as a value.
+               *
+               * The draft is kept because it is the only copy of what the
+               * person wrote: the file has a newer version, but nothing on
+               * disk holds their sentence, and an editor that reloaded "to be
+               * safe" would delete work to resolve a question about it. The
+               * choice is theirs because only they know which version is the
+               * one they want — the agent's newer file may be the good one, or
+               * it may be the mistake they were in the middle of correcting.
+               */
+              <div className="documents-conflict" role="alert">
+                <p>
+                  This file changed while you had it open — the bot may have
+                  written it. Nothing was written back, and your draft is still
+                  here.
+                </p>
+                <div className="documents-conflict-actions">
+                  <button
+                    type="button"
+                    className="button button-quiet button-small"
+                    title="Take the file's version and lose what you typed"
+                    onClick={() => {
+                      void reloadDocument();
+                    }}
+                  >
+                    Reload (discards my draft)
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-primary button-small"
+                    title="Write your draft over the file's newer version"
+                    onClick={() => {
+                      void overwriteDocument();
+                    }}
+                  >
+                    Overwrite with my draft
+                  </button>
+                </div>
               </div>
             )}
-            <button
-              type="button"
-              className="documents-close"
-              aria-label="Close the file"
-              title="Close the file"
-              onClick={() => {
-                void closeDocument();
-              }}
-            >
-              ×
-            </button>
-          </div>
 
-          {stateLine !== null && (
-            <p
-              className="documents-state"
-              role={editorProblem === null ? 'status' : 'alert'}
-            >
-              {stateLine}
-            </p>
-          )}
-
-          {/*
-            Said in full when it happens, because it is the one state where the
-            two halves of the drawer describe different folders: the
-            conversation moved to another Space while this draft was open, and
-            the file stayed where it was opened — which is where it is still
-            saved, whatever the list above is now listing.
-          */}
-          {editor.spaceId !== space?.id && (
-            <p className="documents-note">
-              This file is in {editor.spaceName}.{' '}
-              {space === null
-                ? 'No Space is loaded now.'
-                : `The list above is ${space.name}.`}
-            </p>
-          )}
-
-          {conflict && (
-            /*
-             * The point of the feature, and the reason `docs.write` answers
-             * a refusal as a value.
-             *
-             * The draft is kept because it is the only copy of what the
-             * person wrote: the file has a newer version, but nothing on
-             * disk holds their sentence, and an editor that reloaded "to be
-             * safe" would delete work to resolve a question about it. The
-             * choice is theirs because only they know which version is the
-             * one they want — the agent's newer file may be the good one, or
-             * it may be the mistake they were in the middle of correcting.
-             */
-            <div className="documents-conflict" role="alert">
-              <p>
-                This file changed while you had it open — the bot may have
-                written it. Nothing was written back, and your draft is still
-                here.
-              </p>
-              <div className="documents-conflict-actions">
-                <button
-                  type="button"
-                  className="button button-quiet button-small"
-                  title="Take the file's version and lose what you typed"
-                  onClick={() => {
-                    void reloadDocument();
-                  }}
-                >
-                  Reload (discards my draft)
-                </button>
-                <button
-                  type="button"
-                  className="button button-primary button-small"
-                  title="Write your draft over the file's newer version"
-                  onClick={() => {
-                    void overwriteDocument();
-                  }}
-                >
-                  Overwrite with my draft
-                </button>
+            {mode === 'edit' || !previewable ? (
+              <textarea
+                className="documents-textarea"
+                value={draft}
+                spellCheck={false}
+                aria-label={`Editing ${editor.path}`}
+                onChange={(event) => {
+                  const text = event.target.value;
+                  setEditor((current) =>
+                    current === null ? current : {...current, text},
+                  );
+                }}
+              />
+            ) : (
+              <div className="documents-preview">
+                <Markdown text={draft} />
               </div>
-            </div>
-          )}
-
-          {mode === 'edit' || !previewable ? (
-            <textarea
-              className="documents-textarea"
-              value={draft}
-              spellCheck={false}
-              aria-label={`Editing ${editor.path}`}
-              onChange={(event) => {
-                const text = event.target.value;
-                setEditor((current) =>
-                  current === null ? current : {...current, text},
-                );
-              }}
-            />
-          ) : (
-            <div className="documents-preview">
-              <Markdown text={draft} />
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
     </aside>
   );
 }

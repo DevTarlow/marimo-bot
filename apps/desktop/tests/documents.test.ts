@@ -12,12 +12,9 @@ import type {DocumentEntry} from '@marimo/protocol';
 
 import {
   afterWrite,
-  clampDocumentsWidth,
   filterFiles,
   groupFiles,
   isMarkdownPath,
-  MAX_DOCUMENTS_WIDTH,
-  MIN_DOCUMENTS_WIDTH,
   modifiedLabel,
   suggestChatName,
 } from '../src/renderer/documents.js';
@@ -105,15 +102,6 @@ describe('isMarkdownPath', () => {
     for (const path of ['index.html', 'styles.css', 'notes.txt', 'README']) {
       expect(isMarkdownPath(path)).toBe(false);
     }
-  });
-});
-
-describe('clampDocumentsWidth', () => {
-  it('rounds a dragged width and keeps it inside the bounds', () => {
-    expect(clampDocumentsWidth(320.4)).toBe(320);
-    expect(clampDocumentsWidth(100)).toBe(MIN_DOCUMENTS_WIDTH);
-    expect(clampDocumentsWidth(900)).toBe(MAX_DOCUMENTS_WIDTH);
-    expect(clampDocumentsWidth(Number.NaN)).toBe(MIN_DOCUMENTS_WIDTH);
   });
 });
 

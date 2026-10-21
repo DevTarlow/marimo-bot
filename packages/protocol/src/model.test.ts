@@ -170,6 +170,7 @@ function settingsShape(): Record<string, unknown> {
     notesWidth: 288,
     filesWidth: 320,
     documentsWidth: 420,
+    documentsLibraryShare: 0.34,
     filesOpen: false,
     expandedSections: [],
     disabledCommands: [],

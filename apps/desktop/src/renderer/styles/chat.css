@@ -20,11 +20,69 @@
 /* ------------------------------------------------------------------ rail */
 
 .rail {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--bg-elevated);
   border-right: 1px solid var(--border);
+  /*
+   * The resize handle's own strip. The aside reserves it so the handle sits
+   * over background rather than over the list's scrollbar: a drag that began on
+   * the thumb would scroll the rail instead of widening it.
+   */
+  padding-right: 6px;
+}
+
+/* ---------------------------------------------------------- rail resizer */
+
+/*
+ * A six-pixel strip at the rail's right edge, the same shape as the documents
+ * drawer's: it sits inside the aside because the aside is what the width
+ * belongs to, and the visible line is only drawn while the pointer is on it, it
+ * is dragging, or it has keyboard focus — the border is the resting state.
+ */
+.rail-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 6px;
+  touch-action: none;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.rail-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.rail-resizer:hover::after,
+.rail-resizer:focus-visible::after,
+.rail-resizer[data-resizing='true']::after {
+  background: var(--accent);
+}
+
+.rail-resizer:focus-visible {
+  outline: none;
+}
+
+/*
+ * Set while a drag is in flight. The pointer spends most of that time over the
+ * conversation, so the element under it does not keep the resize cursor.
+ */
+body.resizing-rail,
+body.resizing-rail * {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .rail-list {

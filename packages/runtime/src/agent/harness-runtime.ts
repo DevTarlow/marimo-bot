@@ -1900,17 +1900,25 @@ export class HarnessRuntime {
      * The pair is then started (or found already warm) before anything is sent,
      * because the address exists only in the process that started the engine.
      */
-    const model: AgentModel =
+    const wanted: AgentModel =
       turn.model ?? {
         provider: LOCAL_PROVIDER_ID,
         model: settings.localModels.tasks[turn.task ?? 'chat'],
       };
-    if (!(model.model in LOCAL_MODELS)) {
-      throw new HarnessRuntimeError(
-        `This turn was set to “${model.model}”, which this build no longer ` +
-          'runs. Start a new turn to answer on a local model.',
-      );
-    }
+    /*
+     * A stored pair from before the local build, or one naming a model this
+     * build no longer ships, is answered by the current Chat assignment. A
+     * resume is the case that matters: the turn is finished except for a card,
+     * and refusing it would leave an approval nobody can ever answer. A new turn
+     * never arrives here with a stale pair — the task routing produced it.
+     */
+    const model: AgentModel =
+      wanted.provider === LOCAL_PROVIDER_ID && wanted.model in LOCAL_MODELS
+        ? wanted
+        : {
+            provider: LOCAL_PROVIDER_ID,
+            model: settings.localModels.tasks.chat,
+          };
     const modelId = model.model as LocalModelId;
     const ensured =
       this.options.ensureModel === undefined

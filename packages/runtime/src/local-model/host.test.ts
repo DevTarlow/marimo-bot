@@ -155,7 +155,5 @@ describe('LocalModelHost', () => {
     const status = await runtime.remove('lfm3-1.7b');
     expect(status.models['lfm3-1.7b'].installed).toBe(false);
     expect(child.signals.length).toBe(1);
-    await rm(dir, {recursive: true, force: true});
-    dir = await mkdtemp(join(process.cwd(), '.marimo-host-'));
   });
 });

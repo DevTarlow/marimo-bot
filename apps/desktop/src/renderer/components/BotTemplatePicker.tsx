@@ -11,6 +11,7 @@ import type {BotTemplate} from '@marimo/protocol';
 export function BotTemplatePicker({
   templates,
   selectedId,
+  recommendedId,
   busy,
   allowCustom = true,
   onSelect,
@@ -18,6 +19,13 @@ export function BotTemplatePicker({
   templates: readonly BotTemplate[];
   /** The chosen template, or `undefined` for a custom bot. */
   selectedId: string | undefined;
+  /**
+   * The starter role the setup's goals suggest, when one fits.
+   *
+   * A tag, not a preselected grant: the person still chooses, and a goal whose
+   * role this install does not carry simply has no suggestion.
+   */
+  recommendedId?: string;
   busy?: boolean;
   /**
    * Whether the "start from scratch" card is offered.
@@ -43,7 +51,15 @@ export function BotTemplatePicker({
             onSelect(template.id);
           }}
         >
-          <span className="bot-template-label">{template.label}</span>
+          <span className="bot-template-label">
+            {template.label}
+            {recommendedId === template.id && (
+              <>
+                {' '}
+                <em className="capability-tag">Suggested</em>
+              </>
+            )}
+          </span>
           <em className="bot-template-blurb">{template.blurb}</em>
         </button>
       ))}

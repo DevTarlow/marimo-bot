@@ -1,43 +1,190 @@
 /**
- * The Back rule for the setup flow.
+ * The setup flow's step graph.
  *
  * The renderer has no DOM test environment, so what is pinned here is the
- * decision, not the button. The case worth keeping is `more`: it is a real step
- * with a bot behind it and a dead end without one, and the two must not land in
- * the same place.
+ * arithmetic: which steps a direction and a set of goals produce, and what Back
+ * and Continue do on the resolved list. The cases worth keeping are the ones a
+ * hand-written switch got wrong — a Persona with no bot behind it, a jobs step
+ * in a Regular run, and a Back that led to a form which would make a second bot.
  */
 import {describe, expect, it} from 'vitest';
 
 import {
-  backTargetFor,
   landingSpaceAfterSetup,
+  nextStage,
+  previousStage,
+  setupSteps,
 } from '../src/renderer/setup-nav.js';
+import type {SetupStep} from '../src/renderer/setup-nav.js';
 
-describe('setup back targets', () => {
-  it('walks back through the steps in order', () => {
-    expect(backTargetFor({screen: 'model', hasMadeBot: false})).toBe(
-      'control',
-    );
-    expect(backTargetFor({screen: 'space', hasMadeBot: false})).toBe(
+import type {SetupDirection, SetupGoalId} from '../src/renderer/setup-goals.js';
+
+function stepsFor(
+  direction: SetupDirection,
+  goals: readonly SetupGoalId[],
+  hasMadeBot = false,
+): SetupStep[] {
+  return setupSteps({direction, goals, hasMadeBot});
+}
+
+function ids(steps: readonly SetupStep[]): string[] {
+  return steps.map((step) => step.id);
+}
+
+describe('the steps a setup produces', () => {
+  it('keeps a chat-only Regular run short', () => {
+    expect(ids(stepsFor('regular', []))).toEqual([
+      'direction',
+      'goals',
       'model',
-    );
-    expect(backTargetFor({screen: 'bot', hasMadeBot: false})).toBe('space');
-    expect(backTargetFor({screen: 'persona', hasMadeBot: true})).toBe('bot');
+      'space',
+      'finish',
+    ]);
   });
 
-  it('returns to the welcome screen from the control choice', () => {
-    expect(backTargetFor({screen: 'control', hasMadeBot: false})).toBe(
-      'welcome',
-    );
+  it('adds the bot, Persona and more-bots steps for a research goal', () => {
+    expect(ids(stepsFor('regular', ['research']))).toEqual([
+      'direction',
+      'goals',
+      'model',
+      'space',
+      'bot',
+      'finish',
+    ]);
+    expect(ids(stepsFor('regular', ['research'], true))).toEqual([
+      'direction',
+      'goals',
+      'model',
+      'space',
+      'bot',
+      'persona',
+      'more',
+      'finish',
+    ]);
   });
 
-  it('has nothing behind the welcome screen', () => {
-    expect(backTargetFor({screen: 'welcome', hasMadeBot: false})).toBeNull();
+  it('offers pictures and voice downloads before the Space', () => {
+    expect(ids(stepsFor('power', ['pictures', 'voice']))).toEqual([
+      'direction',
+      'goals',
+      'model',
+      'extras',
+      'space',
+      'finish',
+    ]);
   });
 
-  it('returns to the Persona only when a bot was made', () => {
-    expect(backTargetFor({screen: 'more', hasMadeBot: true})).toBe('persona');
-    expect(backTargetFor({screen: 'more', hasMadeBot: false})).toBe('bot');
+  it('adds the jobs step only to Power with automation', () => {
+    expect(ids(stepsFor('power', ['automation']))).toEqual([
+      'direction',
+      'goals',
+      'model',
+      'space',
+      'bot',
+      'jobs',
+      'finish',
+    ]);
+    expect(ids(stepsFor('power', ['automation'], true))).toEqual([
+      'direction',
+      'goals',
+      'model',
+      'space',
+      'bot',
+      'persona',
+      'more',
+      'jobs',
+      'finish',
+    ]);
+    // The goal cannot be chosen in Regular, and even a stale list must not
+    // produce a service screen the grant cannot back.
+    expect(ids(stepsFor('regular', ['automation']))).not.toContain('jobs');
+  });
+
+  it('never puts a Persona before the bot that makes one', () => {
+    const cases = [
+      stepsFor('regular', []),
+      stepsFor('regular', ['files'], true),
+      stepsFor('regular', ['research'], true),
+      stepsFor('power', ['pictures', 'automation'], true),
+      stepsFor('power', ['automation'], false),
+    ];
+    for (const steps of cases) {
+      const listed = ids(steps);
+      if (!listed.includes('bot')) {
+        expect(listed).not.toContain('persona');
+        expect(listed).not.toContain('more');
+      }
+      if (listed.includes('persona')) {
+        expect(listed.indexOf('persona')).toBeGreaterThan(
+          listed.indexOf('bot'),
+        );
+      }
+      if (listed.includes('more')) {
+        expect(listed.indexOf('more')).toBeGreaterThan(
+          listed.indexOf('persona'),
+        );
+      }
+    }
+  });
+
+  it('always starts with the direction and ends on the review', () => {
+    const steps = stepsFor('power', ['writing', 'pictures'], true);
+    expect(steps[0]?.id).toBe('direction');
+    expect(steps[0]?.label).toBe('Control');
+    expect(steps.at(-1)?.id).toBe('finish');
+    expect(steps.at(-1)?.label).toBe('Ready');
+    for (const step of steps) {
+      expect(step.label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('moving through the resolved steps', () => {
+  const steps = stepsFor('power', ['writing', 'pictures'], true);
+
+  it('takes the welcome screen to the first step', () => {
+    expect(nextStage(steps, 'welcome')).toBe('direction');
+    expect(previousStage(steps, 'welcome')).toBeNull();
+  });
+
+  it('walks forward to the review and stops', () => {
+    const walked: string[] = [];
+    let screen = nextStage(steps, 'welcome');
+    while (screen !== null) {
+      walked.push(screen);
+      screen = nextStage(steps, screen);
+    }
+    expect(walked).toEqual(ids(steps));
+  });
+
+  it('walks back to the welcome screen and stops', () => {
+    const walked: string[] = [];
+    let screen = previousStage(steps, 'finish');
+    while (screen !== null && screen !== 'welcome') {
+      walked.push(screen);
+      screen = previousStage(steps, screen);
+    }
+    expect(screen).toBe('welcome');
+    expect(walked).toEqual([...ids(steps).slice(0, -1)].reverse());
+    expect(walked.at(-1)).toBe('direction');
+  });
+
+  it('gives every step but the first one a way back', () => {
+    for (const step of steps) {
+      const back = previousStage(steps, step.id);
+      if (step.id === 'direction') {
+        expect(back).toBe('welcome');
+      } else {
+        expect(back).not.toBeNull();
+      }
+    }
+    expect(previousStage(steps, 'finish')).toBe('more');
+  });
+
+  it('returns the Persona to the bot list, not a form that makes a second bot', () => {
+    expect(previousStage(steps, 'persona')).toBe('bot');
+    expect(previousStage(steps, 'more')).toBe('persona');
+    expect(previousStage(steps, 'extras')).toBe('model');
   });
 });
 

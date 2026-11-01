@@ -12,11 +12,13 @@ an agent harness whose capabilities are opt-in, and a headless runner that keeps
 scheduled jobs going while the app is closed. It answers with **four small Liquid
 AI models** — text, vision, audio and omni — run by a pinned llama.cpp on the
 user's own processor. There is no hosted provider, no account and no API key for
-the model. The first run downloads the text model; the others are downloads a
-person chooses in Settings. The folder it works in is what the user calls a
-**Space**. Marimo Bot is the agent the person talks to; they also make **bots**,
-each with its own name, instructions, tools and permissions. A chat can hold more
-than one of them, and Marimo Bot can hand work to one.
+the model. The first run downloads the text model, and offers the vision or audio
+model as an optional step only when the person's goals ask for pictures or voice;
+everything else is a download a person chooses in Settings. The folder it works
+in is what the user calls a **Space**. Marimo Bot is the agent the person talks
+to; they also make **bots**, each with its own name, instructions, tools and
+permissions. A chat can hold more than one of them, and Marimo Bot can hand work
+to one.
 
 ## Layout
 
@@ -206,11 +208,20 @@ decides which settings exist; if a control is worth having, put it on the one
 screen.
 
 **The two control choices are not that switch back.** Standard and Power user are
-pre-built `enabledTools` grants: the first run asks the question, Settings repeats
-it, choosing one writes the same grant the switches show, and every switch stays
-on the one screen. Power is the one preset that grants `run_shell`, because the
-person is explicitly choosing full control there; the gate that asks before a
-command is unchanged, and `request_tool` still refuses the shell.
+pre-built `enabledTools` grants: the first run asks the question as **Regular** or
+**Power setup**, Settings repeats it as Standard and Power user, choosing one
+writes the same grant the switches show, and every switch stays on the one
+screen. Power is the one preset that grants `run_shell`, because the person is
+explicitly choosing full control there; the gate that asks before a command is
+unchanged, and `request_tool` still refuses the shell.
+
+**The goals after the direction are a plan, not a grant.** They are held in the
+renderer and never written; they choose which steps appear (a bot step, the
+optional pictures/voice downloads, the jobs step), the suggested starter role,
+and nothing about tools. Writing and coding are available on Regular because the
+Writer or Coder bot carries `write_file` on its own profile; only scheduling is
+Power-only, and a disabled goal is drawn with a switch to Power rather than
+silently changing the grant.
 
 ## Models
 
@@ -229,10 +240,11 @@ below 8 GB of RAM. `lfm3-omni-2b` can do all three tasks, which is what the
 
 The surfaces are split on purpose: Settings → Models assigns the three tasks and
 owns the downloads, variants, removal and sleep; the composer's badge only
-reports which model is warm and opens that card; the first run owns the one
-required text download and a "Check it loads now" button. Do not put a second
-task picker in the composer — the assignment is an app-wide fact, not a fact
-about one conversation.
+reports which model is warm and opens that card; the first run owns the required
+text download and an optional pictures/voice step that appears only when the
+goals ask for it. That optional step uses the same installer and pins but never
+assigns a task. Do not put a second task picker in the composer — the assignment
+is an app-wide fact, not a fact about one conversation.
 
 The speech endpoints are not the chat endpoint. Transcription is a chat
 completion with an audio part and `Perform ASR in <language>.`; synthesis is

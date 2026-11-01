@@ -11,7 +11,7 @@
 
 I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-Marimo Bot runs small Liquid AI models on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads one model, and after that the app answers with the processor you already have. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
+Marimo Bot runs small Liquid AI models on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads the text model, and offers pictures or voice only when you say you want them. After that the app answers with the processor you already have. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
 
 Marimo Bot keeps a conversation's full history and the instructions it was running under, so reopening a chat does not start it over.
 
@@ -198,11 +198,11 @@ The **Harness** card in Settings shows what the current bot has recorded: conver
 
 ## Models
 
-No model comes inside the app. The first run downloads one from Liquid AI, then every turn runs it on this computer with llama.cpp.
+No model comes inside the app. The first run downloads the text model from Liquid AI, then every turn runs it on this computer with llama.cpp.
 
 Four models cover the work:
 
-- **LFM3 1.7B** — the everyday text model. About 1.9 GB at Q8, or 1.1 GB at Q4. This is the one the first run downloads.
+- **LFM3 1.7B** — the everyday text model. About 1.9 GB at Q8, or 1.1 GB at Q4. This is the one the first run always downloads.
 - **LFM3 VL 2B** — the vision model, for pictures. Q8 uses the same 1.9 GB of weights plus a 203 MB projector; Q4 is about 1.1 GB plus that projector.
 - **LFM3 Audio 2B** — listens and speaks, in 18 languages. About 1.1 GB at Q4 plus a 172 MB projector.
 - **LFM3 Omni 2B** — text, pictures, audio and video in one set of weights. About 1.1 GB at Q4 plus a 507 MB projector.
@@ -215,7 +215,7 @@ Each model has a Q8 copy and a Q4 copy where the repository publishes one. Q8 is
 
 **Use one model for everything (Omni)** is a single button for a machine that would rather load once. It points all three tasks at the Omni model.
 
-The first run downloads only the text model. The vision, audio and omni models are opt-in downloads in Settings, so a person who only types is not charged 2 GB for a camera they never use. A download starts only when you press Download (or finish the first run's model step); the app does not fetch a model in the background.
+The first run always downloads the text model. If you choose **Look at pictures** or **Talk out loud** in the setup goals, it also offers the matching vision or audio model as an optional download in the same flow; you can skip it there and add it later in Settings. The omni model is a Settings choice. A download starts only when you press Download, and the app does not fetch a model in the background.
 
 The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows each model, its installed copy and its size, and **Remove…** deletes only that model's directory. Removing the model a task is using is allowed only when nothing is running, and the next message in that task then shows the download card instead of failing with a half-loaded engine.
 
@@ -245,7 +245,7 @@ The app's own data is not your project, and the two live in different folders on
 
 A command, or a save over a file that already exists, waits for your answer. The app writes a new file without asking. A scheduled job that hits an approval stays paused, and the request survives a restart.
 
-Every built-in tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all. A connector's tools follow the connector's own switch. Above those switches, Settings also offers the same two choices the first run asks about — Standard and Power user. They set the whole list at once, and every switch stays there to tune afterwards.
+Every built-in tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all. A connector's tools follow the connector's own switch. Above those switches, Settings also offers the same two grants the first run writes — **Standard** and **Power user**. The first run frames them as Regular and Power setup; either way they set the whole list at once, and every switch stays there to tune afterwards.
 
 Recall is off until you turn it on, and it sends its record nowhere.
 
@@ -255,20 +255,24 @@ Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches o
 
 There is no public download yet. The Linux version builds to a single AppImage file you can run without installing it. The Windows and macOS installers are written but not built.
 
-If you have the app, the first run is short.
+If you have the app, the first run asks a few questions and then shows only the steps those answers call for.
 
-1. Choose how much control Marimo Bot gets. **Standard** can read files in your Space, search the web, and keep its own notes; **Power user** turns on every tool the app has, including writing files, running commands, scheduling jobs and handing work to your other bots. Either way, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
-2. Download a model. The app offers **LFM3 1.7B** at Q8 (about 1.9 GB) or Q4 (about 1.1 GB). The download runs in the window and can be cancelled. **Set this up later** closes the flow; Settings → Models is where to download it afterwards. Once the files are in place, **Check it loads now** starts the engine once; the first message would do the same, so this is a way to watch it rather than a second requirement.
-3. Choose a Space. Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
-4. Make a bot. Start from a role, build it step by step or talk to Marimo.
-5. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
-6. Add more bots, or finish. Marimo Bot alone works too. Settings is where you make another.
+1. **Choose a setup style.** **Regular** gives Marimo Bot the Standard tools and keeps the path short. **Power** gives it every tool the app has — writing files, running commands, scheduling jobs and handing work to your other bots — and opens the extra steps, including the jobs step when you choose scheduling. Where a tool can act, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
+2. **Say what you want to do.** Pick any of: use your files, research the web, write and edit, work on code, build a team of bots, look at pictures, talk out loud, or run jobs on a schedule. These choose which steps appear and which starter bot is suggested. They do not give Marimo Bot any tools. Scheduling is part of Power setup; the other goals are available either way, and choosing a writing or coding goal suggests a bot with its own tools.
+3. **Download the text model.** The app offers **LFM3 1.7B** at Q8 (about 1.9 GB) or Q4 (about 1.1 GB). This is the only required step. The download runs in the window and can be cancelled. **Set this up later** closes the flow; Settings → Models is where to download it afterwards. Once the files are in place, **Check it loads now** starts the engine once; the first message would do the same, so this is a way to watch it rather than a second requirement.
+4. **Pictures and voice, if you asked for them.** The flow offers the assigned vision or audio model as a separate, optional download. You can skip it here and add it later in Settings → Models. If the voice model is installed, the step also offers **Talk to Marimo**, which turns on the microphone and spoken answers.
+5. **Choose a Space.** Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
+6. **Make a bot, if a goal calls for one.** Start from the suggested role, build it step by step or talk it through with Marimo. Some goals — files, pictures, voice on their own — do not need a bot and skip this step; the `+` beside Bots makes one later.
+7. **Make it yours.** Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
+8. **Add more bots, or move on.**
+9. **Jobs, if Power and scheduling were chosen.** Turn on the background service so jobs keep running when the window is closed. A job that hits an approval stays paused. This is optional, and the same switch is in the Jobs rail.
+10. **Review and start.** The last step says what was actually configured: the model, the Space, the bots, and any pictures, voice or jobs. Then it opens a new chat in the Space you picked, or leaves you in the chat the starting folder already had if you kept it.
 
 Every step has a Back button, so you can change an earlier answer without starting over.
 
-The control choice comes first because it is about access, and the model is the first required step because the guided bot maker needs something that can answer. The Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until the model files are on disk and the pinned engine for this computer is present.
+The setup style comes first because it is about access. The goals come next because they are what make the flow shorter for someone who only wants to chat and longer for someone who wants pictures, voice, bots or scheduled work. The text model is the one required step because the app cannot answer without it; the rest is optional and can be changed afterwards.
 
-When you finish, the app opens a new chat in the Space you chose, so the first thing you type lands in the folder you meant.
+When you finish, the app opens a new chat in the Space you picked, so the first thing you type lands in the folder you meant. If you kept the folder the app started in, it stays in the chat it already opened.
 
 After setup, Settings is one screen, and the bots and Spaces are in the sidebar. The `+` beside Bots makes another bot. `Ctrl+K` opens Recall. The app stays in the tray until you quit it from there.
 
@@ -282,11 +286,11 @@ No. The models run on this computer, and there is no account with us or with a m
 
 ### How big is the download?
 
-About 1.9 GB for the Q8 text model, or 1.1 GB for Q4. The vision, audio and omni models are separate downloads you choose in Settings, between about 1.2 GB and 2.4 GB each.
+About 1.9 GB for the Q8 text model, or 1.1 GB for Q4. That is the one the first run always downloads. If you choose pictures or voice in the setup goals, it also offers the vision or audio model as an optional download, between about 1.2 GB and 2.4 GB. The omni model and later downloads are in Settings.
 
 ### Can I use it without making a bot?
 
-Yes, Marimo Bot is useful on its own, and bots are for work you repeat.
+Yes. Marimo Bot is useful on its own, and bots are for work you repeat. The setup only offers the bot step when a goal asks for one; the `+` beside Bots makes one later.
 
 ### Are my voice recordings saved?
 

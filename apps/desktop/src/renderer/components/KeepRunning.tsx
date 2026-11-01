@@ -23,7 +23,19 @@ interface Change {
   failures: Array<{what: string; detail: string}>;
 }
 
-export function KeepRunning(): React.JSX.Element | null {
+export function KeepRunning({
+  showUnavailable = false,
+}: {
+  /**
+   * Whether a failed status read is worth a sentence.
+   *
+   * The rail stays silent: it is one line under a list of conversations, and a
+   * service read that failed there is not what the person came for. The setup
+   * step sets this because its whole purpose is the switch, and an empty step
+   * would look like a feature this build does not have.
+   */
+  showUnavailable?: boolean;
+} = {}): React.JSX.Element | null {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Change | null>(null);
@@ -43,7 +55,12 @@ export function KeepRunning(): React.JSX.Element | null {
   }, []);
 
   if (status === null) {
-    return null;
+    return showUnavailable ? (
+      <p className="settings-muted">
+        Could not read the background service. You can turn it on in the Jobs
+        rail later.
+      </p>
+    ) : null;
   }
 
   const change = async (enable: boolean): Promise<void> => {
@@ -89,6 +106,21 @@ export function KeepRunning(): React.JSX.Element | null {
       {status.installed && status.definitionPath.length > 0 && (
         <p className="keep-note">
           Set up at <code>{status.definitionPath}</code>
+        </p>
+      )}
+
+      {/*
+        The runner has no keychain, so an encrypted connector secret is one it
+        cannot read. Saying so before the switch is the difference between a
+        job that refuses on the night it was needed and a person who knows to
+        let the runner read it. The status API already answers for every
+        enabled connector together.
+      */}
+      {!status.keysReadable && (
+        <p className="keep-note keep-error">
+          A connector&rsquo;s secret is encrypted, so the background runner
+          cannot read it. A job that uses that connector will refuse until you
+          let the runner read it in Connectors.
         </p>
       )}
 

@@ -24,12 +24,11 @@ pnpm --filter @marimo/desktop dev
 pnpm --filter @marimo/desktop smoke
 ```
 
-**A checkout answers with whatever service you point it at.** There is no chat
-model to fetch: the first run downloads one of four LFM3 models, and a
-development run can skip that by placing the weights under `model/` (or pointing
-`MARIMO_MODEL_DIR` at a directory already laid out that way). The same variable
-is how a live run finds recall's weights, and a run without them skips the two
-live tests rather than failing.
+**A checkout answers with a local model.** The first run downloads the text
+model, and a development run can skip that by placing the weights under `model/`
+(or pointing `MARIMO_MODEL_DIR` at a directory already laid out that way). The
+same variable is how a live run finds recall's weights, and a run without them
+skips the two live tests rather than failing.
 
 Two environment quirks are worth knowing about up front, both covered in
 [AGENTS.md](./AGENTS.md):
@@ -66,7 +65,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Done        | Four Liquid AI LFM3 models — text, vision, audio and omni — downloaded per task, at Q8 or Q4, and run on a pinned llama.cpp CPU build. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                                                                                                                                                 |
 | Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same audio model, and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the vision model, not a path the file tools would refuse                                                                                                                                                                                                                                          |
-| Done        | The first run downloads the text model, checks every byte against a pinned digest, verifies the engine can load it, and only then offers the chat. The other three models are downloads somebody chooses in Settings → Models                                                                                                                                                                                                                                                                                                      |
+| Done        | The first run downloads the text model, checks every byte against a pinned digest and only then offers the chat. Pictures and voice are optional downloads in the same flow when the goals ask for them; the omni model, task assignment and later downloads are Settings → Models                                                                                                                                                                                                                                                        |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
 | Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                               |
 | Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                            |
@@ -79,7 +78,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | Connector secrets: one file per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear. The models need no key                                                                                                                                                                                                                                                  |
 | Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                             |
-| Done        | A first run in six steps: choose how much control Marimo Bot gets, download the model that answers, load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and finish — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                                                                                                                                                  |
+| Done        | A first run as a step graph: choose Regular or Power setup, say what you want to do, then only the steps that need it — the text model, optional pictures/voice downloads, a Space, a bot when a goal calls for one, its Persona, the jobs service for Power with scheduling, and a review. No message box appears until the app can answer, and one flag makes it a first run rather than a screen that comes back                                                                                                                                          |
 | Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                                  |
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -433,9 +432,12 @@ leaving "the everyday settings", which made the same app look like two products
 and hid the controls from the people most likely to need them. The setup flow
 still offers three capability cards at the moment a bot is made, because that is
 where a person is choosing what it is _for_. Settings offers every tool as its own
-switch, and above those switches it offers the same two control choices the first
-run asks about — Standard and Power user — which set the whole grant at once. They
-are a shortcut over the one grant rather than the removed two-size mode: every
+switch, and above those switches it offers the same two grants the first run
+writes — Standard and Power user — which set the whole grant at once. The first
+run frames that question as Regular or Power setup, but it writes the same
+`enabledTools`; the goals that follow are a plan for which steps appear, not a
+preference and not a second grant. They are a shortcut over the one grant rather
+than the removed two-size mode: every
 switch stays visible, and a switch turned afterwards simply makes the grant
 custom. All of them write `enabledTools`, the card that is lit is worked out by
 comparing that grant against the lists, and the profile remains the one source of
@@ -507,25 +509,62 @@ returns the reason too, but the turn continues with the full history rather than
 failing, because the question the person just asked is not the summary's hostage.
 A pending approval is never compacted in either path.
 
-**The first run itself is a six-step flow, and one flag decides whether it is
-offered.** A fresh install has two things missing at once — a bot to give work to
-and the service that answers — and a starting Space the app chose rather than the
-person, which the flow offers to change. The control question is first, because
-it is about access: the lead profile already exists, and its `enabledTools`
-decides whether it can write, run commands or hand work to a bot made later. Two
-cards — Standard, which is the safe default, and Power user, which is every tool
-the catalogue offers — write that grant through `profiles.update`; the lit card is
-derived by comparing the grant, never stored. Power is the one preset that
-includes `run_shell`, because this is the moment the person is explicitly
-choosing control; the shell's approval gate is unchanged. The model is the first
-_required_ step: until the weights are on disk and the engine has loaded them the
-window offers no message box at all, and a wizard that asked for a Space and a bot
-before it had a model would be asking somebody to describe work nothing can do.
-A download that has not finished is the one step that cannot be continued past;
-"set this up later" closes the flow rather than walking into screens that cannot
-work. It writes as
-it goes, exactly as Settings does, so quitting in the middle loses nothing, and
-each step reads what already exists rather than creating a second copy of it.
+**The first run is a step graph, and one flag decides whether it is offered.** A
+fresh install has several things missing at once — a model that answers, a folder
+to work in, and perhaps a bot, a picture model, a voice or a job timer — and the
+flow asks two questions before it decides which of them are worth asking about.
+The first is the setup style: **Regular** writes the Standard grant and **Power**
+writes the Power user grant through `profiles.update`, the same `enabledTools`
+Settings shows, and the lit card is derived by comparing the grant rather than
+stored. Power is still the one preset that includes `run_shell`, because this is
+the moment the person is explicitly choosing control; the shell's approval gate
+is unchanged. The direction also decides how much of the flow exists, but it is
+not a mode: there is no settings field for it, and every switch stays on the one
+Settings screen.
+
+The second question is **what the person wants to do**: use files, research the
+web, write and edit, work on code, build a team of bots, look at pictures, talk
+out loud, or run jobs on a schedule. The goals are a plan for this run, not a
+preference: they are held in the renderer, never written, and they grant no tool.
+They choose the starter role the bot step suggests, the optional model downloads,
+and whether the bot and jobs steps exist at all. Writing and coding stay
+available on Regular because a Writer or Coder bot has `write_file` on its own
+profile grant; a goal that needs the lead's Power tools — scheduling — is drawn
+disabled with a switch to the Power direction rather than silently changing the
+grant. The goal copy names the bot rather than claiming Marimo Bot itself can do
+the work.
+
+`setupSteps` in `apps/desktop/src/renderer/setup-nav.ts` is the one answer to
+which steps exist:
+
+```
+direction → goals → model → [extras] → space → [bot → (persona → more)?] → [jobs] → finish
+```
+
+Extras exists only for pictures or voice, the bot step only when a goal needs a
+bot, Persona and more-bots only after one was made, and Jobs only for Power plus
+automation. The progress bar draws that list and `previousStage` is the step
+before it, so a step cannot be on screen without being on the path, and Persona
+backs to the bot list rather than to the form that would make a second bot. The
+flow is still _sticky_ once it is up: its own model step is what turns
+`modelReady` true, and a screen recomputed from settings alone would vanish
+between a download finishing and the sentence saying it worked.
+
+The text model is the only required step: until the weights are on disk the
+window offers no message box at all, and a download that has not finished is the
+one thing a step will not walk away from. The optional extras step offers the
+currently assigned vision or audio model with the same installer, pinned digests
+and variant choices as Settings; it never assigns a task, removes a model or
+sleeps one, and Continue is allowed without a download. The jobs step reuses
+`KeepRunning`, so there is one service switch and one set of failure messages,
+and it says plainly that an unattended approval stays unapproved and that an
+encrypted connector secret is one the background runner cannot read.
+
+It writes as it goes, exactly as Settings does, so quitting in the middle loses
+only answers that were not yet applied. The review at the end reads settings and
+disk rather than the goals, so a goal whose download was skipped is reported as
+not downloaded rather than ticked because it was once chosen. Each step reads what
+already exists rather than creating a second copy of it.
 
 **Finishing the flow lands in the Space the person chose, with a new chat.** The
 conversation the window opened on was created by the app before the flow ran, in
@@ -576,9 +615,9 @@ Which screen a launch gets is `firstRunScreen` in
 this package has no DOM test environment: the arithmetic is worth testing, and two
 of its four rules are about moments rather than states. Nothing loaded is not a
 state to draw, or every launch flashes a wizard at somebody whose app works. And
-the flow is _sticky_ once it is up, because its own last step is what turns
+the flow is _sticky_ once it is up, because its own model step is what turns
 `modelReady` true and a screen recomputed from settings alone would vanish between
-saving a key and reading what happened.
+a download finishing and the sentence saying it worked.
 
 `setupSeen` is what makes the flow a first run rather than a screen that returns
 whenever the app cannot answer. It is set when the flow closes either way — a

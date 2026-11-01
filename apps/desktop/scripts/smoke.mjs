@@ -351,8 +351,8 @@ async function main() {
      * reach: the steps, the fact that a fresh install offers no message box, and
      * the fact that finishing the flow produces one.
      *
-     * Two things make the path completable without an account. The provider it
-     * ends on is `Local llama.cpp`, which needs no key, and nothing is dialled
+     * Two things make the path completable without an account. Everything it
+     * downloads is a local model, which needs no key, and nothing is dialled
      * until a turn is sent. And the Space step is answered with its own primary
      * button — a fresh install now has a starting folder, so it offers
      * "Continue" rather than "Later"; a native picker cannot be driven from here
@@ -424,12 +424,13 @@ async function main() {
     await press('Get started');
 
     /*
-     * The control choice, which is now the first thing the flow asks. Standard
-     * is lit because it is what a fresh profile is granted; the script drives
-     * the Power card so the rest of the run is the full-grant path, and the
-     * grant is asserted from the store at the far end of the flow.
+     * The setup style, which is now the first thing the flow asks. It is the
+     * same Standard/Power grant Settings shows, framed as how much setup to do.
+     * Standard is lit because it is what a fresh profile is granted; the script
+     * drives Power so the rest of the run is the full-grant path, and the grant
+     * is asserted from the store at the far end of the flow.
      */
-    const controlStep = await until('the control choice', async () => {
+    const directionStep = await until('the setup style', async () => {
       const value = await evaluate(`(() => {
         const cards = [...document.querySelectorAll('[data-control-preset]')];
         if (cards.length === 0) return undefined;
@@ -442,16 +443,18 @@ async function main() {
       })()`);
       return value === undefined ? undefined : JSON.parse(value);
     });
-    if (controlStep.ids.join(',') !== 'standard,power') {
+    if (directionStep.ids.join(',') !== 'standard,power') {
       fail(
-        `the control step offers ${JSON.stringify(controlStep.ids)}, not Standard and Power user`,
+        `the setup style offers ${JSON.stringify(directionStep.ids)}, not Regular and Power setup`,
       );
-    } else if (!controlStep.selected.includes('standard')) {
+    } else if (!directionStep.selected.includes('standard')) {
       fail(
-        `the control step does not start on Standard: ${JSON.stringify(controlStep.selected)}`,
+        `the setup style does not start on Standard: ${JSON.stringify(directionStep.selected)}`,
       );
     } else {
-      ok('the first run asks how much Marimo Bot may do, with Standard lit');
+      ok(
+        'the first run asks Regular or Power setup, with Regular (Standard) lit',
+      );
     }
 
     const chosePower = await evaluate(`(() => {
@@ -463,11 +466,61 @@ async function main() {
       return true;
     })()`);
     if (chosePower !== true) {
-      fail('the control step offers no Power user card');
+      fail('the setup style offers no Power card');
     }
     await until('the Power card to be chosen', async () => {
       const pressed = await evaluate(
         `document.querySelector('[data-control-preset="power"]')?.getAttribute('aria-pressed') === 'true'`,
+      );
+      return pressed === true ? true : undefined;
+    });
+    await press('Continue');
+
+    /*
+     * The goals step. Research is chosen because it is a regular goal with no
+     * download and no OS service behind it, yet it still asks for a bot — so the
+     * existing bot and Persona checks below still run, and the smoke stays fast.
+     * Scheduling being enabled here is what proves Power was the direction.
+     */
+    const goalStep = await until('the goals step', async () => {
+      const value = await evaluate(`(() => {
+        const cards = [...document.querySelectorAll('[data-setup-goal]')];
+        if (cards.length === 0) return undefined;
+        return JSON.stringify({
+          ids: cards.map((entry) => entry.getAttribute('data-setup-goal')),
+          disabled: cards
+            .filter((entry) => entry.disabled)
+            .map((entry) => entry.getAttribute('data-setup-goal')),
+        });
+      })()`);
+      return value === undefined ? undefined : JSON.parse(value);
+    });
+    if (!goalStep.ids.includes('automation')) {
+      fail(
+        `the goals step offers no scheduling goal: ${JSON.stringify(goalStep.ids)}`,
+      );
+    } else if (goalStep.disabled.includes('automation')) {
+      fail(
+        `Power setup did not enable scheduling: ${JSON.stringify(goalStep)}`,
+      );
+    } else {
+      ok('the goals step offers the work, with scheduling enabled by Power');
+    }
+
+    const choseResearch = await evaluate(`(() => {
+      const card = document.querySelector('[data-setup-goal="research"]');
+      if (card === null) {
+        return false;
+      }
+      card.click();
+      return true;
+    })()`);
+    if (choseResearch !== true) {
+      fail('the goals step offers no Research goal');
+    }
+    await until('the Research goal to be chosen', async () => {
+      const pressed = await evaluate(
+        `document.querySelector('[data-setup-goal="research"]')?.getAttribute('aria-pressed') === 'true'`,
       );
       return pressed === true ? true : undefined;
     });
@@ -610,6 +663,39 @@ async function main() {
 
     /* And the optional second half: one more bot, or none. */
     await press('That’s enough for now');
+
+    /*
+     * The review. The summary is read from settings and disk, so this also
+     * proves the bot and the model reached the review rather than only the
+     * store. Start chatting is the flow's close and lands the window in a chat.
+     */
+    const finishStep = await until('the setup summary', async () => {
+      const value = await evaluate(`(() => {
+        const summary = document.querySelector('[data-setup-summary]');
+        if (summary === null) return undefined;
+        return JSON.stringify({
+          text: summary.textContent,
+          start: [...document.querySelectorAll('button')].some(
+            (entry) => entry.textContent.trim() === 'Start chatting' && !entry.disabled,
+          ),
+        });
+      })()`);
+      return value === undefined ? undefined : JSON.parse(value);
+    });
+    if (!finishStep.text.includes('LFM3 1.7B')) {
+      fail(
+        `the setup summary does not name the model: ${JSON.stringify(finishStep)}`,
+      );
+    } else if (!finishStep.text.includes('Smoke')) {
+      fail(
+        `the setup summary does not name the bot: ${JSON.stringify(finishStep)}`,
+      );
+    } else if (finishStep.start !== true) {
+      fail('the setup summary offers no way to start chatting');
+    } else {
+      ok('the first run reviews what it configured and offers to start');
+    }
+    await press('Start chatting');
 
     /*
      * The recall offer, which is the flow's own last beat: the app went from
@@ -1804,7 +1890,7 @@ async function main() {
        *
        * What this proves is the round trip: the `+` menu, the command, the IPC
        * call, the agent, and a sentence back in the composer's hint slot. By the
-       * time it runs the setup flow has been through, so the app has a provider
+       * time it runs the setup flow has been through, so the app has a model
        * and this is a conversation nothing has been said in — which makes the
        * agent's own answer the honest one: there is nothing to compact yet. That
        * arrives as a *note* rather than a failure, because a command that cannot

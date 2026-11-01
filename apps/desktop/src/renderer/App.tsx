@@ -131,10 +131,11 @@ export function App(): React.JSX.Element {
   /**
    * Where this window is in the setup flow.
    *
-   * The flow's own last step is what turns `modelReady` true, so the screen
-   * cannot be recomputed from settings alone: saving a key would take the flow
-   * away between the save and the sentence saying it worked. `inSetup` is that
-   * latch, and `left` is the flow having closed, however it closed.
+   * The flow's own model step is what turns `modelReady` true, so the screen
+   * cannot be recomputed from settings alone: a download finishing would take
+   * the flow away between the finish and the sentence saying it worked.
+   * `inSetup` is that latch, and `left` is the flow having closed, however it
+   * closed.
    */
   const [setupPhase, setSetupPhase] = useState<FirstRunPhase>('unknown');
   const agent = useAgent();

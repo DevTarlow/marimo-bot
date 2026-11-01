@@ -15,10 +15,10 @@
  *   first read lands, and a screen decided from it would flash a wizard at
  *   somebody who has been using the app for months. `waiting` is the answer
  *   until a payload exists to have an opinion about.
- * - **The flow is sticky once it is up.** Its own last step is what turns
+ * - **The flow is sticky once it is up.** Its own model step is what turns
  *   `modelReady` true, and a rule that closed the flow the moment the app could
- *   answer would yank the screen away between saving a key and reading what
- *   happened. `inSetup` outranks `modelReady` for exactly that reason.
+ *   answer would yank the screen away between a download finishing and reading
+ *   what happened. `inSetup` outranks `modelReady` for exactly that reason.
  *
  * It lives here rather than inside `App.tsx` because this package has no DOM
  * test environment: the decision is the part worth a test, and a decision buried
@@ -63,10 +63,11 @@ export function firstRunScreen(read: FirstRunRead): FirstRunScreen {
   /*
    * The flow is the first run, not the "cannot answer" screen. A model can
    * already be on disk — preinstalled by a future build, or left by a previous
-   * install that lost its settings — and the flow still asks the two questions a
-   * working model does not answer: which Space, and who the first bot is. The
-   * other order made a preinstalled model skip the introduction entirely, which
-   * is the one case where a person meets the app with no bot of their own.
+   * install that lost its settings — and the flow still asks what a working
+   * model does not answer: which setup style and goals to use, which Space, and
+   * whether a bot should be made. The other order made a preinstalled model
+   * skip the introduction entirely, which is the one case where a person meets
+   * the app with nothing configured.
    */
   if (!read.setupSeen) {
     return 'setup';

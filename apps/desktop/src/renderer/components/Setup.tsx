@@ -1,66 +1,62 @@
 /**
- * The first run, as a model, a Space, a bot, its Persona, and more bots.
+ * The first run, as a branching set of steps rather than a fixed list.
  *
- * What a fresh install is missing is not one thing. It has no model downloaded,
- * so nothing can answer; the Space it starts in is one the app made, so somebody
- * whose work already lives in a folder has to point it there; and there is no
- * bot but the one it talks to, so a person who came here to make one has to find
- * the right card in Settings first. The control choice comes first because it
- * is about access; the model download is the first required step because the
- * guided path needs something to think with, and the rest of the flow is offered
- * after it.
+ * A fresh install is missing several things at once, and they are not all
+ * worth asking about: it needs a model that answers, a folder to work in, and
+ * perhaps a bot, a picture model, a voice, or a job timer. So the flow asks two
+ * questions first and then draws only the steps those answers call for. The
+ * step graph itself is in `setup-nav.ts`; this component is the machine that
+ * holds the answers and performs the writes.
  *
- * Ten rules shape it:
+ * The rules that shape it:
  *
- * - **The control choice is first.** The lead exists before the flow starts, and
- *   its grant is what decides whether it can write, run commands or hand work to
- *   the bots made later. The model is the first *required* step, because the
- *   guided path needs something to think with, but the question about access is
- *   asked before it so the person knows what they are giving the bot up front.
- * - **The model is the only required step.** Until the model files are on disk
- *   and the engine for this computer is present, the window offers no message box
- *   at all, and a wizard that asked for a Space and a bot first would be asking
- *   about work nothing can do. "Set this up later" closes the flow; the short
- *   card is where somebody comes back.
- * - **Finishing lands where the person chose.** A folder picked here is where the
- *   window opens a new chat when the flow closes. The starter chat was created by
- *   the app before the flow ran, so leaving somebody in it after they chose
- *   another Space is the unfinished half of asking.
- * - **No step is a dead end.** Every step has a Back, including the one after a
- *   bot exists. Back never goes to a form that would make a second bot: it goes
- *   to the list, where the bot that was made is waiting.
- * - **Three ways to make a bot.** A starter role, a step-by-step form, or a
- *   conversation with Marimo that ends in a review card. All three write the
- *   same draft to `profiles.create`, so the store and the prompt cannot tell
- *   which door somebody came through.
- * - **It writes as it goes.** Every step's controls write the moment they are
- *   used, exactly as Settings does, so quitting in the middle loses nothing and
- *   the app is in a described state rather than a half-applied form.
- * - **A bot exists before its Persona is asked about.** The bot step creates the
- *   profile and the step after it edits what now exists, which is why backing out
- *   of that second step returns to the list of bots rather than to the form.
+ * - **The direction is the control question.** Regular setup writes the
+ *   Standard grant and Power writes the Power user grant — the same
+ *   `enabledTools` the switches in Settings show. The direction also decides
+ *   how much of the flow exists, but it is not a mode: there is no settings
+ *   field for it, and every switch stays on the one Settings screen.
+ * - **The goals grant nothing.** They choose the suggested starter role, the
+ *   optional model downloads and the jobs step. A goal that needs a tool the
+ *   current direction does not have is drawn and disabled rather than silently
+ *   writing a grant.
+ * - **The model is the only required step.** Until the text model is on disk
+ *   and the engine can load it, the window offers no message box at all.
+ *   Pictures and voice are optional even when a goal asked for them; the jobs
+ *   service is optional even when automation asked for it.
+ * - **The bot step is conditional.** A person who only wants chat, files,
+ *   pictures or voice is not asked to make a bot. The finish step says where
+ *   the `+` is.
+ * - **It writes as it goes.** Every control writes the moment it is used,
+ *   exactly as Settings does, so quitting mid-flow loses only the answers that
+ *   were not yet applied.
+ * - **Every step is in the resolved list, and every step but the first has a
+ *   Back.** `previousStage` reads that list, so a step cannot be on screen
+ *   without being on the path, and Persona backs to the bot list rather than to
+ *   the form that would make a second bot.
+ * - **A bot exists before its Persona is asked about.** The bot step creates
+ *   the profile and the step after it edits what now exists, which is why
+ *   backing out of that second step returns to the list of bots.
  * - **The Role is shown, not edited.** It is the app's brief for the bot and the
  *   thing that shapes how it works with the others, so the Persona step displays
  *   it greyed with a caution and points at Settings for a change.
- * - **It reads what already exists.** A Space already loaded, bots already made,
- *   a delegate grant already given: the step says so and moves on rather than
- *   creating a second copy of anything. That is what makes an interrupted flow
- *   safe to reopen, and it is why nothing here needs a saved position.
+ * - **It reads what already exists.** A model already loaded, bots already made,
+ *   a service already installed: the steps say so and move on rather than
+ *   creating a second copy of anything.
  * - **The lead is put back.** `profiles.create` switches the active profile, so
- *   every bot made here is followed by a `select` back to Marimo Bot. The person
- *   is talking to Marimo Bot, and a window that reopened on a bot they made in a
- *   wizard would be a different app.
+ *   every bot made here is followed by a `select` back to Marimo Bot.
+ * - **Finishing lands where the person chose.** A Space picked here is where the
+ *   window opens a new chat when the flow closes; `landingSpaceAfterSetup` is
+ *   the rule.
  *
- * The model step is its own component: it is half the code and all of the
- * download caveats.
+ * The model step, the optional extras, the jobs switch and the review are their
+ * own components; the two bot-creation forms are in `SetupBots.tsx`.
  */
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 
 import {defaultBotAvatarFor} from '@marimo/protocol';
 import type {
   AgentProfile,
   BotDraft,
-  BotTemplate,
   CapabilityPreset,
   ProfileCatalog,
   PublicSettings,
@@ -69,12 +65,32 @@ import type {
 import {chosenPreset} from '../capabilities.js';
 import {describe} from '../describe.js';
 import type {AgentController} from '../hooks/useAgent.js';
-import {backTargetFor, landingSpaceAfterSetup, STEPS} from '../setup-nav.js';
-import type {SetupScreen} from '../setup-nav.js';
+import {
+  directionForPresetId,
+  goalAvailableIn,
+  goalEffects,
+  recommendedTemplateId,
+  setupGoalById,
+} from '../setup-goals.js';
+import type {
+  SetupDirection as SetupDirectionId,
+  SetupGoalId,
+} from '../setup-goals.js';
+import {
+  landingSpaceAfterSetup,
+  nextStage,
+  previousStage,
+  setupSteps,
+} from '../setup-nav.js';
+import type {SetupStage} from '../setup-nav.js';
 import {BotIconGrid} from './BotIconGrid.js';
-import {BotTemplatePicker} from './BotTemplatePicker.js';
-import {ControlChoice} from './ControlChoice.js';
 import {PersonaForm} from './PersonaForm.js';
+import {BotForm, TemplateBotForm} from './SetupBots.js';
+import {SetupDirection} from './SetupDirection.js';
+import {SetupExtras} from './SetupExtras.js';
+import {SetupFinish} from './SetupFinish.js';
+import {SetupGoals} from './SetupGoals.js';
+import {SetupJobs} from './SetupJobs.js';
 import {SetupModel} from './SetupModel.js';
 
 type BotPath = 'template' | 'step' | null;
@@ -92,21 +108,30 @@ export function Setup({
   /** Every write's own answer, so one copy of the settings is live. */
   onSettings: (next: PublicSettings) => void;
   /**
-   * Hands the rest of the flow to Marimo. Answers a problem instead of throwing:
-   * a refusal has to leave this screen up with a sentence on it.
+   * Hands the rest of the flow to Marimo. Answers a problem instead of
+   * throwing: a refusal has to leave this screen up with a sentence on it.
    */
   onStartBuilder: () => Promise<{ok: boolean; problem?: string}>;
   /**
    * Closes the flow, either because it finished or because the user deferred.
    *
-   * The argument is the Space the person chose in the flow, when they chose one:
-   * the window opens a new chat there rather than leaving them in the starter
-   * conversation the app made before the flow ran. Absent when they kept the
-   * folder the app started them in.
+   * The argument is the Space the person chose in the flow, when they chose
+   * one: the window opens a new chat there rather than leaving them in the
+   * starter conversation the app made before the flow ran. Absent when they
+   * kept the folder the app started them in.
    */
   onClose: (pickedSpaceId?: string) => void;
 }): React.JSX.Element {
-  const [screen, setScreen] = useState<SetupScreen>('welcome');
+  const [screen, setScreen] = useState<SetupStage>('welcome');
+  /**
+   * The setup style, once chosen.
+   *
+   * `null` means the direction step has not been answered in this window yet.
+   * It is not the same as "Regular": a custom grant has no direction, and the
+   * direction step has to ask rather than assume.
+   */
+  const [direction, setDirection] = useState<SetupDirectionId | null>(null);
+  const [goals, setGoals] = useState<SetupGoalId[]>([]);
   const [catalog, setCatalog] = useState<ProfileCatalog | null>(null);
   /**
    * The Space the person chose in this flow, if they chose one.
@@ -124,36 +149,37 @@ export function Setup({
    */
   const [madeId, setMadeId] = useState<string | null>(null);
   const [path, setPath] = useState<BotPath>(null);
+  /** The starter-role card the person clicked, when they changed the suggestion. */
   const [selectedTemplateId, setSelectedTemplateId] = useState<
     string | undefined
   >(undefined);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
 
-  /*
-   * Once, on mount, and nothing is written by it: the presets, the starter
-   * roles and the two tool names are the agent package's and the protocol's, and
-   * this window reads them rather than spelling them out.
+  /**
+   * Reads the catalogue, once and again on a retry.
+   *
+   * Nothing is written by it: the presets, the starter roles and the two tool
+   * names are the agent package's and the protocol's, and this window reads them
+   * rather than spelling them out. A retry is a button because the direction
+   * step cannot draw its cards without them, and a failed read would otherwise
+   * be a dead end with nothing to press.
    */
-  useEffect(() => {
-    let cancelled = false;
+  const loadCatalog = useCallback((): void => {
+    setProblem(null);
     void window.marimo
       .call('profiles.catalog', {})
       .then((loaded) => {
-        if (!cancelled) {
-          setCatalog(loaded);
-          setSelectedTemplateId(loaded.botTemplates[0]?.id);
-        }
+        setCatalog(loaded);
       })
       .catch((failure: unknown) => {
-        if (!cancelled) {
-          setProblem(describe(failure));
-        }
+        setProblem(describe(failure));
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    loadCatalog();
+  }, [loadCatalog]);
 
   /*
    * The lead is the first profile in the document, which is what `freshFile`
@@ -177,7 +203,25 @@ export function Setup({
   const presets = catalog?.presets ?? [];
   const controlPresets = catalog?.controlPresets ?? [];
   const chosenControl = chosenPreset(controlPresets, lead?.enabledTools ?? []);
+  /*
+   * The direction the flow is treating as chosen. The state is set when a card
+   * is clicked; a person who pressed Continue with the grant already in place
+   * answered with that grant, so it is read back here. A custom mix falls back
+   * to Regular only for drawing a progress preview — the direction step still
+   * asks, and Continue there will not accept a custom grant as an answer.
+   */
+  const activeDirection =
+    direction ?? directionForPresetId(chosenControl?.id) ?? 'regular';
   const templates = catalog?.botTemplates ?? [];
+  const effects = goalEffects(goals);
+  const steps = setupSteps({
+    direction: activeDirection,
+    goals,
+    hasMadeBot: justMade !== undefined,
+  });
+  const recommendedId = recommendedTemplateId(goals, templates);
+  const selectedTemplate =
+    selectedTemplateId ?? recommendedId ?? templates[0]?.id;
   /*
    * The icon the bot was given when it was made. `create` always writes one, so
    * this is only a fallback for a profile from before icons existed.
@@ -193,7 +237,7 @@ export function Setup({
         ? defaultBotAvatarFor(madeAt).id
         : undefined;
 
-  const go = (next: SetupScreen): void => {
+  const go = (next: SetupStage): void => {
     setProblem(null);
     setPath(null);
     setScreen(next);
@@ -201,10 +245,15 @@ export function Setup({
 
   /** The one Back button, so every step points at the same rule. */
   const back = (): void => {
-    const target = backTargetFor({
-      screen,
-      hasMadeBot: justMade !== undefined,
-    });
+    const target = previousStage(steps, screen);
+    if (target !== null) {
+      go(target);
+    }
+  };
+
+  /** The one Continue for steps that have one obvious next screen. */
+  const advance = (): void => {
+    const target = nextStage(steps, screen);
     if (target !== null) {
       go(target);
     }
@@ -264,6 +313,109 @@ export function Setup({
   /** The one way out, so every close passes the Space the flow chose. */
   const finish = (): void => {
     onClose(landingSpaceAfterSetup(pickedSpaceId));
+  };
+
+  /**
+   * Writes the setup style onto the lead.
+   *
+   * The card is a shortcut over the same `enabledTools` array Settings shows as
+   * switches, not a mode: picking one replaces the whole grant, and anything
+   * added later (delegation, the builder tool) makes it a custom mix rather than
+   * silently lighting a card that no longer describes it.
+   *
+   * The direction is only set after the write succeeds. A failure has to leave
+   * the old grant and the old answer in place, with a sentence under them, or
+   * the flow would walk on believing it had changed access it had not.
+   */
+  const chooseDirection = async (
+    next: SetupDirectionId,
+    preset: CapabilityPreset,
+  ): Promise<void> => {
+    if (lead === undefined) {
+      setProblem('This install has no bot to configure. Reopen the app.');
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    try {
+      if (chosenControl?.id !== preset.id) {
+        const updated = await window.marimo.call('profiles.update', {
+          profileId: lead.id,
+          patch: {enabledTools: [...preset.tools]},
+        });
+        applyProfiles(updated);
+      }
+      setDirection(next);
+      if (next === 'regular') {
+        /*
+         * A goal that needed Power is no longer part of this path. Dropping it
+         * here, rather than leaving it selected and ignoring it, is what makes
+         * Back to the direction step an honest change of mind.
+         */
+        setGoals((current) =>
+          current.filter((id) => {
+            const goal = setupGoalById(id);
+            return goal !== undefined && goalAvailableIn(goal, 'regular');
+          }),
+        );
+      }
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Continues from the direction step.
+   *
+   * A click on a card already set the direction. A person who presses Continue
+   * without clicking is answering with the grant the profile already has, so
+   * the direction is read back from it; a custom mix has no direction, and the
+   * question is asked rather than guessed.
+   */
+  const continueDirection = (): void => {
+    if (direction !== null) {
+      go('goals');
+      return;
+    }
+    const derived = directionForPresetId(chosenControl?.id);
+    if (derived === null) {
+      setProblem('Choose Regular setup or Power setup to continue.');
+      return;
+    }
+    setDirection(derived);
+    go('goals');
+  };
+
+  /** The goals step's branch into the full grant. */
+  const switchToPower = async (): Promise<void> => {
+    const preset = controlPresets.find((entry) => entry.id === 'power');
+    if (preset === undefined) {
+      setProblem('This build has no Power setup to switch to.');
+      return;
+    }
+    await chooseDirection('power', preset);
+  };
+
+  /**
+   * Adds or removes one goal.
+   *
+   * Nothing is written: the goal is a plan for the steps, and the only effects
+   * it can have are the downloads and the bot suggestion the later steps make.
+   * The availability guard is here as well as on the card, so a stale click
+   * cannot put a Power-only goal into a Regular run.
+   */
+  const toggleGoal = (id: SetupGoalId): void => {
+    const goal = setupGoalById(id);
+    if (goal === undefined || !goalAvailableIn(goal, activeDirection)) {
+      return;
+    }
+    setGoals((current) =>
+      current.includes(id)
+        ? current.filter((entry) => entry !== id)
+        : [...current, id],
+    );
   };
 
   /**
@@ -373,40 +525,6 @@ export function Setup({
   };
 
   /**
-   * Writes the control choice onto the lead.
-   *
-   * The card is a shortcut over the same `enabledTools` array Settings shows as
-   * switches, not a mode: picking one replaces the whole grant, and anything
-   * added later (delegation, the builder tool) makes it a custom mix rather than
-   * silently lighting a card that no longer describes it.
-   *
-   * Written on the click, like every other control in this flow, so closing the
-   * window after choosing loses nothing.
-   */
-  const chooseControl = async (preset: CapabilityPreset): Promise<void> => {
-    if (lead === undefined) {
-      setProblem('This install has no bot to configure. Reopen the app.');
-      return;
-    }
-    if (chosenControl?.id === preset.id) {
-      return;
-    }
-    setBusy(true);
-    setProblem(null);
-    try {
-      const updated = await window.marimo.call('profiles.update', {
-        profileId: lead.id,
-        patch: {enabledTools: [...preset.tools]},
-      });
-      applyProfiles(updated);
-    } catch (failure) {
-      setProblem(describe(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /**
    * Writes one preset onto the bot just made.
    *
    * The same call Settings uses, and the same immediate write: an icon is a
@@ -472,8 +590,30 @@ export function Setup({
     }
   };
 
+  /**
+   * Leaves the bot step without making another bot.
+   *
+   * A bot that was already made has a Persona step and a "more bots" step
+   * behind it, so skipping a second bot goes to the list it came from. With no
+   * bot made, the next step is whatever the resolved path says — jobs or the
+   * review.
+   */
+  const skipBot = (): void => {
+    if (justMade !== undefined) {
+      go('more');
+      return;
+    }
+    const target = nextStage(steps, 'bot');
+    if (target !== null) {
+      go(target);
+    }
+  };
+
   const space = agent.workspaces.find(
     (entry) => entry.id === agent.activeWorkspaceId,
+  );
+  const landingSpace = agent.workspaces.find(
+    (entry) => entry.id === (pickedSpaceId ?? agent.activeWorkspaceId),
   );
 
   return (
@@ -481,7 +621,7 @@ export function Setup({
       <div className="setup-inner">
         {screen !== 'welcome' && (
           <ol className="setup-steps" aria-label="Setup steps">
-            {STEPS.map((entry) => (
+            {steps.map((entry) => (
               <li
                 key={entry.id}
                 className="setup-step"
@@ -502,9 +642,11 @@ export function Setup({
               make.
             </p>
             <p className="onboarding-note">
-              The first question is how much Marimo Bot may do. Then pick a
-              service that answers, check the folder it will work in — Marimo
-              starts you in one it made — and make a bot.
+              First choose <strong>Regular</strong> or <strong>Power</strong>{' '}
+              setup, then tell it what you want to get done. That decides which
+              steps are worth showing: the model that answers, the folder it
+              works in, a bot if one fits, and the optional pictures, voice or
+              scheduled jobs.
             </p>
             <p className="onboarding-note">
               You can change any of this later in Settings.
@@ -514,7 +656,7 @@ export function Setup({
                 type="button"
                 className="button button-primary"
                 onClick={() => {
-                  go('control');
+                  go('direction');
                 }}
               >
                 Get started
@@ -530,60 +672,56 @@ export function Setup({
           </div>
         )}
 
-        {screen === 'control' && (
-          <div className="setup-body">
-            <h2>How much should {lead?.name ?? 'Marimo Bot'} be able to do?</h2>
-            <p className="onboarding-lead">
-              This is about access, not looks: it sets which tools{' '}
-              {lead?.name ?? 'Marimo Bot'} may use. You can change it later in
-              Settings.
-            </p>
-            {catalog === null && problem === null ? (
-              <p className="settings-muted">
-                Reading what this install can do…
-              </p>
-            ) : (
-              <ControlChoice
-                presets={controlPresets}
-                chosenId={chosenControl?.id}
-                disabled={busy}
-                onChoose={(preset) => {
-                  void chooseControl(preset);
-                }}
-              />
+        {screen === 'direction' && (
+          <SetupDirection
+            presets={controlPresets}
+            chosenId={chosenControl?.id}
+            busy={busy}
+            catalogLoading={catalog === null && problem === null}
+            problem={problem}
+            onChoose={(next, preset) => {
+              void chooseDirection(next, preset);
+            }}
+            onContinue={continueDirection}
+            onBack={back}
+            onRetry={loadCatalog}
+          />
+        )}
+
+        {screen === 'goals' && (
+          <SetupGoals
+            direction={activeDirection}
+            goals={goals}
+            busy={busy}
+            powerAvailable={controlPresets.some(
+              (preset) => preset.id === 'power',
             )}
-            <p className="onboarding-note">
-              A tool that is off is not offered to the bot at all. A command, or
-              a save over a file that already exists, still asks for your
-              approval.
-            </p>
-            <div className="onboarding-actions">
-              <button
-                type="button"
-                className="button button-primary"
-                disabled={busy}
-                onClick={() => {
-                  go('model');
-                }}
-              >
-                Continue
-              </button>
-              {backButton()}
-            </div>
-          </div>
+            onToggle={toggleGoal}
+            onSwitchToPower={() => {
+              void switchToPower();
+            }}
+            onContinue={advance}
+            onBack={back}
+          />
         )}
 
         {screen === 'model' && (
           <SetupModel
             settings={settings}
             onSettings={onSettings}
-            onBack={() => {
-              go('control');
-            }}
-            onNext={() => {
-              go('space');
-            }}
+            onBack={back}
+            onNext={advance}
             onLater={finish}
+          />
+        )}
+
+        {screen === 'extras' && (
+          <SetupExtras
+            settings={settings}
+            onSettings={onSettings}
+            tasks={effects.tasks}
+            onBack={back}
+            onNext={advance}
           />
         )}
 
@@ -619,7 +757,7 @@ export function Setup({
                     void loadSpace();
                     return;
                   }
-                  go('bot');
+                  advance();
                 }}
               >
                 {space === undefined ? 'Choose a folder…' : 'Continue'}
@@ -641,9 +779,7 @@ export function Setup({
                   type="button"
                   className="button button-quiet"
                   disabled={busy}
-                  onClick={() => {
-                    go('bot');
-                  }}
+                  onClick={advance}
                 >
                   Later
                 </button>
@@ -668,6 +804,17 @@ export function Setup({
                   A bot is for one kind of work. Give it a name and a starting
                   point. Marimo Bot can hand it jobs and add it to a chat.
                 </p>
+                {recommendedId !== undefined && (
+                  <p className="onboarding-note">
+                    Your goals suggest{' '}
+                    <strong>
+                      {templates.find(
+                        (template) => template.id === recommendedId,
+                      )?.label ?? 'a starter role'}
+                    </strong>
+                    . It is a starting point, not a requirement.
+                  </p>
+                )}
                 <div className="setup-path-cards">
                   <button
                     type="button"
@@ -725,7 +872,8 @@ export function Setup({
             {path === 'template' && (
               <TemplateBotForm
                 templates={templates}
-                selectedId={selectedTemplateId}
+                selectedId={selectedTemplate}
+                recommendedId={recommendedId}
                 busy={busy}
                 delegateTool={delegateTool}
                 lead={lead}
@@ -741,6 +889,7 @@ export function Setup({
               <BotForm
                 templates={templates}
                 presets={presets}
+                recommendedId={recommendedId}
                 busy={busy}
                 delegateTool={delegateTool}
                 lead={lead}
@@ -756,11 +905,9 @@ export function Setup({
               <div className="onboarding-actions">
                 {/*
                   Three different exits, because this step is reached three ways.
-                  With no bots yet it is the first one, and stepping over it is a
-                  real answer. With a bot just made, the way forward is the
-                  Persona step that belongs to it rather than a second bot. And
-                  Back always goes to the Space it came from, whatever the list
-                  holds.
+                  With a bot just made, the way forward is the Persona step that
+                  belongs to it rather than a second bot. Without one, skipping
+                  is a real answer and the resolved path says where it goes.
                 */}
                 {justMade !== undefined && (
                   <button
@@ -778,9 +925,7 @@ export function Setup({
                   type="button"
                   className="button button-quiet"
                   disabled={busy}
-                  onClick={() => {
-                    go('more');
-                  }}
+                  onClick={skipBot}
                 >
                   {bots.length === 0 ? 'Skip the bot for now' : 'Never mind'}
                 </button>
@@ -877,7 +1022,7 @@ export function Setup({
                 type="button"
                 className="button button-quiet"
                 disabled={busy}
-                onClick={finish}
+                onClick={advance}
               >
                 That&rsquo;s enough for now
               </button>
@@ -886,318 +1031,23 @@ export function Setup({
           </div>
         )}
 
+        {screen === 'jobs' && <SetupJobs onBack={back} onNext={advance} />}
+
+        {screen === 'finish' && (
+          <SetupFinish
+            settings={settings}
+            direction={activeDirection}
+            goals={goals}
+            bots={bots}
+            spaceName={landingSpace?.name}
+            accessLabel={chosenControl?.label ?? 'Your own mix'}
+            onBack={back}
+            onStart={finish}
+          />
+        )}
+
         {problem !== null && <p className="settings-problem">{problem}</p>}
       </div>
     </div>
-  );
-}
-
-/**
- * The starter-role form: pick a card, name it, make it.
- *
- * The template decides the Role, the seeded Persona, the tools and the avatar;
- * the only thing this form asks for is the name and whether Marimo Bot may hand
- * it work. The Persona step after it is where the person changes the character,
- * because that is a decision about a bot that exists rather than a draft.
- */
-function TemplateBotForm({
-  templates,
-  selectedId,
-  busy,
-  delegateTool,
-  lead,
-  onSelect,
-  onSubmit,
-  onBack,
-}: {
-  templates: readonly BotTemplate[];
-  selectedId: string | undefined;
-  busy: boolean;
-  delegateTool: string | undefined;
-  lead: AgentProfile | undefined;
-  onSelect: (id: string | undefined) => void;
-  onSubmit: (draft: BotDraft, delegate: boolean) => Promise<void>;
-  onBack: () => void;
-}): React.JSX.Element {
-  const selected = templates.find((template) => template.id === selectedId);
-  const [name, setName] = useState(selected?.suggestedName ?? '');
-  const [delegate, setDelegate] = useState(true);
-  const alreadyDelegates =
-    delegateTool !== undefined &&
-    (lead?.enabledTools.includes(delegateTool) ?? false);
-
-  return (
-    <>
-      <p className="onboarding-lead">
-        Pick the role closest to the job. Its Role and Persona are a starting
-        point you can change.
-      </p>
-      <BotTemplatePicker
-        templates={templates}
-        selectedId={selectedId}
-        busy={busy}
-        allowCustom={false}
-        onSelect={(id) => {
-          onSelect(id);
-          const template = templates.find((entry) => entry.id === id);
-          if (template !== undefined) {
-            setName(template.suggestedName);
-          }
-        }}
-      />
-      <form
-        className="setup-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const trimmed = name.trim();
-          if (trimmed.length === 0 || busy || selected === undefined) {
-            return;
-          }
-          void onSubmit({name: trimmed, templateId: selected.id}, delegate);
-        }}
-      >
-        <label className="settings-field">
-          <span>Name</span>
-          <em className="settings-why">
-            Name it after the work. You can rename it later.
-          </em>
-          <input
-            className="settings-input"
-            type="text"
-            value={name}
-            placeholder={selected?.suggestedName ?? 'Writer'}
-            spellCheck={false}
-            disabled={busy}
-            onChange={(event) => {
-              setName(event.target.value);
-            }}
-          />
-        </label>
-        {delegateTool !== undefined && (
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={alreadyDelegates || delegate}
-              disabled={busy || alreadyDelegates}
-              onChange={(event) => {
-                setDelegate(event.target.checked);
-              }}
-            />
-            <span>
-              Let Marimo Bot hand work to your bots
-              <em className="settings-why">
-                {alreadyDelegates
-                  ? 'Marimo Bot can already do this.'
-                  : 'Without this, Marimo Bot can talk about your bots but cannot ask them to do anything.'}
-              </em>
-            </span>
-          </label>
-        )}
-        <div className="onboarding-actions">
-          <button
-            type="submit"
-            className="button button-primary"
-            disabled={
-              busy || name.trim().length === 0 || selected === undefined
-            }
-          >
-            Make this bot
-          </button>
-          <button
-            type="button"
-            className="button button-quiet"
-            disabled={busy}
-            onClick={onBack}
-          >
-            Back
-          </button>
-        </div>
-      </form>
-    </>
-  );
-}
-
-/**
- * The step-by-step bot: a role, a name, and what it may do.
- *
- * The Role comes from a starter card or from the generic bot contract; a custom
- * bot's job is written in its Persona on the next step, which is what keeps a
- * Role reset from erasing the person's description of the work.
- */
-function BotForm({
-  templates,
-  presets,
-  busy,
-  delegateTool,
-  lead,
-  submitLabel,
-  onSubmit,
-  onBack,
-}: {
-  templates: readonly BotTemplate[];
-  presets: readonly CapabilityPreset[];
-  busy: boolean;
-  /** Absent on a build whose tool set has no delegation, which hides the box. */
-  delegateTool: string | undefined;
-  lead: AgentProfile | undefined;
-  submitLabel: string;
-  onSubmit: (draft: BotDraft, delegate: boolean) => Promise<void>;
-  onBack: () => void;
-}): React.JSX.Element {
-  const [name, setName] = useState('');
-  const [templateId, setTemplateId] = useState<string | undefined>(undefined);
-  const selectedTemplate = templates.find(
-    (template) => template.id === templateId,
-  );
-  /*
-   * The recommended preset, which is also what `profiles.create` grants before
-   * anything is chosen: the card the user sees lit is the state the bot is
-   * actually in. A starter role replaces that with its own grant, which is
-   * honest — a Writer's tools are not one of the three sizes.
-   */
-  const [tools, setTools] = useState<string[]>(
-    () => presets.find((preset) => preset.recommended)?.tools ?? [],
-  );
-  const [delegate, setDelegate] = useState(true);
-  const chosen = chosenPreset(presets, tools);
-
-  const alreadyDelegates =
-    delegateTool !== undefined &&
-    (lead?.enabledTools.includes(delegateTool) ?? false);
-
-  const chooseTemplate = (id: string | undefined): void => {
-    setTemplateId(id);
-    const template = templates.find((entry) => entry.id === id);
-    if (template !== undefined) {
-      setTools([...template.tools]);
-      setName((current) =>
-        current.trim().length === 0 ? template.suggestedName : current,
-      );
-      return;
-    }
-    /*
-     * Back to scratch: the recommended grant, not the last template's. A Writer
-     * that was switched to a custom bot and kept the Writer's tools would be a
-     * bot whose Role and grant disagree.
-     */
-    setTools([...(presets.find((preset) => preset.recommended)?.tools ?? [])]);
-  };
-
-  return (
-    <>
-      <p className="onboarding-lead">
-        Pick a role if one fits, or start from scratch. A custom bot&rsquo;s job
-        is written in its Persona on the next step.
-      </p>
-      <BotTemplatePicker
-        templates={templates}
-        selectedId={templateId}
-        busy={busy}
-        onSelect={chooseTemplate}
-      />
-      <form
-        className="setup-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const trimmed = name.trim();
-          if (trimmed.length === 0 || busy) {
-            return;
-          }
-          void onSubmit(
-            {
-              name: trimmed,
-              ...(templateId === undefined ? {} : {templateId}),
-              tools,
-            },
-            delegate,
-          );
-        }}
-      >
-        <label className="settings-field">
-          <span>Name</span>
-          <em className="settings-why">
-            Name it after the work. You can rename it later.
-          </em>
-          <input
-            className="settings-input"
-            type="text"
-            value={name}
-            placeholder={selectedTemplate?.suggestedName ?? 'Writer'}
-            autoFocus
-            spellCheck={false}
-            disabled={busy}
-            onChange={(event) => {
-              setName(event.target.value);
-            }}
-          />
-        </label>
-
-        <span className="setup-label">What should it be able to do?</span>
-        <div className="capability-cards">
-          {presets.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className="capability-card"
-              aria-pressed={chosen?.id === preset.id}
-              disabled={busy}
-              onClick={() => {
-                setTools([...preset.tools]);
-              }}
-            >
-              <span className="capability-label">
-                {preset.label}
-                {preset.recommended && (
-                  <>
-                    {' '}
-                    <em className="capability-tag">Recommended</em>
-                  </>
-                )}
-              </span>
-              <em className="capability-blurb">{preset.blurb}</em>
-            </button>
-          ))}
-        </div>
-
-        {delegateTool !== undefined && (
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={alreadyDelegates || delegate}
-              disabled={busy || alreadyDelegates}
-              onChange={(event) => {
-                setDelegate(event.target.checked);
-              }}
-            />
-            <span>
-              Let Marimo Bot hand work to your bots
-              <em className="settings-why">
-                {alreadyDelegates
-                  ? 'Marimo Bot can already do this.'
-                  : 'Without this, Marimo Bot can talk about your bots but cannot ask them to do anything.'}
-              </em>
-            </span>
-          </label>
-        )}
-
-        <div className="onboarding-actions">
-          <button
-            type="submit"
-            className="button button-primary"
-            disabled={busy || name.trim().length === 0}
-          >
-            {submitLabel}
-          </button>
-          <button
-            type="button"
-            className="button button-quiet"
-            disabled={busy}
-            onClick={onBack}
-          >
-            Back
-          </button>
-        </div>
-      </form>
-    </>
   );
 }

@@ -1534,6 +1534,13 @@ body.resizing-rail * {
   background: var(--surface-hover);
 }
 
+.capability-card:disabled {
+  /* A goal the current direction cannot offer is still readable, so the two
+     setup styles are comparable rather than one having a hidden card. */
+  opacity: 0.55;
+  cursor: default;
+}
+
 .capability-card[aria-pressed='true'] {
   background: var(--accent-soft);
   border-color: var(--accent-border);
@@ -2622,6 +2629,53 @@ body.resizing-rail * {
   line-height: 1.55;
   white-space: pre-wrap;
   user-select: text;
+}
+
+/*
+ * The goal cards, the optional downloads, and the review.
+ *
+ * Goals are a grid rather than the vertical stack the path cards use: there are
+ * eight of them and each is one line of blurb, so a single column would push
+ * Continue below the fold for no gain. The extras cards keep their own model
+ * card language and only need the spacing the Settings list gets from its
+ * parent. The review is a definition list because the left column is the label
+ * a person scans and the right column is the fact.
+ */
+.setup-goal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.setup-extras {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+
+.setup-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.setup-summary-row {
+  /* The div is only a wrapper for a dt/dd pair; the grid is the parent. */
+  display: contents;
+}
+
+.setup-summary dt {
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}
+
+.setup-summary dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
 }
 
 /*

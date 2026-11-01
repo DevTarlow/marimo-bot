@@ -64,7 +64,7 @@
       "category": "Utility",
       "icon": "assets/marimo-logo.png",
       "synopsis": "A desktop AI assistant with bots you make",
-      "description": "A chat window, a floating companion, and bots that work in your own folders. Bring the model: the app carries none of its own."
+      "description": "A chat window, a floating companion, and bots that work in your own folders. Small local models, downloaded on first run."
     },
     "executableName": "marimo-agent",
     "asar": false,
@@ -84,7 +84,10 @@
         "dmg"
       ],
       "category": "public.app-category.utilities",
-      "icon": "assets/marimo-logo.png"
+      "icon": "assets/marimo-logo.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Marimo Bot uses the microphone only while you hold the talk button, and the recording is sent to the local voice model on this computer."
+      }
     }
   },
   "//": "asar is off deliberately. The job runner is this same binary started with ELECTRON_RUN_AS_NODE=1, and in that mode Electron does not patch `fs` to read inside an asar archive \u2014 reading one fails with \"Invalid package\". So a packaged app with asar on has a runner that cannot start, which is the whole of \"jobs run while the app is closed\" broken in every release and working perfectly in development.",

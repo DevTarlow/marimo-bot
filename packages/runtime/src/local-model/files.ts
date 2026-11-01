@@ -21,8 +21,20 @@
 import {statSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 
+import type {
+  LocalModelId,
+  LocalModelVariant,
+} from '@marimo/protocol';
+import {LOCAL_MODELS} from '@marimo/protocol';
+
 import {EMBEDDING_PIECES} from './manifest.js';
-import type {EmbeddingManifest, EmbeddingPieceName, EmbeddingPooling} from './manifest.js';
+import type {
+  ChatModelManifest,
+  EmbeddingManifest,
+  EmbeddingPieceName,
+  EmbeddingPooling,
+} from './manifest.js';
+import type {EngineFiles, EngineRunSpec} from './service.js';
 
 /**
  * Points both processes at a directory of their own.
@@ -223,3 +235,136 @@ export function recallPiecesInstalled(options: {
 function isFile(path: string): boolean {
   return sizeOf(path) >= 0;
 }
+
+/** Where one LFM3 model's files live, under the shared model directory. */
+export function localModelDir(root: string, modelId: LocalModelId): string {
+  return join(root, modelId);
+}
+
+/**
+ * The marker that records which copy was installed.
+ *
+ * It lives beside the weights rather than in settings because the files are the
+ * fact: a user who deletes a directory by hand, or a build that changes the
+ * variant, must not be described by a preference written weeks ago.
+ */
+export function localModelMarkerFile(dir: string): string {
+  return join(dir, 'local-model.json');
+}
+
+/**
+ * What the chat engine would be started with.
+ *
+ * The engine is shared by all four models, so it is resolved from the root while
+ * the weights come from the model's own directory. `projector` is `''` for the
+ * text model and for an install that has not finished downloading the encoder;
+ * the args builder then leaves `--mmproj` off rather than handing the engine a
+ * path that is not there.
+ */
+export interface LocalModelFiles extends EngineFiles {
+  dir: string;
+  modelId: LocalModelId;
+  variant: LocalModelVariant;
+  projector: string;
+  projectorPresent: boolean;
+}
+
+/** The files one model variant resolves to, and whether each is on disk. */
+export function resolveLocalModelFiles(options: {
+  root: string;
+  manifest: ChatModelManifest;
+  modelId: LocalModelId;
+  variant: LocalModelVariant;
+  platform?: NodeJS.Platform;
+}): LocalModelFiles {
+  const {root, manifest, modelId, variant} = options;
+  const dir = localModelDir(root, modelId);
+  const engine =
+    root.length > 0
+      ? join(engineDir(root), engineBinaryName(options.platform))
+      : '';
+  const variantPin = manifest.models[modelId].variants[variant];
+  const model = join(dir, variantPin.weights.file);
+  const projector =
+    variantPin.projector === undefined
+      ? ''
+      : join(dir, variantPin.projector.file);
+
+  return {
+    dir,
+    modelId,
+    variant,
+    engine,
+    libraryDir: engine.length > 0 ? dirname(engine) : '',
+    model,
+    projector,
+    enginePresent: isFile(engine),
+    modelPresent: isFile(model),
+    projectorPresent: projector.length > 0 && isFile(projector),
+  };
+}
+
+/** How a model's sampling is started. The values are the model card's. */
+export interface LocalModelSampling {
+  temperature: number;
+  topK: number;
+  topP?: number;
+  repeatPenalty: number;
+}
+
+/**
+ * The command-line facts the engine needs, beyond the files.
+ *
+ * `reasoning: 'off'` for every model, and it is a measured decision rather than
+ * a preference. On this small model, the default thinking mode answered "say
+ * hello" with 271 hidden tokens and a ten-second turn on a laptop processor; the
+ * tool loop is carried by the harness prompt and a visible answer, and the
+ * companion's whole promise is a reply that arrives. The spike that chose this
+ * also proved tool calls still work with thinking off, which is the half that
+ * would have made it a bad trade.
+ */
+export interface LocalModelSpec extends EngineRunSpec<LocalModelFiles> {
+  modelId: LocalModelId;
+  variant: LocalModelVariant;
+  alias: string;
+  reasoning: 'off';
+  sampling: LocalModelSampling;
+}
+
+/**
+ * The spec for one model.
+ *
+ * The alias is the model id, never the file name: the request names the alias,
+ * and a quantization in the id would be a second place the variant is written
+ * down.
+ */
+export function localModelSpec(options: {
+  root: string;
+  manifest: ChatModelManifest;
+  modelId: LocalModelId;
+  variant: LocalModelVariant;
+  platform?: NodeJS.Platform;
+}): LocalModelSpec {
+  return {
+    files: resolveLocalModelFiles(options),
+    contextSize: LOCAL_MODELS[options.modelId].contextTokens,
+    modelId: options.modelId,
+    variant: options.variant,
+    alias: options.modelId,
+    reasoning: 'off',
+    sampling: samplingFor(options.modelId),
+  };
+}
+
+function samplingFor(modelId: LocalModelId): LocalModelSampling {
+  if (modelId === 'lfm3-vl-2b') {
+    return {temperature: 0.1, topK: 50, topP: 1, repeatPenalty: 1.1};
+  }
+  if (modelId === 'lfm3-1.7b') {
+    return {temperature: 0.1, topK: 50, repeatPenalty: 1.1};
+  }
+  // The audio and omni cards both ask for greedy text; the acoustic sampling
+  // for `/tts` is stored in the GGUF and is not this flag.
+  return {temperature: 0, topK: 1, repeatPenalty: 1.1};
+}
+

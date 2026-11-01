@@ -10,16 +10,24 @@
 import {randomUUID} from 'node:crypto';
 
 import type {
+  AgentModel,
   AgentProfile,
   AgentUiEvent,
+  Attachment,
   LearningLesson,
   LearningProposal,
+  LocalModelId,
+  LocalTask,
   MemorySupersede,
   CompactResult,
   PendingGate,
-  ProviderId,
   StoredSkill,
   TranscriptMessage,
+} from '@marimo/protocol';
+import {
+  LOCAL_MODELS,
+  LOCAL_PROVIDER_ID,
+  workContextTokens,
 } from '@marimo/protocol';
 import {
   AdkDriver,
@@ -63,7 +71,6 @@ import {SkillUsageStore} from '../skill-usage.js';
 import type {AppPaths} from '../paths.js';
 import {FileEventStore} from '../events/file-event-store.js';
 import type {HarnessVersionStore} from '../harness-versions.js';
-import type {SecretRead} from '../secrets.js';
 import type {ProfileStore} from '../profiles.js';
 import type {SettingsStore} from '../settings.js';
 import {RuntimeSkillService} from '../skill-service.js';
@@ -109,7 +116,17 @@ export interface HarnessRuntimeOptions {
   settings: SettingsStore;
   profiles: ProfileStore;
   workspaces: WorkspaceStore;
-  readSecret: (provider: ProviderId) => Promise<SecretRead>;
+  /**
+   * Starts the local model a turn needs and answers where it is, or why not.
+   *
+   * The address exists only in the process that started the engine, and it
+   * changes every time the engine wakes. This is the seam: the runtime knows
+   * *which* model a turn wants; the host knows whether it is installed and where
+   * it ended up. Absent is a test that never makes a request.
+   */
+  ensureModel?: (modelId: LocalModelId) => Promise<
+    {ok: true; baseUrl: string} | {ok: false; problem: string}
+  >;
   /** Injected by tests; the app builds a real ADK driver. */
   driverFactory?: (config: AgentConfig) => TurnDriver;
   /** Injected by tests; the app writes to the v2 log directory. */
@@ -164,6 +181,8 @@ export interface HarnessRuntimeOptions {
 interface Prepared {
   profile: AgentProfile;
   config: AgentConfig;
+  /** The pair this turn actually runs on. Helpers inherit it. */
+  model: AgentModel;
   harness: HarnessSpec;
   workspaceRoot: string;
   spaceId?: string;
@@ -178,6 +197,23 @@ interface SessionState {
   engine: TurnEngine;
   driver: DelegatingDriver;
   model: {config: AgentConfig};
+}
+
+/** What a turn needs beyond the words: which model, and what it was handed. */
+export interface TurnRunOptions {
+  /** The task the surface is doing; absent is an ordinary chat turn. */
+  task?: LocalTask;
+  /** Images the message carries, already judged against the Space. */
+  attachments?: readonly Attachment[];
+  /**
+   * An explicit model, for a turn that is not starting fresh.
+   *
+   * A resumed approval uses the model stored on the turn it is resuming, and a
+   * helper inherits its parent's. Routing those through the task assignment
+   * would let a settings change between a card and its answer swap the model
+   * under a frozen harness.
+   */
+  model?: AgentModel;
 }
 
 /**
@@ -259,6 +295,7 @@ export class HarnessRuntime {
     addressedProfileId?: string,
     instruction?: string,
     purpose?: 'bot-builder',
+    turn: TurnRunOptions = {},
   ): AsyncGenerator<AgentUiEvent> {
     this.helperSessions.delete(sessionId);
     let prepared: Prepared;
@@ -277,7 +314,7 @@ export class HarnessRuntime {
           `"${answering}" is not in this conversation.`,
         );
       }
-      prepared = await this.prepare(answering, sessionId);
+      prepared = await this.prepare(answering, sessionId, turn);
     } catch (error) {
       yield failed(sessionId, error);
       return;
@@ -309,6 +346,9 @@ export class HarnessRuntime {
           text,
           harness: prepared.harness,
           ...(instruction === undefined ? {} : {instruction}),
+          ...(turn.attachments === undefined || turn.attachments.length === 0
+            ? {}
+            : {attachments: [...turn.attachments]}),
           session: {
             title: titleFor(text),
             ...(prepared.spaceId === undefined
@@ -333,15 +373,27 @@ export class HarnessRuntime {
     let gate: ReturnType<typeof pendingGatesFromLog>[number] | undefined;
     try {
       await this.assertOwner(params.sessionId, profileId);
-      gate = pendingGatesFromLog(await this.store.read(params.sessionId)).find(
+      const events = await this.store.read(params.sessionId);
+      gate = pendingGatesFromLog(events).find(
         (candidate) => candidate.callId === params.callId,
       );
       if (gate === undefined) {
         throw new GateNotFoundError(params.callId);
       }
+      /*
+       * A resume uses the model the turn was started with, not the task
+       * assignment as it stands now. The harness is frozen and its hash includes
+       * the pair; re-routing a card answered five minutes later would be a
+       * different turn wearing the old one's id.
+       */
+      const started = events.find(
+        (event) =>
+          event.type === 'turn.started' && event.turnId === gate?.turnId,
+      );
       prepared = await this.prepare(
         gate.agentId ?? profileId,
         params.sessionId,
+        started?.type === 'turn.started' ? {model: started.model} : {},
       );
     } catch (error) {
       yield failed(params.sessionId, error);
@@ -722,11 +774,14 @@ export class HarnessRuntime {
       enabledSkills: [...spec.context.skills.enabled],
       mcpServerIds:
         spec.tools.mcpServerIds === 'all' ? null : [...spec.tools.mcpServerIds],
-      model: spec.model,
       /*
        * The safe policy comes back too. A version is a whole harness, and
        * restoring one that changed how much room a turn had while leaving the
        * room at the new value would be a partial undo presented as a whole one.
+       *
+       * The model is not restored: it is an app-wide task assignment now, not a
+       * fact about one bot, and putting an old pair back would undo a choice the
+       * person did not make in this dialog.
        */
       policy: {
         memoryPolicy: spec.context.memory.policy,
@@ -883,23 +938,6 @@ export class HarnessRuntime {
     if (this.store.delete !== undefined) {
       await this.store.delete(sessionId);
     }
-  }
-
-  /** Points a v2 conversation at a model of its own, or back at its agent's. */
-  async setSessionModel(
-    profileId: string,
-    sessionId: string,
-    model: import('@marimo/protocol').AgentModel | null,
-  ): Promise<void> {
-    await this.assertOwner(sessionId, profileId);
-    const event: import('@marimo/agent').SessionEvent = {
-      id: randomUUID(),
-      sessionId,
-      at: new Date().toISOString(),
-      type: 'session.model',
-      ...(model === null ? {} : {model}),
-    };
-    await this.store.append(sessionId, [event]);
   }
 
   /** Files a v2 conversation under a Space, or removes it from one. */
@@ -1829,6 +1867,7 @@ export class HarnessRuntime {
   private async prepare(
     profileId: string,
     sessionId?: string,
+    turn: TurnRunOptions = {},
   ): Promise<Prepared> {
     const settings = await this.options.settings.load();
     const profile = (await this.options.profiles.profiles()).find(
@@ -1846,7 +1885,6 @@ export class HarnessRuntime {
       (sessionId === undefined
         ? undefined
         : await this.options.sessionSpace?.(sessionId));
-    const sessionModel = modelOf(events);
     const spaceId =
       filed ?? profile.spaceId ?? workspaces.activeWorkspaceId ?? undefined;
     const workspaceRoot = workspaceRootFor(workspaces, spaceId);
@@ -1856,12 +1894,38 @@ export class HarnessRuntime {
       );
     }
 
+    /*
+     * Which model answers. An explicit pair wins — a resume has one, and a
+     * helper inherits its parent's — and otherwise the task assignment decides.
+     * The pair is then started (or found already warm) before anything is sent,
+     * because the address exists only in the process that started the engine.
+     */
+    const model: AgentModel =
+      turn.model ?? {
+        provider: LOCAL_PROVIDER_ID,
+        model: settings.localModels.tasks[turn.task ?? 'chat'],
+      };
+    if (!(model.model in LOCAL_MODELS)) {
+      throw new HarnessRuntimeError(
+        `This turn was set to “${model.model}”, which this build no longer ` +
+          'runs. Start a new turn to answer on a local model.',
+      );
+    }
+    const modelId = model.model as LocalModelId;
+    const ensured =
+      this.options.ensureModel === undefined
+        ? ({ok: true, baseUrl: 'http://127.0.0.1/v1'} as const)
+        : await this.options.ensureModel(modelId);
+    if (!ensured.ok) {
+      throw new HarnessRuntimeError(ensured.problem);
+    }
+
     const resolved = await resolveAgentConfig({
       settings,
       profile,
-      readSecret: this.options.readSecret,
+      model,
+      baseUrl: ensured.baseUrl,
       workspaceRoot,
-      ...(sessionModel === undefined ? {} : {sessionModel}),
     });
     if (!resolved.ok) {
       throw new HarnessRuntimeError(resolved.problem);
@@ -1892,22 +1956,24 @@ export class HarnessRuntime {
         ...(profile.mcpServerIds === undefined
           ? {}
           : {mcpServerIds: profile.mcpServerIds}),
-        ...(profile.model === undefined ? {} : {model: profile.model}),
         ...(profile.policy === undefined
           ? {}
           : {harness: policyOverrides(profile.policy)}),
       },
       app: {
-        model: {provider: config.provider, model: config.model},
+        model,
+        /*
+         * The engine's window is 32K, and the harness is told so. A profile may
+         * still ask for a smaller compaction target; the clamp here is the
+         * ceiling it cannot raise.
+         */
+        contextLimit: workContextTokens(modelId),
         allowPrivateNetworkFetch: settings.allowPrivateNetworkFetch,
         memorySoftLimitBytes: settings.memorySoftLimitBytes,
         learning: {mode: 'propose' as const, retainTraces: false},
       },
       version: previous?.harnessVersion ?? this.options.version ?? 1,
       workspaceRoot,
-      ...(sessionModel === undefined
-        ? {}
-        : {conversation: {model: sessionModel}}),
     };
     let harness = resolveHarness(resolveInput);
     let parentVersion: number | undefined;
@@ -1924,6 +1990,7 @@ export class HarnessRuntime {
     return {
       profile,
       config,
+      model,
       harness,
       workspaceRoot,
       memory,
@@ -1965,7 +2032,7 @@ export class HarnessRuntime {
       resolveModel: () => this.llmFor(prepared.config),
       mcpTools: (harness) => this.mcpToolsFor(harness),
       resolveHelper: async (agent, signal) =>
-        await this.helperFor(agent, sessionId, signal),
+        await this.helperFor(agent, sessionId, signal, prepared.model),
       resumeSessions: (id) => this.helperSessions.get(id),
       rememberSessions: (id, sessions) => {
         this.helperSessions.set(id, sessions);
@@ -1998,9 +2065,15 @@ export class HarnessRuntime {
           ? {}
           : {
               delegate: async ({agent, task}) =>
-                await this.askAgent(profileId, agent, task),
+                await this.askAgent(profileId, agent, task, prepared.model),
               delegateTask: async ({agent, task}) =>
-                await this.startTask(profileId, agent, task, sessionId),
+                await this.startTask(
+                  profileId,
+                  agent,
+                  task,
+                  sessionId,
+                  prepared.model,
+                ),
             }),
       }),
     });
@@ -2077,6 +2150,7 @@ export class HarnessRuntime {
     agent: string,
     sessionId: string,
     signal: AbortSignal,
+    parentModel?: AgentModel,
   ): Promise<
     | {
         harness: HarnessSpec;
@@ -2102,7 +2176,11 @@ export class HarnessRuntime {
       };
     }
     try {
-      const prepared = await this.prepare(target.id, sessionId);
+      const prepared = await this.prepare(
+        target.id,
+        sessionId,
+        parentModel === undefined ? {} : {model: parentModel},
+      );
       const skills = this.skillToolsFor(target.id);
       return {
         harness: prepared.harness,
@@ -2161,6 +2239,7 @@ export class HarnessRuntime {
     agent: string,
     task: string,
     parentSessionId?: string,
+    parentModel?: AgentModel,
   ): Promise<{ok: boolean; result: string}> {
     if (this.options.createSession === undefined) {
       return {ok: false, result: 'Tasks are not available in this turn.'};
@@ -2197,6 +2276,7 @@ export class HarnessRuntime {
         target,
         created.id,
         task,
+        parentModel,
       ).catch(() => undefined);
       const title = created.title ?? task;
       return {
@@ -2219,10 +2299,19 @@ export class HarnessRuntime {
     target: AgentProfile,
     taskSessionId: string,
     task: string,
+    parentModel?: AgentModel,
   ): Promise<void> {
     let failure: string | undefined;
     try {
-      for await (const event of this.run(target.id, taskSessionId, task)) {
+      for await (const event of this.run(
+        target.id,
+        taskSessionId,
+        task,
+        undefined,
+        undefined,
+        undefined,
+        parentModel === undefined ? {} : {model: parentModel},
+      )) {
         if (event.type === 'turn.failed') {
           failure = event.message;
         }
@@ -2289,6 +2378,7 @@ export class HarnessRuntime {
     ownerProfileId: string,
     agent: string,
     task: string,
+    parentModel?: AgentModel,
   ): Promise<{ok: boolean; result: string}> {
     try {
       const profiles = await this.options.profiles.profiles();
@@ -2309,7 +2399,11 @@ export class HarnessRuntime {
         };
       }
       const owner = profiles.find((profile) => profile.id === ownerProfileId);
-      const prepared = await this.prepare(target.id);
+      const prepared = await this.prepare(
+        target.id,
+        undefined,
+        parentModel === undefined ? {} : {model: parentModel},
+      );
       /*
        * No skill index here. The bot being asked has no tools, so advertising a
        * skill it cannot load would be the prompt claiming a capability the turn
@@ -2372,7 +2466,6 @@ export class HarnessRuntime {
     return new OpenAiCompatLlm({
       model: config.model,
       baseUrl: config.baseUrl,
-      provider: config.provider,
       apiKey: config.apiKey,
       ...(config.maxOutputTokens === undefined
         ? {}
@@ -2461,18 +2554,6 @@ function spaceIdOf(
     }
   }
   return filed;
-}
-
-function modelOf(
-  events: readonly import('@marimo/agent').SessionEvent[],
-): import('@marimo/protocol').AgentModel | undefined {
-  let model: import('@marimo/protocol').AgentModel | undefined;
-  for (const event of events) {
-    if (event.type === 'session.model') {
-      model = event.model;
-    }
-  }
-  return model;
 }
 
 /** A profile's policy, in the shape the harness resolver merges. */

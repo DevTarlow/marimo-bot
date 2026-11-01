@@ -31,9 +31,11 @@ import type {CompanionSettings, TranscriptMessage} from '@marimo/protocol';
 import {Copy, Markdown} from './components/Markdown.js';
 import {gateCopy} from './gate-copy.js';
 import {useAgent} from './hooks/useAgent.js';
+import {useRecorder} from './hooks/useRecorder.js';
+import {useSpokenReplies} from './hooks/useSpokenReplies.js';
 
 export function Pet(): React.JSX.Element {
-  const agent = useAgent();
+  const agent = useAgent({surface: 'pet'});
   const [draft, setDraft] = useState('');
   /**
    * Whether the app can answer at all, from the same settings read below.
@@ -45,6 +47,7 @@ export function Pet(): React.JSX.Element {
    * met a second later.
    */
   const [canAnswer, setCanAnswer] = useState(true);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   /*
    * How much of the conversation floats above the moss, and how the window
    * behaves — the user's answers from Settings, which is in the *other* window.
@@ -64,6 +67,28 @@ export function Pet(): React.JSX.Element {
   clickThrough.current = settings.clickThrough;
 
   const busy = agent.busy;
+
+  const spoken = useSpokenReplies({
+    enabled: settings.speakReplies,
+    surface: 'pet',
+    turn: agent.lastTurn,
+    language: settings.speechLanguage,
+    voice: settings.speechVoice,
+  });
+  const recorder = useRecorder({
+    language: settings.speechLanguage,
+    onText: (transcript) => {
+      setDraft((current) =>
+        current.trim().length === 0
+          ? transcript
+          : `${current.trim()} ${transcript}`,
+      );
+      setVoiceError(null);
+    },
+    onError: (message) => {
+      setVoiceError(message);
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -254,6 +279,10 @@ export function Pet(): React.JSX.Element {
           );
         })}
 
+        {voiceError !== null && (
+          <div className="pet-bubble pet-error">{voiceError}</div>
+        )}
+
         {agent.error !== null && (
           <div className="pet-bubble pet-error">{agent.error}</div>
         )}
@@ -329,12 +358,54 @@ export function Pet(): React.JSX.Element {
         >
           +
         </button>
+        {settings.speakReplies && (
+          <button
+            type="button"
+            className={
+              recorder.recording ? 'pet-button pet-button-go' : 'pet-button'
+            }
+            aria-label={
+              recorder.recording ? 'Stop recording' : 'Speak to Marimo'
+            }
+            title={
+              recorder.recording
+                ? 'Listening — release to transcribe'
+                : 'Speak to Marimo'
+            }
+            disabled={!canAnswer || recorder.busy}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              void recorder.start();
+            }}
+            onPointerUp={() => {
+              void recorder.stop();
+            }}
+            onPointerLeave={() => {
+              if (recorder.recording) {
+                void recorder.stop();
+              }
+            }}
+          >
+            {recorder.busy ? '…' : recorder.recording ? '■' : '🎙'}
+          </button>
+        )}
+        {spoken.speaking && (
+          <button
+            type="button"
+            className="pet-button"
+            aria-label="Stop speaking"
+            title="Stop speaking"
+            onClick={spoken.stop}
+          >
+            ■
+          </button>
+        )}
         <input
           className="pet-input"
           value={draft}
           placeholder={
             !canAnswer
-              ? 'Pick a provider first'
+              ? 'Pick a model first'
               : busy
                 ? 'Working…'
                 : 'Ask Marimo Bot…'
@@ -343,7 +414,7 @@ export function Pet(): React.JSX.Element {
           title={
             canAnswer
               ? undefined
-              : 'Marimo Bot has no provider yet. Settings, in the main window, is where one is chosen.'
+              : 'Marimo Bot has no local model yet. Settings, in the main window, is where one is downloaded.'
           }
           disabled={!canAnswer}
           onChange={(event) => {

@@ -81,6 +81,7 @@ function mergeContext(
   options: {
     hasSpace: boolean;
     memorySoftLimitBytes?: number;
+    contextLimit?: number;
   },
 ): HarnessContext {
   const scopes = (
@@ -93,6 +94,12 @@ function mergeContext(
     profile?.memory?.softLimit ??
     options.memorySoftLimitBytes ??
     builtin.memory.softLimit;
+
+  const compaction = {
+    ...builtin.compaction,
+    ...profile?.compaction,
+    ...conversation?.compaction,
+  };
 
   return {
     memory: {
@@ -107,11 +114,16 @@ function mergeContext(
       enabled: [],
       advertise: true,
     },
-    compaction: {
-      ...builtin.compaction,
-      ...profile?.compaction,
-      ...conversation?.compaction,
-    },
+    compaction:
+      options.contextLimit === undefined
+        ? compaction
+        : {
+            ...compaction,
+            maxContextTokens: Math.min(
+              compaction.maxContextTokens,
+              options.contextLimit,
+            ),
+          },
     spaceContext:
       options.hasSpace &&
       (conversation?.spaceContext ??
@@ -209,6 +221,9 @@ export function resolveHarness(input: ResolveHarnessInput): HarnessSpec {
       ...(input.app.memorySoftLimitBytes === undefined
         ? {}
         : {memorySoftLimitBytes: input.app.memorySoftLimitBytes}),
+      ...(input.app.contextLimit === undefined
+        ? {}
+        : {contextLimit: input.app.contextLimit}),
     },
   );
   context.skills = {

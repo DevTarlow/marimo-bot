@@ -40,7 +40,6 @@ import {
 import type {ChatDocument} from './documents.js';
 import {resolveAppPaths} from './paths.js';
 import type {AppPaths} from './paths.js';
-import type {SecretRead} from './secrets.js';
 import {AgentRuntime} from './agent/runtime.js';
 
 describe('DocumentService', () => {
@@ -643,10 +642,7 @@ describe('AgentRuntime documents', () => {
       'utf8',
     );
 
-    // No key at all: nothing here needs a model, and the refusal cases go
-    // through paths that must not ask for one.
-    const noKey = async (): Promise<SecretRead> => ({state: 'absent'});
-    runtime = new AgentRuntime({paths, readSecret: noKey});
+    runtime = new AgentRuntime({paths});
   });
 
   afterEach(async () => {

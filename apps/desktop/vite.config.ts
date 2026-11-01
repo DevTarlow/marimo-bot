@@ -18,12 +18,18 @@ const DEV_PORT = 5273;
  * process: a scheme that is privileged but absent from `img-src` is still
  * blocked, and the picture would silently fail to appear with nothing but a
  * console message to explain it.
+ *
+ * `media-src` is what lets a spoken reply play. The voice model returns a WAV,
+ * the main process hands it back as a data URL, and without this line the
+ * element is refused before any sound is made — the same silent-failure shape as
+ * the missing image scheme.
  */
 const BUILD_POLICY = [
   "default-src 'self' file:",
   "script-src 'self' file:",
   "style-src 'self' 'unsafe-inline' file:",
   "img-src 'self' data: blob: file: marimo-asset:",
+  "media-src 'self' data: blob: file:",
   "font-src 'self' file:",
   "connect-src 'none'",
   "object-src 'none'",
@@ -43,6 +49,7 @@ const DEV_POLICY = [
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: marimo-asset:",
+  "media-src 'self' data: blob:",
   "font-src 'self' data:",
   `connect-src 'self' ws://localhost:${DEV_PORT} http://localhost:${DEV_PORT}`,
   "worker-src 'self' blob:",

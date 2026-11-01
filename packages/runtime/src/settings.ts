@@ -5,10 +5,11 @@
  * read and edit. Reads are forgiving: an unknown or malformed field falls back
  * to its default instead of discarding every other setting.
  *
- * Two kinds of value live here and only one of them is patchable. The
- * preferences are what the user chose; the model list each provider reported is a
- * *fact*, kept beside them in the same document and written only by the call that
- * fetched it — see `setAvailableModels`.
+ * Every value here is now a preference: the local model tasks, the idle
+ * timeout, the companion's speech settings, the layout and the escape hatches.
+ * What is installed and which quantization it is are facts about the disk and
+ * live beside the weights; a settings file that claimed them would be a card
+ * offering a model nobody downloaded.
  */
 import {mkdir, readFile, rename, writeFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
@@ -23,7 +24,7 @@ import {
   appearanceSchema,
   companionSettingsSchema,
   defaultAppearance,
-  defaultProviders,
+  defaultLocalModelsSettings,
   defaultRecallSettings,
   defaultCompanionSettings,
   DEFAULT_MEMORY_REVIEW_EVENTS,
@@ -31,18 +32,15 @@ import {
   defaultWindowState,
   defaultDiscordSettings,
   discordSettingsSchema,
-  providerIdSchema,
+  localModelsSettingsSchema,
   recallSettingsSchema,
   settingsPatchSchema,
   settingsSchema,
   windowStateSchema,
 } from '@marimo/protocol';
 import type {
-  AvailableModels,
-  ProviderConfig,
-  ProviderId,
-  Providers,
-  ProvidersPatch,
+  LocalModelsPatch,
+  LocalModelsSettings,
   SettingsPatch,
   StoredSettings,
 } from '@marimo/protocol';
@@ -50,24 +48,13 @@ import type {
 export function defaultStoredSettings(): StoredSettings {
   return {
     /*
-     * Which service answers, and what each one was last set to.
-     *
-     * A real provider rather than a placeholder: the app runs no backend of its
-     * own, so a default that answered nothing would be a fresh install unable to
-     * reply until somebody found the right screen. DeepSeek is the entry a first
-     * run can explain in one sentence, and every other provider is one pick away.
+     * Which local model does Chat, Images and Voice, and how long it stays
+     * warm. The defaults are the dedicated models rather than the all-in-one:
+     * a first run should get the best text answer this family offers, and the
+     * "one model for everything" preset is a choice somebody makes once they
+     * know the machine.
      */
-    providers: defaultProviders(),
-    /*
-     * Nothing fetched yet, and that is the honest state of a file that has never
-     * been pointed at an endpoint. Filling it in with the catalogue's names was
-     * tried and is worse than it looks: the window could not then tell a list an
-     * endpoint reported from one this build guessed, so it could neither say
-     * "these are placeholders" nor offer to go and ask. The names themselves are
-     * `fallbackModelsFor`, and the renderer's `modelChoicesFor` is what reaches
-     * for them where a picker is drawn.
-     */
-    availableModels: {},
+    localModels: defaultLocalModelsSettings(),
     appearance: defaultAppearance(),
     allowPrivateNetworkFetch: false,
     mcpServers: [],
@@ -213,15 +200,7 @@ export class SettingsStore {
         ...(raw as Record<string, unknown>),
       });
       if (upgraded.success) {
-        await this.write({
-          ...upgraded.data,
-          // Derived from the raw file, exactly as the read path below does it:
-          // the parse cannot see it, and writing the defaults over what a
-          // previous build fetched would throw away every model list.
-          availableModels: readAvailableModels(
-            (raw as {availableModels?: unknown} | undefined)?.availableModels,
-          ),
-        });
+        await this.write(upgraded.data);
       }
     }
 
@@ -283,15 +262,16 @@ export class SettingsStore {
             rawObject['recall'],
           ),
           /*
-           * The provider block, filled one provider at a time rather than whole.
-           *
-           * Deeper than `fillBlock` because the block holds a sub-object per
-           * provider: a typo in the Gemini address must not cost the user the
-           * provider they were actually using, nor the address they typed for
-           * their own server. It is also the one filler that has to read fields
-           * outside its own block — see `fillProviders`.
+           * The local model block, filled over its defaults the same way. A
+           * hand-edited task assignment that names a model this build does not
+           * ship costs the block, not the rest of the document, and a file from
+           * the provider build has no block at all, so it gets the defaults.
            */
-          providers: fillProviders(rawObject),
+          localModels: fillBlock(
+            localModelsSettingsSchema,
+            defaults.localModels,
+            rawObject['localModels'],
+          ),
         }
       : raw;
 
@@ -301,21 +281,7 @@ export class SettingsStore {
       : {...defaults};
 
     const result = settingsSchema.safeParse(candidate);
-    /*
-     * The fetched lists are attached after the parse rather than inside it.
-     *
-     * They are derived from the raw file and never from a patch, so a malformed
-     * one falls back to the catalogue's placeholder instead of failing a document
-     * that holds every preference the user has.
-     */
-    this.cache = result.success
-      ? {
-          ...result.data,
-          availableModels: readAvailableModels(
-            (raw as {availableModels?: unknown} | undefined)?.availableModels,
-          ),
-        }
-      : defaults;
+    this.cache = result.success ? result.data : defaults;
     return this.cache;
   }
 
@@ -344,15 +310,13 @@ export class SettingsStore {
         ? {...current.recall, ...definedOnly(defined.recall)}
         : current.recall;
       /*
-       * The provider block is merged per provider, not per block.
-       *
-       * Setting one base URL must not mean sending the other four addresses back:
-       * a window holding a copy from before another provider's edit would win, and
-       * the user's own server address would quietly revert to the catalogue's.
+       * The local model block is merged one task at a time, not one block at a
+       * time. Moving Chat must not send the other two assignments back from a
+       * window whose copy predates a change made in another one.
        */
-      const providers = defined.providers
-        ? mergeProviders(current.providers, defined.providers)
-        : current.providers;
+      const localModels = defined.localModels
+        ? mergeLocalModels(current.localModels, defined.localModels)
+        : current.localModels;
       const merged = settingsSchema.parse({
         ...current,
         ...defined,
@@ -360,60 +324,11 @@ export class SettingsStore {
         companion,
         appearance,
         recall,
-        providers,
+        localModels,
       });
-      const stored: StoredSettings = {
-        ...merged,
-        // Carried through, never patched: see `setAvailableModels`.
-        availableModels: current.availableModels,
-      };
-      await this.write(stored);
-      this.cache = stored;
-      return stored;
-    });
-  }
-
-  /**
-   * Records what one provider says it serves.
-   *
-   * A model the user had selected there may no longer exist, so that provider's
-   * default is moved to something the endpoint actually offers rather than left
-   * pointing at a retired name — which would fail the next turn for a reason
-   * nobody could see. A conversation's own choice is left alone: it was made on
-   * purpose, and the refusal it earns is a sentence about that model.
-   *
-   * No other provider is touched. The lists are answers about one endpoint each,
-   * and a store that rewrote its neighbours would be inventing answers.
-   */
-  async setAvailableModels(
-    provider: ProviderId,
-    models: string[],
-  ): Promise<StoredSettings> {
-    const unique = [...new Set(models.filter((id) => id.length > 0))];
-    if (unique.length === 0) {
-      return await this.load();
-    }
-
-    return await this.enqueue(async () => {
-      const current = await this.load();
-      const config = current.providers.configs[provider];
-      const stored: StoredSettings = {
-        ...current,
-        providers: {
-          ...current.providers,
-          configs: {
-            ...current.providers.configs,
-            [provider]: {
-              ...config,
-              model: chooseModel(unique, config.model),
-            },
-          },
-        },
-        availableModels: {...current.availableModels, [provider]: unique},
-      };
-      await this.write(stored);
-      this.cache = stored;
-      return stored;
+      await this.write(merged);
+      this.cache = merged;
+      return merged;
     });
   }
 
@@ -493,170 +408,24 @@ function fillBlock<T extends object>(
   return parsed.success && parsed.data ? parsed.data : defaults;
 }
 
-/** Keep the current model when it still exists; otherwise pick a fresh one. */
-export function chooseModel(available: string[], current: string): string {
-  if (available.includes(current)) {
-    return current;
-  }
-  /*
-   * Prefer a fast tier when the previous default has been retired: the cheap
-   * model is the least surprising thing to land on, and a provider that has
-   * dropped its flagship should not silently move somebody onto its most
-   * expensive one.
-   */
-  return (
-    available.find((id) => /flash|mini|lite|small|fast/i.test(id)) ??
-    available[0]!
-  );
-}
-
 /**
- * The provider block, filled one provider at a time.
+ * Applies a local-model patch over what is stored.
  *
- * Deeper than a single `fillBlock` because the block holds one sub-object per
- * provider: a typo in the Gemini address must not cost the user the provider they
- * were actually using, or the address they typed for their own server.
- *
- * This is also the one filler that reads fields outside its own block, and that
- * is the whole reason it is a function rather than a `fillBlock` call. A settings
- * file written by the build that had a provider catalogue holds a top-level
- * `model` and `baseUrl` — the schema this build ships no longer declares them, so
- * a lenient read would drop both — and those fields were DeepSeek's, because it
- * was the only provider then. They fill DeepSeek's entry here, and their presence
- * is what says such a file is *pointed* at DeepSeek rather than at this build's
- * default. Without that second half, an upgrade would keep the user's address in
- * a config nothing selects.
+ * The three task assignments are merged one at a time, so moving Chat leaves
+ * Vision and Voice exactly as another window last wrote them. `idleMinutes` is a
+ * single number and is simply replaced when present. The capability validation
+ * happens on the merged block in `settingsSchema.parse`, not here: a patch naming
+ * one task is not asked to prove the other two.
  */
-function fillProviders(raw: Record<string, unknown>): Providers {
-  const defaults = defaultProviders();
-  const source = asRecord(raw['providers']);
-  const rawConfigs = asRecord(source['configs']);
-  const legacy: Partial<ProviderConfig> = {};
-  const legacyBaseUrl = raw['baseUrl'];
-  const legacyModel = raw['model'];
-  if (typeof legacyBaseUrl === 'string' && legacyBaseUrl.length > 0) {
-    legacy.baseUrl = legacyBaseUrl;
-  }
-  if (typeof legacyModel === 'string' && legacyModel.length > 0) {
-    legacy.model = legacyModel;
-  }
-
-  const active = providerIdSchema.safeParse(source['active']);
-  const configs = {} as Record<ProviderId, ProviderConfig>;
-  for (const id of providerIdSchema.options) {
-    configs[id] = fillProviderConfig(
-      defaults.configs[id],
-      rawConfigs[id],
-      id === 'deepseek' ? legacy : {},
-    );
-  }
+export function mergeLocalModels(
+  current: LocalModelsSettings,
+  patch: LocalModelsPatch,
+): LocalModelsSettings {
   return {
-    active: active.success
-      ? active.data
-      : Object.keys(legacy).length > 0
-        ? 'deepseek'
-        : defaults.active,
-    configs,
+    tasks: {
+      ...current.tasks,
+      ...(patch.tasks === undefined ? {} : definedOnly(patch.tasks)),
+    },
+    idleMinutes: patch.idleMinutes ?? current.idleMinutes,
   };
-}
-
-function fillProviderConfig(
-  defaults: ProviderConfig,
-  raw: unknown,
-  legacy: Partial<ProviderConfig> = {},
-): ProviderConfig {
-  const source = asRecord(raw);
-  return {
-    // The block's own value wins; a legacy top-level field only fills a gap.
-    baseUrl: firstNonEmpty([
-      source['baseUrl'],
-      legacy.baseUrl,
-      defaults.baseUrl,
-    ]),
-    model: firstNonEmpty([source['model'], legacy.model, defaults.model]),
-    /*
-     * A file from before this field existed has no answer, and the safe one is
-     * the keychain: a key that was encrypted stays encrypted, and a machine
-     * without one still refuses rather than writing a secret readable.
-     */
-    keyStorage: providerKeyStorageOrDefault(source['keyStorage'], defaults),
-  };
-}
-
-function providerKeyStorageOrDefault(
-  raw: unknown,
-  defaults: ProviderConfig,
-): ProviderConfig['keyStorage'] {
-  return raw === 'plaintext' || raw === 'keychain'
-    ? raw
-    : defaults.keyStorage;
-}
-
-function firstNonEmpty(candidates: unknown[]): string {
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.length > 0) {
-      return candidate;
-    }
-  }
-  return '';
-}
-
-/**
- * What each provider last reported, and only that.
- *
- * A provider this file does not mention — or one whose value is not a list of
- * names — comes back *absent* rather than filled with the catalogue's
- * placeholders. That fallback used to live here, and it was the wrong side of
- * the line: a placeholder is a guess about an endpoint nobody asked, and a
- * reader that cannot tell it from an answer can only show it as one. The picker
- * that has to show something before the first fetch reaches for the same names
- * through `modelChoicesFor`, where it can say which of the two it is showing.
- *
- * A list stored before the catalogue was keyed by provider was a flat array, and
- * it was DeepSeek's.
- */
-function readAvailableModels(raw: unknown): AvailableModels {
-  const byProvider = asRecord(raw);
-  const legacyDeepSeek = Array.isArray(raw) ? raw : undefined;
-  const stored: AvailableModels = {};
-  for (const id of providerIdSchema.options) {
-    const list = storedModelList(
-      byProvider[id] ?? (id === 'deepseek' ? legacyDeepSeek : undefined),
-    );
-    if (list !== undefined) {
-      stored[id] = list;
-    }
-  }
-  return stored;
-}
-
-/** The names a stored value holds, or `undefined` when it holds no answer. */
-function storedModelList(value: unknown): string[] | undefined {
-  const list = Array.isArray(value)
-    ? value.filter(
-        (entry): entry is string =>
-          typeof entry === 'string' && entry.length > 0,
-      )
-    : [];
-  return list.length > 0 ? list : undefined;
-}
-
-/**
- * Applies a provider patch over what is stored.
- *
- * Each named provider is merged into its own config, so a patch that changes only
- * the active provider leaves the other addresses exactly as they were.
- */
-export function mergeProviders(
-  current: Providers,
-  patch: ProvidersPatch,
-): Providers {
-  const configs = {...current.configs};
-  for (const id of providerIdSchema.options) {
-    const next = patch.configs?.[id];
-    if (next) {
-      configs[id] = {...configs[id], ...definedOnly(next)};
-    }
-  }
-  return {active: patch.active ?? current.active, configs};
 }

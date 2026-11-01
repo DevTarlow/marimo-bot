@@ -13,7 +13,7 @@
  */
 import {randomUUID} from 'node:crypto';
 
-import type {AgentModel} from '@marimo/protocol';
+import type {AgentModel, Attachment} from '@marimo/protocol';
 
 import {harnessHash} from '../harness/version.js';
 import type {HarnessSpec} from '../harness/spec.js';
@@ -39,6 +39,8 @@ export interface RunParams {
   harness: HarnessSpec;
   /** Prompt text that belongs to this turn, not to the bot. */
   instruction?: string;
+  /** Images this message carries, as paths relative to the Space. */
+  attachments?: readonly Attachment[];
   /** Session metadata, when this turn is the first in a new conversation. */
   session?: {title: string; spaceId?: string; purpose?: 'bot-builder'};
 }
@@ -195,6 +197,9 @@ export class TurnEngine {
           turnId,
           type: 'user.message',
           text: params.text,
+          ...(params.attachments === undefined || params.attachments.length === 0
+            ? {}
+            : {attachments: [...params.attachments]}),
         },
         {
           ...this.stamp(params.sessionId),
@@ -222,6 +227,9 @@ export class TurnEngine {
         history: [...before, ...opening],
         mode: 'run',
         text: params.text,
+        ...(params.attachments === undefined || params.attachments.length === 0
+          ? {}
+          : {attachments: [...params.attachments]}),
         ...(params.instruction === undefined
           ? {}
           : {instruction: params.instruction}),
@@ -319,6 +327,7 @@ export class TurnEngine {
     mode: 'run' | 'resume';
     text?: string;
     instruction?: string;
+    attachments?: readonly Attachment[];
     decisions?: readonly GateDecision[];
   }): AsyncGenerator<EngineUpdate> {
     const state: TurnState = {
@@ -359,6 +368,9 @@ export class TurnEngine {
               ...(params.instruction === undefined
                 ? {}
                 : {instruction: params.instruction}),
+              ...(params.attachments === undefined
+                ? {}
+                : {attachments: params.attachments}),
               signal: state.controller.signal,
             })
           : this.driver.resume({

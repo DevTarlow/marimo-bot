@@ -29,8 +29,8 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 
 import type {
-  AgentModel,
   AgentProfile,
+  PickedFile,
   ThemeMode,
   AgentUiEvent,
   PendingGate,
@@ -125,6 +125,14 @@ export interface AgentController {
   pending: PendingGate[];
   live: LiveTurn | null;
   /**
+   * The answer a finished turn produced, and the surface that asked.
+   *
+   * The completion event carries an origin that is not in the stored log; this
+   * is the one place it survives long enough for the speaking hook to notice.
+   * `id` is the message id, so a re-render does not speak the same answer twice.
+   */
+  lastTurn: {id: string; text: string; origin?: 'window' | 'pet'} | null;
+  /**
    * Work the lead has handed to another agent, by the parent's tool call id.
    *
    * Emptied when the turn ends, however it ends. A thread that kept spinning
@@ -156,10 +164,18 @@ export interface AgentController {
    * passed through rather than checked here: who is a participant is a fact about
    * the stored conversation, and the window's copy of it is a copy.
    */
+  /**
+   * Sends one message.
+   *
+   * `attachments` are the images the composer is handing over; each one still
+   * names a path relative to the Space, because the main process resolves it
+   * again against the same guard the file tools use.
+   */
   send: (
     text: string,
     origin?: 'window' | 'pet',
     agentId?: string,
+    attachments?: readonly PickedFile[],
   ) => Promise<boolean>;
   decide: (callId: string, confirmed: boolean) => Promise<void>;
   stop: () => Promise<void>;
@@ -265,17 +281,6 @@ export interface AgentController {
   moveSession: (sessionId: string, workspaceId: string | null) => Promise<void>;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   /**
-   * Points one conversation at a model of its own, or `null` to stop.
-   *
-   * The pair, never an id: the caller is the composer, whose list came from one
-   * provider's catalogue, and a bare id would let a model from one endpoint be
-   * stored against another.
-   */
-  setSessionModel: (
-    sessionId: string,
-    model: AgentModel | null,
-  ) => Promise<void>;
-  /**
    * Names the agents in a conversation, lead first.
    *
    * A group is something a chat grows into, so this is not a field of creating
@@ -287,7 +292,10 @@ export interface AgentController {
   removeSession: (sessionId: string) => Promise<void>;
 }
 
-export function useAgent(): AgentController {
+export function useAgent(
+  options: {surface?: 'window' | 'pet'} = {},
+): AgentController {
+  const surface = options.surface ?? 'window';
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<AgentProfile | undefined>();
@@ -297,6 +305,13 @@ export function useAgent(): AgentController {
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [storedPending, setStoredPending] = useState<PendingGate[]>([]);
   const [live, setLive] = useState<LiveTurn | null>(null);
+  const [lastTurn, setLastTurn] = useState<{
+    id: string;
+    text: string;
+    origin?: 'window' | 'pet';
+  } | null>(null);
+  /** The live answer as it streams, for the completion that clears it. */
+  const liveText = useRef('');
   const [delegations, setDelegations] = useState<Record<string, Delegation>>(
     {},
   );
@@ -641,6 +656,7 @@ export function useAgent(): AgentController {
       switch (event.type) {
         case 'turn.started':
           if (forUs) {
+            liveText.current = '';
             setLive({
               messageId: event.messageId,
               text: '',
@@ -653,6 +669,7 @@ export function useAgent(): AgentController {
 
         case 'text.delta':
           if (forUs) {
+            liveText.current += event.text;
             setLive((turn) =>
               turn === null ? turn : {...turn, text: turn.text + event.text},
             );
@@ -850,6 +867,18 @@ export function useAgent(): AgentController {
            */
           const id = openSession.current;
           const active = profileRef.current;
+          if (
+            forUs &&
+            event.type === 'turn.completed' &&
+            liveText.current.trim().length > 0
+          ) {
+            setLastTurn({
+              id: event.messageId,
+              text: liveText.current,
+              ...(event.origin === undefined ? {} : {origin: event.origin}),
+            });
+          }
+          liveText.current = '';
           if (forUs) {
             /*
              * The helpers go with the turn, whatever ended it. A thread is only
@@ -944,8 +973,9 @@ export function useAgent(): AgentController {
   const send = useCallback(
     async (
       text: string,
-      origin: 'window' | 'pet' = 'window',
+      origin: 'window' | 'pet' = surface,
       agentId?: string,
+      attachments?: readonly PickedFile[],
     ): Promise<boolean> => {
       if (profile === undefined || sessionId === null) {
         return false;
@@ -970,6 +1000,16 @@ export function useAgent(): AgentController {
           // Absent rather than `undefined`: the schema has the field optional,
           // and the lead is what answers when nobody was named.
           ...(agentId === undefined ? {} : {agentId}),
+          ...(attachments === undefined || attachments.length === 0
+            ? {}
+            : {
+                attachments: attachments
+                  .filter((file) => file.kind === 'image')
+                  .map((file) => ({
+                    path: file.relative,
+                    kind: 'image' as const,
+                  })),
+              }),
         });
         /*
          * Refused — a turn already running, an unknown conversation. The refusal
@@ -988,7 +1028,7 @@ export function useAgent(): AgentController {
         return false;
       }
     },
-    [profile, sessionId],
+    [profile, sessionId, surface],
   );
 
   const decide = useCallback(
@@ -1007,6 +1047,7 @@ export function useAgent(): AgentController {
           sessionId,
           callId,
           confirmed,
+          origin: surface,
         });
       } catch (failure) {
         setError(describe(failure));
@@ -1153,33 +1194,6 @@ export function useAgent(): AgentController {
     [profile],
   );
 
-  const setSessionModel = useCallback(
-    async (sessionId: string, model: AgentModel | null): Promise<void> => {
-      if (profile === undefined) {
-        return;
-      }
-      try {
-        const {session} = await window.marimo.call('sessions.setModel', {
-          profileId: profile.id,
-          sessionId,
-          model,
-        });
-        /*
-         * The answer is the stored entry, not the value that was asked for: a
-         * cleared choice comes back with no `model` at all, and the composer
-         * reads that absence as "following the agent" rather than as a model id
-         * it should keep showing.
-         */
-        setSessions((current) =>
-          current.map((entry) => (entry.id === session.id ? session : entry)),
-        );
-      } catch (failure) {
-        setError(describe(failure));
-      }
-    },
-    [profile],
-  );
-
   /**
    * Names the agents in a conversation, lead first.
    *
@@ -1297,6 +1311,7 @@ export function useAgent(): AgentController {
     messages,
     pending,
     live,
+    lastTurn,
     delegations,
     outbox,
     busy,
@@ -1327,7 +1342,6 @@ export function useAgent(): AgentController {
     openWorkspace,
     moveSession,
     renameSession,
-    setSessionModel,
     setParticipants,
     removeSession,
   };

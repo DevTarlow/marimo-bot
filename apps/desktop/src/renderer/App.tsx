@@ -12,9 +12,8 @@
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
-import {COMMAND_IDS, COMMANDS, PROVIDERS, THEME_MODES} from '@marimo/protocol';
+import {COMMAND_IDS, COMMANDS, LOCAL_MODELS, THEME_MODES} from '@marimo/protocol';
 import type {
-  AgentModel,
   AppInfo,
   ProfileCatalog,
   PublicSettings,
@@ -29,14 +28,15 @@ import {Onboarding} from './components/Onboarding.js';
 import {Participants} from './components/Participants.js';
 import {RecallIntro} from './components/RecallIntro.js';
 import {Search} from './components/Search.js';
-import {Settings, PROVIDER_SECTION} from './components/Settings.js';
+import {Settings} from './components/Settings.js';
+import {MODELS_SECTION} from './components/ModelsSection.js';
 import {Setup} from './components/Setup.js';
 import {Transcript} from './components/Transcript.js';
 import {WorkspaceRail} from './components/WorkspaceRail.js';
 import {firstRunScreen} from './first-run.js';
 import type {FirstRunPhase} from './first-run.js';
 import {useAgent} from './hooks/useAgent.js';
-import {modelChoicesFor} from './model-search.js';
+import {useSpokenReplies} from './hooks/useSpokenReplies.js';
 import {sessionMembers} from './participants.js';
 import {
   DEFAULT_DOCUMENTS_LIBRARY_SHARE,
@@ -54,11 +54,10 @@ export function App(): React.JSX.Element {
   /**
    * The section Settings should open on, when something sent the user there.
    *
-   * The composer's model picker is the caller that exists: a conversation pinned
-   * to a provider nobody has fetched can offer that provider's names only as
-   * placeholders, and the one button that asks an endpoint what it serves — Fetch
-   * Models — lives in the Provider card. Landing on eight folded headings would
-   * leave the user to finish the route they were just sent down.
+   * The composer's model badge is the caller that exists: it opens Settings on
+   * the Models card, which is where the downloads, the task assignments and the
+   * sleep state live. Landing on eight folded headings would leave the user to
+   * find the card they were just sent to.
    */
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
@@ -139,6 +138,17 @@ export function App(): React.JSX.Element {
    */
   const [setupPhase, setSetupPhase] = useState<FirstRunPhase>('unknown');
   const agent = useAgent();
+  const spoken = useSpokenReplies({
+    enabled: settings?.companion.speakReplies ?? false,
+    surface: 'window',
+    turn: agent.lastTurn,
+    ...(settings === null
+      ? {}
+      : {
+          language: settings.companion.speechLanguage,
+          voice: settings.companion.speechVoice,
+        }),
+  });
 
   /*
    * Stable, because an effect below depends on it: a function rebuilt on every
@@ -158,6 +168,31 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     loadSettings();
+  }, [loadSettings]);
+
+  /*
+   * The model badge is a live fact, not a copy of the last settings read. A
+   * turn can wake a model without changing any preference, and a download can
+   * finish while the window is scrolled elsewhere; both arrive as events, and a
+   * badge that only moved on the next settings write would be wrong exactly when
+   * somebody is watching it.
+   */
+  useEffect(() => {
+    const off = window.marimo.onEvent((event) => {
+      if (event.type === 'model.status') {
+        setSettings((current) =>
+          current === null
+            ? current
+            : {...current, localModels: event.status},
+        );
+      } else if (
+        event.type === 'model.installed' ||
+        event.type === 'model.failed'
+      ) {
+        loadSettings();
+      }
+    });
+    return off;
   }, [loadSettings]);
 
   /*
@@ -371,89 +406,43 @@ export function App(): React.JSX.Element {
   });
 
   /*
-   * Which model will answer, and where that choice lives.
+   * What the composer names, and what the Models card would say about it.
    *
-   * Three levels, resolved in one order: the conversation's own choice, then its
-   * agent's, then the app's. `SessionSummary.model` and `AgentProfile.model` are
-   * both absent until somebody picks one, so the picker needs the pair of facts —
-   * what will answer, and whether there is a choice here to give up.
-   *
-   * A pair rather than an id throughout. The composer's list comes from one
-   * provider's catalogue, so the pair is what says which endpoint a chosen id
-   * belongs to; a bare string would let the same name from two services be
-   * swapped for one another silently.
+   * The badge is informational: the turn's task decides which model actually
+   * answers, and the main process resolves it. What the person needs to see is
+   * which family is warm — the voice model when speech is on, the chat model
+   * otherwise — and a dot for the process state, so "why is it thinking" and
+   * "why did it go quiet" have a visible answer.
    */
-  const sessionModel = agent.sessions.find(
-    (entry) => entry.id === agent.sessionId,
-  )?.model;
-  const agentModel = agent.profile?.model;
-  const appModel: AgentModel | undefined =
+  const talkingModelId =
     settings === null
       ? undefined
-      : {
-          provider: settings.providers.active,
-          model: settings.providers.configs[settings.providers.active].model,
-        };
-  const currentModel = sessionModel ?? agentModel ?? appModel;
-  /*
-   * The list the picker chooses within, and it is *this choice's* provider's.
-   *
-   * The resolution chain above has already decided which endpoint answers, so
-   * what the control offers is that endpoint's models: the ones it reported when
-   * the app has asked it, and the catalogue's names with `fetched: false` until
-   * then. Reading the active provider's list here instead was the bug — an agent
-   * or a conversation pinned elsewhere was handed an empty list belonging to an
-   * endpoint it was not using.
-   */
-  const choices =
-    currentModel === undefined
+      : (settings.localModels.active?.id ??
+        (settings.companion.speakReplies
+          ? settings.localModels.tasks.voice
+          : settings.localModels.tasks.chat));
+  const talkingModel =
+    talkingModelId === undefined ? undefined : LOCAL_MODELS[talkingModelId];
+  const talkingStatus =
+    talkingModelId === undefined || settings === null
       ? undefined
-      : modelChoicesFor(
-          settings?.availableModels ?? {},
-          currentModel.provider,
-          currentModel.model,
-        );
-  /*
-   * The provider behind those names, when nobody has asked it what it serves.
-   *
-   * Two things follow from it and both are about not stating a guess as an
-   * answer: the picker says the names are this build's, and it offers the route
-   * to the one control that can replace them — Fetch Models, which lives in the
-   * Provider card because that is where the key it needs is.
-   *
-   * Nothing is claimed before the payload arrives: "nobody has asked" is a fact
-   * about a settings file, and a window that had not read one yet would be saying
-   * it about every provider it knows.
-   */
-  const unfetchedProvider =
-    currentModel !== undefined &&
-    settings !== null &&
-    choices?.fetched === false
-      ? currentModel.provider
-      : undefined;
-  const modelHint =
-    unfetchedProvider === undefined
-      ? undefined
-      : `${PROVIDERS[unfetchedProvider].label} has not been asked what it ` +
-        'serves yet, so these are the names this build ships with.';
-  /*
-   * What a model the conversation did not choose falls back to, in one word for
-   * the trigger. Absent is meaningful: it says this conversation has a choice of
-   * its own, which is the only state in which giving it up changes anything.
-   */
-  const inherited =
-    sessionModel !== undefined
-      ? undefined
-      : agentModel !== undefined
-        ? 'bot'
-        : 'default';
+      : settings.localModels.models[talkingModelId];
+  const modelState =
+    talkingStatus?.state === 'ready'
+      ? 'awake'
+      : talkingStatus?.state === 'starting'
+        ? 'waking'
+        : talkingStatus?.state === 'failed'
+          ? 'failed'
+          : 'resting';
+  const modelLabel = talkingModel?.shortLabel;
 
   /*
    * The transition, not the state. `settings.modelReady` is true on every launch
    * for anybody who has used the app, and offering recall to somebody who is
    * already using it would be the nag this is shaped to avoid — so the offer
    * belongs to the moment it goes from false to true, which is the first run
-   * being pointed at a provider that answers.
+   * finishing its model download.
    *
    * What `wasReady` may not record is the `false` a payload that has not arrived
    * yet produces, or every launch looks like that transition. It is written only
@@ -520,6 +509,15 @@ export function App(): React.JSX.Element {
    * and neither is something the conversation hook notices by itself.
    */
   const closeSetup = (pickedSpaceId?: string): void => {
+    /*
+     * The flag first, locally. The write below is a round trip, and `screen`
+     * is recomputed from it: a phase of `left` over a settings document that
+     * still says `setupSeen: false` would decide the flow is up again for as
+     * long as the write takes, which is exactly the frame a test catches.
+     */
+    setSettings((current) =>
+      current === null ? current : {...current, setupSeen: true},
+    );
     setSetupPhase('left');
     void window.marimo
       .call('settings.set', {patch: {setupSeen: true}})
@@ -564,6 +562,9 @@ export function App(): React.JSX.Element {
       if (!started.ok) {
         return started;
       }
+      setSettings((current) =>
+        current === null ? current : {...current, setupSeen: true},
+      );
       setSetupPhase('left');
       void window.marimo
         .call('settings.set', {patch: {setupSeen: true}})
@@ -681,9 +682,9 @@ export function App(): React.JSX.Element {
    * is happening. The screen's own buttons close it.
    *
    * Deferred, and only deferred, while the setup flow is up. That flow's own
-   * provider step is what raises this offer, and drawing a second full-window
+   * model step is what raises this offer, and drawing a second full-window
    * question over the step that just made it would hide the sentence saying the
-   * key worked. The offer is already standing by the time the flow closes, so
+   * download worked. The offer is already standing by the time the flow closes, so
    * this is a pause rather than a lost question.
    */
   if (
@@ -1002,15 +1003,16 @@ export function App(): React.JSX.Element {
            * thing a new user learns, and the first should have been the reason.
            *
            * There is no bundled model to wait for: what stops this install
-           * answering is a provider that has no key, a key that cannot be read,
-           * or an address nothing is listening on, and the sentence saying which
-           * is written by the process that looked.
+           * answering is a model that has not been downloaded, an engine that
+           * cannot start, or a file that was removed from under it — and the
+           * sentence saying which is written by the process that looked.
            *
            * This is the screen for somebody who has already met the flow and
            * still cannot answer — they deferred it, or their key stopped being
            * readable — which is why it offers Settings rather than the flow.
            */
           <Onboarding
+            settings={settings as PublicSettings}
             problem={
               settings?.modelProblem ??
               'The app has no way to answer yet. Settings will say what is missing.'
@@ -1019,6 +1021,7 @@ export function App(): React.JSX.Element {
               setShowSettings(true);
             }}
             onRestart={restartSetup}
+            onChanged={loadSettings}
           />
         ) : (
           <Transcript
@@ -1058,7 +1061,7 @@ export function App(): React.JSX.Element {
         {/*
           No box to type in until something can answer. The composer is the one
           control that promises a reply, so it appears with the reply rather than
-          before it — an install with no provider, or a key that cannot be read,
+          before it — an install with no model, or one whose engine will not start,
           would otherwise offer a field whose every message ends in the same
           refusal.
 
@@ -1070,36 +1073,18 @@ export function App(): React.JSX.Element {
           <Composer
             busy={busy}
             disabled={disabled || !agent.ready}
-            model={currentModel}
-            models={choices?.models ?? []}
-            {...(modelHint === undefined ? {} : {modelHint})}
-            {...(unfetchedProvider === undefined
-              ? {}
-              : {
-                  modelAction: {
-                    /*
-                     * Named, because the card it opens shows the *app's* provider
-                     * and the one that needs fetching is whichever this
-                     * conversation answers through: a row saying only "in
-                     * Settings" would leave the user to work out which of five
-                     * entries the button they were sent to belongs to.
-                     */
-                    label:
-                      `Fetch ${PROVIDERS[unfetchedProvider].label} models ` +
-                      'in Settings…',
-                    onUse: () => {
-                      setSettingsSection(PROVIDER_SECTION);
-                      setShowSettings(true);
-                    },
-                  },
-                })}
-            inherited={inherited}
-            onSelectModel={async (model) => {
-              const sessionId = agent.sessionId;
-              if (sessionId !== null) {
-                await agent.setSessionModel(sessionId, model);
-              }
+            modelLabel={modelLabel}
+            modelState={modelState}
+            onOpenModels={() => {
+              setSettingsSection(MODELS_SECTION);
+              setShowSettings(true);
             }}
+            voiceEnabled={settings?.companion.speakReplies ?? false}
+            {...(settings === null
+              ? {}
+              : {speechLanguage: settings.companion.speechLanguage})}
+            speaking={spoken.speaking}
+            onStopSpeaking={spoken.stop}
             /*
              * Asked for by conversation, not by space: the main process judges
              * every picked file against the space *this* conversation works in —
@@ -1162,8 +1147,8 @@ export function App(): React.JSX.Element {
                 }
               }
             }}
-            onSend={async (text, agentId) =>
-              await agent.send(text, 'window', agentId)
+            onSend={async (text, agentId, attachments) =>
+              await agent.send(text, 'window', agentId, attachments)
             }
             onStop={() => {
               void agent.stop();

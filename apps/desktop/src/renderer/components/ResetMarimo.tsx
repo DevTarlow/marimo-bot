@@ -103,8 +103,8 @@ export function ResetMarimo({
       <h4 className="settings-group">What goes, for good</h4>
       <ul className="settings-reset-list">
         <li>
-          Every bot: its identity, its abilities, the model it used, and its
-          conversations — including this one.
+          Every bot: its identity, its abilities, and its conversations —
+          including this one.
         </li>
         <li>
           Everything the bots remembered, what they worked out about you, and
@@ -113,9 +113,14 @@ export function ResetMarimo({
         <li>Scheduled jobs, and the record of how their last run went.</li>
         <li>The list of folders you loaded.</li>
         <li>
-          Every connector you added, and every key or password: your provider
-          keys, the ones you let the background runner read, and every connector
-          token. They cannot be recovered — you will type them in again.
+          Every connector you added and every secret it holds — the ones you let
+          the background runner read included. They cannot be recovered, and you
+          will type them in again.
+        </li>
+        <li>
+          The downloaded chat models, so the next launch downloads one again. If
+          you pointed the models at a folder of your own, that folder is left
+          alone.
         </li>
         <li>
           The search index and the downloaded search model, so switching search

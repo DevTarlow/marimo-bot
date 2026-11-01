@@ -3,3 +3,30 @@ Copyright (c) 2026 DevTarlow
 
 This product includes software developed at
 Marimo Bot (https://github.com/DevTarlow/marimo-bot).
+
+The app downloads and runs the following third-party artefacts on the user's
+machine. They are not distributed inside this repository or inside a packaged
+build.
+
+LFM3 models
+  Liquid AI, Inc.
+  LFM3-1.7B-GGUF, LFM3-VL-2B-GGUF, LFM3-Audio-2B-GGUF and LFM3-Omni-2B-GGUF
+  Licensed under the LFM Open License v1.0.
+  https://huggingface.co/collections/LiquidAI/lfm3
+  https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE
+
+llama.cpp
+  The ggml-org contributors
+  MIT License.
+  A pinned CPU build is downloaded from the official llama.cpp releases.
+  https://github.com/ggml-org/llama.cpp
+
+EmbeddingGemma 2 (Recall, optional)
+  Google DeepMind
+  Gemma Terms of Use.
+  Downloaded only when the user turns Recall on.
+  https://huggingface.co/google/embeddinggemma-300m
+
+The LFM3 models and EmbeddingGemma are downloaded by the app at the user's
+request; their licences travel with the downloaded files. The Apache-2.0 licence
+in LICENCE covers this repository's own source.

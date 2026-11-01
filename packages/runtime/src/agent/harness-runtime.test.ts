@@ -74,7 +74,6 @@ interface RuntimeDeps {
   profiles: ProfileStore;
   workspaces: WorkspaceStore;
   store: MemoryEventStore;
-  readSecret: () => Promise<{state: 'present'; value: string}>;
   now: () => Date;
   createId: () => string;
 }
@@ -104,7 +103,6 @@ async function setup(): Promise<{deps: RuntimeDeps; profileId: string}> {
       profiles,
       workspaces,
       store: new MemoryEventStore(),
-      readSecret: async () => ({state: 'present', value: 'test-key'}),
       now: () => new Date('2026-01-01T00:00:00.000Z'),
       createId: () => `id-${(counter += 1)}`,
     },
@@ -345,27 +343,6 @@ describe('HarnessRuntime', () => {
     expect(await runtime.transcript('s1')).toEqual([]);
   });
 
-  it('runs a conversation on its own model when it has one', async () => {
-    const driver = new ScriptedDriver([
-      [{type: 'step'}, {type: 'message', text: 'Hello'}, {type: 'done'}],
-    ]);
-    let seen: {provider: string; model: string} | undefined;
-    const {deps, profileId} = await setup();
-    const runtime = new HarnessRuntime({
-      ...deps,
-      driverFactory: (config) => {
-        seen = {provider: config.provider, model: config.model};
-        return driver;
-      },
-    });
-    await runtime.setSessionModel(profileId, 's1', {
-      provider: 'gemini',
-      model: 'gemini-flash',
-    });
-    await collect(runtime.run(profileId, 's1', 'Hello'));
-    expect(seen).toEqual({provider: 'gemini', model: 'gemini-flash'});
-  });
-
   it('asks another bot with its own instructions and memory', async () => {
     const {deps, profileId} = await setup();
     const other = await deps.profiles.create({
@@ -574,7 +551,7 @@ describe('HarnessRuntime', () => {
         enabledSkills: ['triage'],
       },
       app: {
-        model: {provider: 'gemini', model: 'gemini-flash'},
+        model: {provider: 'local', model: 'lfm3-1.7b'},
         allowPrivateNetworkFetch: false,
         learning: {mode: 'propose', retainTraces: false},
       },
@@ -601,7 +578,6 @@ describe('HarnessRuntime', () => {
       persona: 'Old persona.',
       enabledTools: ['current_time', 'read_file'],
       enabledSkills: ['triage'],
-      model: {provider: 'gemini', model: 'gemini-flash'},
     });
   });
 

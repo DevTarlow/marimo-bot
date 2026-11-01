@@ -37,10 +37,22 @@
  * where `chrome-sandbox` cannot be setuid-root. It is opt-in because it is a
  * real reduction in isolation and must not be what a normal run quietly gets.
  */
-import {mkdir, mkdtemp, readdir, rm, stat, writeFile} from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
+
+import {CHAT_PINS} from '@marimo/runtime';
 
 import {appIsRunning, startApp, stopApp} from './app-process.mjs';
 
@@ -72,6 +84,52 @@ function fail(message) {
 
 function ok(message) {
   console.log(`✓ ${message}`);
+}
+
+/**
+ * Puts a model on disk for the app to find.
+ *
+ * The window is what this check is about, not a four-gigabyte download. A sparse
+ * file of the pinned size, the marker the installer would have written, and a
+ * stand-in engine are enough for the host to believe a model is installed and
+ * for the setup flow to reach its "Ready" state — and they cost nothing.
+ *
+ * `MARIMO_MODEL_DIR` is what points the app at it. It is the same override a
+ * live run uses, so this is not a special path the product does not have.
+ */
+async function prepareModelFixture(userData) {
+  const root = join(userData, 'model');
+  await mkdir(join(root, 'engine'), {recursive: true});
+  await copyFile(
+    join(appRoot, 'scripts', 'fixtures', 'stub-engine.mjs'),
+    join(root, 'engine', 'llama-server'),
+  );
+  await chmod(join(root, 'engine', 'llama-server'), 0o755);
+
+  const pin = CHAT_PINS.models['lfm3-1.7b'];
+  const weights = pin.variants.q4.weights;
+  const dir = join(root, 'lfm3-1.7b');
+  await mkdir(dir, {recursive: true});
+  const handle = await open(join(dir, weights.file), 'w');
+  await handle.truncate(weights.bytes);
+  await handle.close();
+  await writeFile(
+    join(dir, 'local-model.json'),
+    `${JSON.stringify(
+      {
+        modelId: 'lfm3-1.7b',
+        variant: 'q4',
+        revision: pin.revision,
+        files: [
+          {name: weights.file, sha256: weights.sha256, bytes: weights.bytes},
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+  return root;
 }
 
 /** Waits for something, or gives up. */
@@ -108,6 +166,7 @@ async function main() {
    */
   const home = join(userData, 'home');
   await mkdir(home, {recursive: true});
+  const modelRoot = await prepareModelFixture(userData);
   const args = [appRoot, `--remote-debugging-port=${DEBUG_PORT}`];
   if (process.env['MARIMO_NO_SANDBOX'] === '1') {
     args.push('--no-sandbox');
@@ -119,6 +178,7 @@ async function main() {
     env: {
       ...process.env,
       MARIMO_USER_DATA_DIR: userData,
+      MARIMO_MODEL_DIR: modelRoot,
       HOME: home,
       USERPROFILE: home,
     },
@@ -414,23 +474,29 @@ async function main() {
     await press('Continue');
 
     /*
-     * The Provider step, now second. The local one, because it is the only entry
-     * that can be chosen without an account — and choosing it is what makes the
-     * app able to answer, which is what turns the step's own button on. The
-     * guided bot path needs that, so the model cannot wait until the end.
+     * The model step. A fresh install has a model fixture on disk, so the step
+     * should say it is ready rather than offer a download — which is what makes
+     * the rest of this check able to reach a composer.
      */
-    const choseProvider = await evaluate(`(() => {
-      const card = [...document.querySelectorAll('.capability-card')].find((entry) =>
-        entry.textContent.trim().startsWith('Local llama.cpp'),
+    const modelStep = await until('the model step', async () => {
+      const value = await evaluate(`(() => {
+        const card = document.querySelector('.model-setup-card');
+        if (card === null) {
+          return undefined;
+        }
+        return JSON.stringify({
+          ready: card.textContent.includes('Downloaded and checked'),
+          download: card.textContent.includes('Download and continue'),
+        });
+      })()`);
+      return value === undefined ? undefined : JSON.parse(value);
+    });
+    if (modelStep.ready !== true || modelStep.download !== false) {
+      fail(
+        `the model step did not see the installed model: ${JSON.stringify(modelStep)}`,
       );
-      if (card === undefined) {
-        return false;
-      }
-      card.click();
-      return true;
-    })()`);
-    if (choseProvider !== true) {
-      fail('the model step offers no local provider to choose');
+    } else {
+      ok('the first run sees the installed local model and offers to continue');
     }
     await press('Continue');
 
@@ -552,7 +618,19 @@ async function main() {
      * Answered with "Not now", which is a real answer and the one that leaves the
      * rest of this script a plain, configured app.
      */
-    await press('Not now');
+    /*
+     * Recall is offered only on the transition from "cannot answer" to "can",
+     * and this run starts with a model already on disk, so it may not appear.
+     * Either answer is honest; the card is not the subject of this check.
+     */
+    const offeredRecall = await evaluate(`[...document.querySelectorAll('h2')].some(
+      (entry) => entry.textContent.includes('Search by what you remember'),
+    )`);
+    if (offeredRecall === true) {
+      await press('Not now');
+    } else {
+      ok('recall was not offered, because this run started with a model');
+    }
 
     const afterSetup = JSON.parse(
       await evaluate(`(async () => {
@@ -1819,10 +1897,8 @@ async function main() {
 
       if (settingsScreen.hasModeSwitch) {
         fail('the single settings screen still draws a simple/power switch');
-      } else if (!settingsScreen.titles.includes('Provider')) {
-        fail(
-          'the settings screen cannot reach the provider that answers for it',
-        );
+      } else if (!settingsScreen.titles.includes('Models')) {
+        fail('the settings screen cannot reach the models that answer for it');
       } else if (!settingsScreen.titles.includes('Connectors')) {
         fail('the settings screen cannot reach the connectors it has');
       } else if (!settingsScreen.titles.includes('Commands')) {
@@ -1958,66 +2034,57 @@ async function main() {
       }
 
       /*
-       * The Provider card, which is the one thing here that decides whether the
-       * app can answer at all.
+       * The Models card, which is where the app gets an answer from now.
        *
        * A window with no model of its own has three facts to get right and no way
-       * for a unit test to see them together: the picker offers the catalogue in
-       * its own order, the key field is a field rather than a value — invariant 8,
-       * which is exactly the thing a renderer bug would leak — and Fetch Models
-       * exists, because a service's list of models is not something this app can
-       * know and a picker with no way to ask is a picker of yesterday's guesses.
+       * for a unit test to see them together: three task selects, four model
+       * cards, and a downloaded model that says which copy is installed. There
+       * is no key field here any more, and looking for one is the check that the
+       * provider screen is gone rather than merely renamed.
        */
-      await openSection('Provider');
-      const providerCard = await until(
-        'the Provider card to answer',
-        async () => {
-          const state = await evaluate(`(() => {
+      await openSection('Models');
+      const modelsCard = await until('the Models card to answer', async () => {
+        const state = await evaluate(`(() => {
           const section = [...document.querySelectorAll('.settings-section')]
-            .find((entry) => entry.querySelector('h3')?.textContent === 'Provider');
+            .find((entry) => entry.querySelector('h3')?.textContent === 'Models');
           if (section === undefined) return undefined;
-          const select = section.querySelector('select');
-          const key = section.querySelector('input[type="password"]');
+          const cards = [...section.querySelectorAll('.model-card')];
           return JSON.stringify({
-            options: select === null
-              ? null
-              : [...select.options].map((option) => option.textContent ?? ''),
-            selected: select === null ? null : select.value,
-            keyField: key !== null,
-            // The value, not the field: a password input that came back with a
-            // stored secret in it is the failure this asserts against.
-            keyValue: key === null ? null : key.value,
+            selects: section.querySelectorAll('select').length,
+            passwordFields: section.querySelectorAll('input[type="password"]').length,
+            cards: cards.length,
+            installed: cards
+              .map((card) => card.textContent ?? '')
+              .filter((text) => text.includes('Installed:')),
             buttons: [...section.querySelectorAll('button')].map(
               (button) => button.textContent ?? '',
             ),
           });
         })()`);
-          return state === undefined ? undefined : JSON.parse(state);
-        },
-      );
+        return state === undefined ? undefined : JSON.parse(state);
+      });
 
-      if (providerCard.keyField !== true) {
-        fail('the Provider card has no API-key field');
-      } else if (providerCard.keyValue !== '') {
-        // Invariant 8. The window is told whether a key is set, never what it is.
-        fail('the Provider card drew a stored key back into the field');
+      if (modelsCard.passwordFields !== 0) {
+        fail('the Models card still has an API-key field');
+      } else if (modelsCard.selects < 3) {
+        fail(
+          `the Models card offers ${String(modelsCard.selects)} task selects, not three`,
+        );
+      } else if (modelsCard.cards !== 4) {
+        fail(`the Models card draws ${String(modelsCard.cards)} models, not four`);
       } else if (
-        providerCard.options === null ||
-        providerCard.options.length < 5
+        !modelsCard.installed.some((text) => text.includes('4-bit')) ||
+        !modelsCard.installed.some((text) => text.includes('LFM3 1.7B'))
       ) {
         fail(
-          `the Provider picker offers ${String(providerCard.options?.length)} services`,
+          `the installed model is not named in the Models card: ${JSON.stringify(modelsCard.installed)}`,
         );
-      } else if (!providerCard.options.join(' ').includes('llama.cpp')) {
-        // The one entry that keeps a conversation on the machine. A catalogue
-        // without it is a catalogue where nothing is private by default.
-        fail('the Provider picker offers no server of your own');
-      } else if (!providerCard.buttons.some((label) => /fetch/i.test(label))) {
-        fail('the Provider card has no way to ask what a service serves');
+      } else if (
+        !modelsCard.buttons.some((label) => label.includes('Omni'))
+      ) {
+        fail('the Models card offers no one-model preset');
       } else {
-        ok(
-          'the Provider card offers the catalogue, no key value, and Fetch Models',
-        );
+        ok('the Models card offers three tasks and four models, with no key');
       }
 
       /*

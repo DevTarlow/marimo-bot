@@ -53,17 +53,29 @@ describe('firstRunScreen', () => {
   });
 
   /*
-   * A provider configured outside the flow — by hand, or in Settings before the
-   * flow got anywhere — is an app that answers, and an app that answers does not
-   * open on a wizard. This is the rule the old welcome card had as well.
+   * A model can already be on disk before the flow has ever run — preinstalled,
+   * or left by an install whose settings were lost. The flow still owns the
+   * first run: it asks for a Space and a first bot, which a working model does
+   * not answer. Once it has run, a working model opens the chat.
    */
-  it('opens on the chat when the app can already answer', () => {
+  it('offers the flow once even when a model is already on disk', () => {
     expect(
       firstRunScreen({
         loaded: true,
         modelReady: true,
         setupSeen: false,
         phase: 'unknown',
+      }),
+    ).toBe('setup');
+  });
+
+  it('opens on the chat when the flow has already run and the app can answer', () => {
+    expect(
+      firstRunScreen({
+        loaded: true,
+        modelReady: true,
+        setupSeen: true,
+        phase: 'left',
       }),
     ).toBe('app');
   });

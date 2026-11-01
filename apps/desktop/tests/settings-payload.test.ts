@@ -2,29 +2,35 @@
  * Invariant 8: secrets never cross to the renderer.
  *
  * The audit that prompted this file found the guard correct and **completely
- * untested** — `grep` for `PublicSettings`, `providerKeys` or `hasApiKey` across
- * every test file returned nothing. A rule with no test is a rule that holds
- * until somebody adds a field.
+ * untested** — `grep` for `PublicSettings` or `providerKeys` across every test
+ * file returned nothing. A rule with no test is a rule that holds until somebody
+ * adds a field.
  *
  * So this asserts the *shape* rather than one call site: whatever a settings
- * payload grows into, no key may appear in it.
+ * payload grows into, no secret may appear in it. The models are local now and
+ * need no key at all, but the payload still carries connector entries and a
+ * Discord block, and those are the fields a hurried change would be tempted to
+ * fill in "because the window already has a box for it".
  *
  * The shape is not a copy of what the window gets. It is what
  * `settingsForWindow` — the function `settings.get` builds its answer with —
  * returns for a real settings document, so a field added to the payload is in
  * front of the walk below rather than beside it.
- *
- * The payload grew a field that is *named* like a credential when the provider
- * catalogue came back — `providerKeys` — and it is the one field here whose name
- * the walk below cannot be allowed to pass over. It carries booleans, so the
- * second check is the one that matters: an entry named `...key` or `...keys`
- * holding anything but a boolean is a value that crossed the boundary, and this
- * file fails on it rather than trusting the name.
  */
 import {describe, expect, it} from 'vitest';
 
 import {defaultStoredSettings} from '@marimo/runtime';
-import type {PublicSettings} from '@marimo/protocol';
+import {
+  LOCAL_MODEL_IDS,
+  LOCAL_MODELS,
+  LOCAL_TASKS,
+} from '@marimo/protocol';
+import type {
+  LocalModelId,
+  LocalModelStatus,
+  LocalModelsStatus,
+  PublicSettings,
+} from '@marimo/protocol';
 
 import {settingsForWindow} from '../src/main/public-settings.js';
 
@@ -32,26 +38,14 @@ import {settingsForWindow} from '../src/main/public-settings.js';
 const FORBIDDEN = ['apikey', 'key', 'token', 'secret', 'password'] as const;
 
 /**
- * The words a field is allowed to be named after while holding a boolean.
- *
- * A key that is *stored* is a fact about a provider — "there is one" — and that
- * is the only thing this app reports. A key that is *held* is the credential
- * itself, and the two are one value apart.
- */
-const BOOLEAN_ONLY = ['key', 'keys', 'apikey', 'apikeys'] as const;
-
-/**
  * Whether a JSON value contains anything that looks like a stored credential.
  *
- * Checked by key name rather than by value: a key that happened to be short
- * would not be caught by a length or entropy test, and a false positive is
- * cheaper here than a leak.
- *
- * The last *word* of the name rather than the whole string, so `botToken` is
- * caught as well as `bot_token` — the app writes camelCase, and a guard that
- * only knew snake_case would pass over exactly the field a hurried change would
- * add. Whole words, so `secrets` (which names where a value goes, not what it
- * is) is not a false positive.
+ * Checked by key name rather than by value: a key that happened to be short would
+ * not be caught by a length or entropy test, and a false positive is cheaper here
+ * than a leak. The last *word* of the name rather than the whole string, so
+ * `botToken` is caught as well as `bot_token` — the app writes camelCase, and a
+ * guard that only knew snake_case would pass over exactly the field a hurried
+ * change would add.
  */
 function credentialFieldsIn(value: unknown, path = ''): string[] {
   if (value === null || typeof value !== 'object') {
@@ -75,91 +69,57 @@ function credentialFieldsIn(value: unknown, path = ''): string[] {
   );
 }
 
-/**
- * Every entry named after a key, and whether it holds a boolean.
- *
- * The value rather than the name, because the name is now allowed: `providerKeys`
- * exists so the window can draw a filled-in field, and it is exactly the field a
- * hurried change would put the key itself into — "it is already called keys" is
- * how that reads at the call site, and the payload would look identical from
- * outside.
- *
- * A *map* of booleans is the one shape that survives this: `providerKeys` is a
- * record, so the check is over its values and each of them has to be a boolean.
- * Any other object under a key-named field is a credential until proven
- * otherwise, which is the answer that costs a false positive rather than a leak.
- */
-function keyEntries(value: unknown, path = ''): string[] {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    return [];
-  }
-  return Object.entries(value as Record<string, unknown>).flatMap(
-    ([key, entry]) => {
-      const here = path.length > 0 ? `${path}.${key}` : key;
-      const lastWord = (key.split(/(?=[A-Z])|_/u).pop() ?? '').toLowerCase();
-      if (!BOOLEAN_ONLY.some((word) => lastWord === word)) {
-        return keyEntries(entry, here);
-      }
-      if (typeof entry === 'boolean') {
-        return [];
-      }
-      const values = plainRecord(entry);
-      if (values === undefined) {
-        return [here];
-      }
-      return Object.entries(values).flatMap(([name, flag]) =>
-        typeof flag === 'boolean' ? [] : [`${here}.${name}`],
-      );
-    },
-  );
+function modelStatus(id: LocalModelId): LocalModelStatus {
+  return {
+    id,
+    installed: false,
+    missing: ['weights'],
+    state: 'off',
+    usedFor: [],
+  };
 }
 
-/** The value as a plain object, or `undefined` for anything else. */
-function plainRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+function localModels(): LocalModelsStatus {
+  return {
+    engine: {present: true, platformSupported: true, tag: 'b11960'},
+    models: Object.fromEntries(
+      LOCAL_MODEL_IDS.map((id) => [id, modelStatus(id)]),
+    ) as Record<LocalModelId, LocalModelStatus>,
+    tasks: {
+      chat: 'lfm3-1.7b',
+      vision: 'lfm3-vl-2b',
+      voice: 'lfm3-audio-2b',
+    },
+    idleMinutes: 3,
+    recommendedVariant: 'q8',
+  };
 }
 
 describe('a settings payload', () => {
-  /*
-   * The real shape, as `settings.get` builds it: two providers have been asked
-   * what they serve, which is the state the window has to be able to draw an
-   * agent pinned to either of them from — and one provider has never been asked,
-   * which is a fact the payload carries by leaving it out.
-   */
+  /** The real shape, as `settings.get` builds it. */
   function payload(): PublicSettings {
     return settingsForWindow({
-      settings: {
-        ...defaultStoredSettings(),
-        availableModels: {
-          deepseek: ['deepseek-flash'],
-          gemini: ['gemini-3.6-flash'],
-        },
-      },
+      settings: defaultStoredSettings(),
       readiness: {ok: true},
-      providerKeys: {deepseek: true, llamacpp: false},
       encryptionAvailable: true,
+      localModels: localModels(),
+      hardware: {totalMemoryMb: 16_384, platform: 'linux', arch: 'x64'},
       profiles: [],
       activeProfileId: 'p1',
     });
   }
 
-  /*
-   * Every provider's list, not the active one's. The window had one catalogue
-   * before — whichever `providers.fetch` happened to fill last — so a picker
-   * standing for an agent on another endpoint had nothing to offer, and the
-   * single fact this test holds is that both answers cross.
-   */
-  it('carries the list of every provider that has been asked', () => {
-    expect(payload().availableModels).toEqual({
-      deepseek: ['deepseek-flash'],
-      gemini: ['gemini-3.6-flash'],
-    });
-    // And nobody has asked llama.cpp, so it is absent rather than filled in with
-    // the catalogue's placeholder: the window is what turns one into the other,
-    // and it can only do that while the two are still distinguishable.
-    expect(payload().availableModels.llamacpp).toBeUndefined();
+  it('carries the model situation and the hardware facts', () => {
+    const settings = payload();
+    expect(settings.localModels.engine.present).toBe(true);
+    expect(settings.localModels.tasks.chat).toBe('lfm3-1.7b');
+    expect(settings.hardware.totalMemoryMb).toBe(16_384);
+    expect(settings.modelReady).toBe(true);
+    // Every task is in the catalogue and every model has a label the window can
+    // draw without importing the catalogue's prose.
+    for (const task of LOCAL_TASKS) {
+      expect(LOCAL_MODELS[settings.localModels.tasks[task]].label.length).toBeGreaterThan(0);
+    }
   });
 
   it('carries no credential field anywhere in it', () => {
@@ -187,26 +147,6 @@ describe('a settings payload', () => {
         discord: {botToken: 'x'},
       }),
     ).toContain('discord.botToken');
-  });
-
-  /*
-   * The other half of invariant 8 now that a field is legitimately named like a
-   * credential: `providerKeys` may say *whether* a key is stored and never what
-   * it is, and the only way to tell those apart is to look at the value.
-   */
-  it('reports a stored key as a boolean, never as a string', () => {
-    expect(keyEntries(payload())).toEqual([]);
-  });
-
-  it('would notice a key smuggled into the provider booleans', () => {
-    expect(
-      keyEntries({...payload(), providerKeys: {deepseek: 'sk-test'}}),
-    ).toEqual(['providerKeys.deepseek']);
-    // The name alone is not the check: a boolean anywhere else is fine, and a
-    // string under a name that is not a key is somebody else's field.
-    expect(keyEntries({...payload(), providerKeys: {deepseek: true}})).toEqual(
-      [],
-    );
   });
 
   it('reports a connector as a name and a target, never a value', () => {

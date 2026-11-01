@@ -43,25 +43,9 @@ import type {AppPaths} from '../paths.js';
 import {FeedbackStore} from '../feedback.js';
 import {MemoryProposalStore} from '../memory-proposals.js';
 import {LastProfileError, ProfileStore} from '../profiles.js';
-import type {SecretRead} from '../secrets.js';
 import {WorkspaceStore} from '../workspaces.js';
 import {AgentRuntime} from './runtime.js';
 import type {AgentRuntimeOptions} from './runtime.js';
-
-/** A key, so a turn can resolve: the whole of what an injected engine used to be. */
-const keyPresent = async (): Promise<SecretRead> => ({
-  state: 'present',
-  value: 'test-key',
-});
-
-/**
- * No key at all, for the describes about refusal.
- *
- * The sentence it produces is the one a fresh install meets — the provider's own
- * label and the Settings card that fixes it — which is why the assertions below
- * are about those rather than about an engine that would not start.
- */
-const noKey = async (): Promise<SecretRead> => ({state: 'absent'});
 
 /**
  * An address that answers nothing.
@@ -123,9 +107,7 @@ describe('AgentRuntime', () => {
   function runtime(
     options: Partial<Omit<AgentRuntimeOptions, 'paths'>> = {},
   ): AgentRuntime {
-    // A key by default, because most of what a runtime does needs a config that
-    // resolves; the cases about refusal pass `noKey` deliberately.
-    return new AgentRuntime({paths, readSecret: keyPresent, ...options});
+    return new AgentRuntime({paths, ...options});
   }
 
   it('creates and lists a conversation without a turn', async () => {
@@ -304,9 +286,9 @@ describe('AgentRuntime', () => {
    * fresh install could not open the chat it is supposed to explain itself in —
    * the refusal would have nowhere to be shown.
    */
-  describe('conversations without a provider', () => {
+  describe('conversations before a model has run', () => {
     it('can be started anyway', async () => {
-      const session = await runtime({readSecret: noKey}).createSession(
+      const session = await runtime({}).createSession(
         profileId,
       );
       expect(session).toBeDefined();
@@ -314,7 +296,7 @@ describe('AgentRuntime', () => {
     });
 
     it('are filed under the agent that started them', async () => {
-      const agent = runtime({readSecret: noKey});
+      const agent = runtime({});
       await agent.createSession(profileId);
 
       expect(await agent.listSessions(profileId)).toHaveLength(1);
@@ -532,7 +514,7 @@ describe('the catalogue', () => {
   });
 
   function runtime(): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent});
+    return new AgentRuntime({paths});
   }
 
   it('lists the tools by the name and wording the model is given', async () => {
@@ -735,7 +717,7 @@ describe('changing an agent', () => {
   });
 
   function runtime(): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent});
+    return new AgentRuntime({paths});
   }
 
   it('records a new grant', async () => {
@@ -810,7 +792,7 @@ describe('the identity a new agent gets', () => {
   });
 
   function runtime(): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent});
+    return new AgentRuntime({paths});
   }
 
   it('starts the first agent on the shipped Role and Persona', async () => {
@@ -1040,7 +1022,7 @@ describe('reading a conversation without a working provider', () => {
   function runtime(): AgentRuntime {
     // No key at all: the describe is about what still works when nothing can
     // answer, so the refusal is the premise rather than an accident.
-    return new AgentRuntime({paths, readSecret: noKey});
+    return new AgentRuntime({paths});
   }
 
   it('still reads the stored conversation', async () => {
@@ -1123,7 +1105,7 @@ describe('reading a conversation without a working provider', () => {
   });
 
   it('answers with nothing for an agent that does not exist', async () => {
-    const runtime = new AgentRuntime({paths, readSecret: keyPresent});
+    const runtime = new AgentRuntime({paths});
     const {messages, pending} = await runtime.transcript(
       'no-such-agent',
       sessionId,
@@ -1179,7 +1161,7 @@ describe('folders and filing', () => {
    * refusal cases have their own describes, where there is deliberately none.
    */
   function runtime(): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent});
+    return new AgentRuntime({paths});
   }
 
   const folderId = (
@@ -1489,79 +1471,11 @@ describe('folders and filing', () => {
 });
 
 /*
- * The model a turn answers with, as a pair.
- *
- * `{provider, model}` is the only shape this app stores or sends, because a model
- * id means nothing without the endpoint that serves it — and the two halves move
- * for different reasons. A provider's list is a *fact*, recorded by the refresh
- * that fetched it; a conversation's choice is a decision about one question.
- */
-describe('the model a turn answers with', () => {
-  let dir: string;
-  let paths: AppPaths;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(join(process.cwd(), '.marimo-model-choice-'));
-    paths = resolveAppPaths(dir);
-    await seedWorkspaces(paths, dir);
-    const profiles = new ProfileStore({
-      file: paths.profiles,
-      defaultRole: '',
-      defaultPersona: DEFAULT_AGENT_PERSONA,
-      defaultTools: [],
-      defaultSkills: [],
-    });
-    await profiles.load();
-  });
-
-  afterEach(async () => {
-    await rm(dir, {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 20,
-    });
-  });
-
-  function runtime(
-    options: Partial<Omit<AgentRuntimeOptions, 'paths'>> = {},
-  ): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent, ...options});
-  }
-
-  /*
-   * The provider's own default moves with the list, and that is the half worth
-   * pinning: a model the endpoint has retired would fail the next turn for a
-   * reason nobody could see from the picker.
-   */
-  it('stores what a provider serves and moves its default off a retired name', async () => {
-    const agent = runtime();
-    const before = await agent.settings();
-    // The catalogue's placeholder, which the endpoint no longer serves.
-    expect(before.providers.configs.deepseek.model).toBe('deepseek-flash');
-
-    const after = await agent.setAvailableModels('deepseek', [
-      'deepseek-v4-pro',
-    ]);
-
-    expect(after.availableModels.deepseek).toEqual(['deepseek-v4-pro']);
-    expect(after.providers.configs.deepseek.model).toBe('deepseek-v4-pro');
-    // No other endpoint's answer is invented: each list is about one service, and
-    // one that has never been asked has no list at all rather than a placeholder
-    // written in its name.
-    expect(after.availableModels.gemini).toBeUndefined();
-    expect(after.providers.configs.gemini).toEqual(
-      before.providers.configs.gemini,
-    );
-  });
-});
-
-/*
  * Who is in a conversation, and who answers when somebody is addressed.
  *
  * The membership lives on the conversation's index entry, so what is tested here
  * is the write, the read, the ownership rule every other conversation write
- * follows, and the routing an `@` produces. The turn's *answer* needs a provider
+ * follows, and the routing an `@` produces. The turn's *answer* needs a model
  * and is tested in the agent package, against a loopback server; what this file
  * can prove without one is that the refusal happens before a request and that the
  * agent addressed is the agent resolved.
@@ -1609,7 +1523,7 @@ describe('who is in a conversation', () => {
   function runtime(
     options: Partial<Omit<AgentRuntimeOptions, 'paths'>> = {},
   ): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent, ...options});
+    return new AgentRuntime({paths, ...options});
   }
 
   it('round-trips the members, lead first', async () => {
@@ -1703,7 +1617,6 @@ describe('recall', () => {
   function withRecall(recall?: {stop: () => Promise<void>}): AgentRuntime {
     return new AgentRuntime({
       paths,
-      readSecret: keyPresent,
       ...(recall === undefined ? {} : {recall}),
     });
   }
@@ -1806,7 +1719,7 @@ describe('removing a bot', () => {
   });
 
   function runtime(): AgentRuntime {
-    return new AgentRuntime({paths, readSecret: keyPresent});
+    return new AgentRuntime({paths});
   }
 
   it('takes its conversations, its memory and its records with it', async () => {

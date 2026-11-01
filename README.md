@@ -11,9 +11,9 @@
 
 I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-Marimo Bot keeps a conversation's full history and the instructions it was running under, so reopening a chat does not start it over.
+Marimo Bot runs small Liquid AI models on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads one model, and after that the app answers with the processor you already have. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
 
-The app runs on your computer, not in a browser. There is no account with us. You bring the model: a service you already use, or a llama.cpp server on your own machine.
+Marimo Bot keeps a conversation's full history and the instructions it was running under, so reopening a chat does not start it over.
 
 The chat window and the moss ball share one conversation, so a question you ask from the corner of the screen is waiting in the window when you open it, and the folder you were working in comes back with it.
 
@@ -32,6 +32,9 @@ The chat window and the moss ball share one conversation, so a question you ask 
 ## The short version
 
 - Work in a folder, not a chat that forgets where it is.
+- Four small local models: text, pictures, voice and one that does all three.
+- Attach a picture and the vision model looks at it.
+- Talk instead of typing, and let the answer be spoken.
 - Make bots for writing, research, code or whatever you repeat.
 - Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
 - Keep a memory that follows you between folders.
@@ -51,7 +54,8 @@ The chat window and the moss ball share one conversation, so a question you ask 
 - [Recall](#recall-find-by-meaning)
 - [Jobs](#jobs)
 - [The companion](#the-companion)
-- [Models and keys](#models-and-keys)
+- [Models](#models)
+- [Connectors](#connectors)
 - [Privacy and control](#privacy-and-control)
 - [Getting started](#getting-started)
 - [Questions](#questions)
@@ -69,6 +73,20 @@ The app can read and write the files in it, and nowhere else. Load a folder and 
 On a fresh install the app creates `Marimo`, inside your home folder, and starts you there. That is a project of its own rather than your whole home directory. Load another folder whenever your work already lives somewhere else.
 
 The work lands in the same place as the rest of your project, so you can open the files with the editor or tools you already use.
+
+### Pictures
+
+Attach a picture with the `+` beside the message box. The vision model reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed.
+
+The picture is attached to that one message. It is not copied into the conversation folder or indexed, and it is not sent anywhere: the vision model runs on this computer.
+
+### Voice
+
+Turn on **Talk to Marimo** in Settings and the companion answers out loud.
+
+Hold the microphone button to speak, release it, and what you said appears in the message box before it is sent. The app transcribes with the same audio model that speaks the answer, so a voice turn never needs two models loaded at once. The answer is kept short and read as prose: code blocks, tables and links are for the window, not for the ear.
+
+Voice mode uses the audio model for the whole turn, not just the speaking. That keeps one model in memory, and it means a question asked by voice is answered by the voice model. For harder work, use the window without the microphone.
 
 ### Documents
 
@@ -118,6 +136,8 @@ When a chat gets long, the app replaces the earlier part with a summary so the m
 
 **Compact** in the `+` menu beside the message box does the same when you ask.
 
+A small local model has a smaller window than a hosted one. The app keeps the working context under about 24,000 tokens and treats the rest of the conversation as something to summarise or search, rather than sending a request the engine cannot fit.
+
 ### Memory
 
 A fact about you follows you between Spaces, while a note about how a project is set up stays with that project. The app keeps the two apart.
@@ -156,7 +176,7 @@ Schedule a task, like a summary every morning. Closing the window does not quit 
 
 The sidebar has a switch called Keep jobs running when the app is closed. It installs a small background worker so a timer can wake it and run due jobs.
 
-The worker is a small copy of the app that runs due jobs while the window is closed, and it takes turns with the app so the two never write to one chat at the same time.
+The worker is a small copy of the app that runs due jobs while the window is closed, and it takes turns with the app so the two never write to one chat at the same time. It starts the local model for the job and stops it afterwards, because the model is hundreds of megabytes of weights and a spinning fan with no window to explain it.
 
 Then it goes back to sleep until the next job is due. To quit, use the tray menu.
 
@@ -166,7 +186,9 @@ A job runs in its own conversation, with the same tools and approvals as a chat.
 
 The moss ball is another way into the same conversation. It floats above your other windows with its own chat bar.
 
-Settings lets you choose how long its answers are, how many messages float above it, whether it stays on top, and whether you can click through it to the window behind.
+Settings lets you choose how long its answers are, how many messages float above it, whether it stays on top, whether you can click through it to the window behind, and whether it talks.
+
+With **Talk to Marimo** on, the moss has a microphone of its own and speaks the answers it started. The window does not read the same answer a second time: the turn remembers which surface asked.
 
 ### The engine
 
@@ -174,34 +196,46 @@ Every conversation runs on the harness: an append-only event log, a frozen instr
 
 The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and model as they were. It leaves the Space, the icon and memory alone.
 
-## Models and keys
+## Models
 
-No chat model is included, so you choose the service that answers.
+No model comes inside the app. The first run downloads one from Liquid AI, then every turn runs it on this computer with llama.cpp.
 
-- DeepSeek, Google Gemini, OpenCode Go or OpenRouter: an account and an API key. A key is a long password from the service.
-- llama.cpp: a program that runs a model on your own machine. Give the app its address. It needs no key, and on your network nothing leaves it.
+Four models cover the work:
 
-**Fetch Models** asks the service what it serves. Until you ask, the app lists the names it ships with.
+- **LFM3 1.7B** — the everyday text model. About 1.9 GB at Q8, or 1.1 GB at Q4. This is the one the first run downloads.
+- **LFM3 VL 2B** — the vision model, for pictures. Q8 uses the same 1.9 GB of weights plus a 203 MB projector; Q4 is about 1.1 GB plus that projector.
+- **LFM3 Audio 2B** — listens and speaks, in 18 languages. About 1.1 GB at Q4 plus a 172 MB projector.
+- **LFM3 Omni 2B** — text, pictures, audio and video in one set of weights. About 1.1 GB at Q4 plus a 507 MB projector.
 
-Which model should a bot use? That is yours to decide: a model is a service and a name. The app stores both because the same name can mean different things at different services. A bot can have its own model, and a single chat can use another one.
+**Models** in Settings decides which model does which task: Chat, Images and Voice. The three are separate because a laptop that can spare 2 GB for text may not want to keep a vision model in memory all day. A visual or voice question switches models for that turn, and switching back is another load.
+
+One model is in memory at a time. The app starts the one the turn needs, and after three quiet minutes it lets it go, so a chat you finished does not keep a fan running. **Sleep now** does it immediately; the next message wakes the model again. The composer's badge shows which family is warm: a dot for awake, waking or resting. Clicking it opens the Models card.
+
+Each model has a Q8 copy and a Q4 copy where the repository publishes one. Q8 is the better answer and the larger download; Q4 is for a machine with less memory. The app measures the machine's RAM and suggests the smaller copy below 8 GB. A 4-bit projector is not published for the vision model, so its Q4 copy uses the Q8 projector; the download card says so.
+
+**Use one model for everything (Omni)** is a single button for a machine that would rather load once. It points all three tasks at the Omni model.
+
+The models are licensed by Liquid AI under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE). They are downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
 
 ### Connectors
 
 A connector is a server you add in Settings. It can give a bot tools that live in another app or on another machine: a database, an issue tracker or a service on your network. MCP is the Model Context Protocol, a standard way for a tool server to describe what it can do.
 
-Each bot has its own permissions, and a connector that is not ticked is not offered to that bot. A bot can ask for one it does not have; the request waits in Learning with the reason it gave, and nothing changes until you approve it. The app stores a connector's token or password like a provider key, and the background worker can only use one stored as plain text, with your consent.
-
-### Keys
-
-Keys go in your operating system's password vault, the keychain, when there is one. A background job has no keychain, so the box in setup ("Let scheduled jobs use this key while the app is closed") stores the key as plain text instead. Leave it off unless you need a job to run while the app is closed. A key stored as plain text can be read by anything that can open the file. A machine without a keychain can only store a key as plain text.
+Each bot has its own permissions, and a connector that is not ticked is not offered to that bot. A bot can ask for one it does not have; the request waits in Learning with the reason it gave, and nothing changes until you approve it. A connector's token or password is stored like any other secret, and the background worker can only use one stored as plain text, with your consent.
 
 ## Privacy and control
 
-Where do your words go? The answer depends on the service you chose: a local llama.cpp server keeps them on your machine or your network, while an online service gets them under your account.
+Your conversations, files, memory and voice recordings stay on this computer. The model, the speech recogniser and the speech synthesiser are local; a recording is turned into a WAV in memory, sent to the local engine, and never written to disk by the app.
 
-The app's other network traffic comes from the things you ask for. A web search sends the query to DuckDuckGo. A connector talks to the server you set up. **Fetch Models** asks the provider what it serves. Recall downloads its engine and model once. **Check for updates** asks GitHub for the latest release only when you press it.
+The app reaches the network only for things you ask for:
 
-The app keeps its own data in one folder. On Linux that is `~/.config/Marimo Bot`. Your chats, the Spaces you loaded and your settings are there. Keys are in the keychain, except a key you let a background job read, which is in that folder instead.
+- The first model download, and any later model download, come from Hugging Face.
+- A web search sends the query to DuckDuckGo.
+- A connector talks to the server you set up.
+- Recall downloads its engine and model once.
+- **Check for updates** asks GitHub for the latest release only when you press it.
+
+The app keeps its own data in one folder. On Linux that is `~/.config/Marimo Bot`. Your chats, the Spaces you loaded, the models and your settings are there. A connector's secret is in the keychain, except one you let a background job read, which is in that folder instead.
 
 The app's own data is not your project, and the two live in different folders on purpose. A Space's files stay where you put them.
 
@@ -211,7 +245,7 @@ Every built-in tool the app offers is a switch in Settings. If a tool is off, th
 
 Recall is off until you turn it on, and it sends its record nowhere.
 
-Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. There is no undo.
+Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. It does not delete a Space, and it does not delete the downloaded models if they live outside the app's folder. There is no undo for the rest.
 
 ## Getting started
 
@@ -220,7 +254,7 @@ There is no public download yet. The Linux version builds to a single AppImage f
 If you have the app, the first run is short.
 
 1. Choose how much control Marimo Bot gets. **Standard** can read files in your Space, search the web, and keep its own notes; **Power user** turns on every tool the app has, including writing files, running commands, scheduling jobs and handing work to your other bots. Either way, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
-2. Choose a model. Which service should answer? Pick a service, or point the app at a llama.cpp server. An online service needs an account and a key. **Fetch Models** asks it what it serves. Set this up later closes the flow.
+2. Download a model. The app offers **LFM3 1.7B** at Q8 (about 1.9 GB) or Q4 (about 1.1 GB). The download runs in the window and can be cancelled. **Set this up later** closes the flow; Settings → Models is where to download it afterwards.
 3. Choose a Space. Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
 4. Make a bot. Start from a role, build it step by step or talk to Marimo.
 5. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
@@ -228,7 +262,7 @@ If you have the app, the first run is short.
 
 Every step has a Back button, so you can change an earlier answer without starting over.
 
-The control choice comes first because it is about access, and the model is the first required step because the guided bot maker needs something that can answer. The Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until it can answer.
+The control choice comes first because it is about access, and the model is the first required step because the guided bot maker needs something that can answer. The Space comes next because most of what a bot does is easier when it has a folder to work in. The app will not move past the model step until the model files are on disk and the pinned engine for this computer is present.
 
 When you finish, the app opens a new chat in the Space you chose, so the first thing you type lands in the folder you meant.
 
@@ -238,9 +272,13 @@ One bot is enough for most days.
 
 ## Questions
 
-### Do I need an account with Marimo Bot?
+### Do I need an account?
 
-No, you need an account with the model service you choose, or a llama.cpp server.
+No. The models run on this computer, and there is no account with us or with a model service. The first download comes from Hugging Face, which does not need a login for these files.
+
+### How big is the download?
+
+About 1.9 GB for the Q8 text model, or 1.1 GB for Q4. The vision, audio and omni models are separate downloads you choose in Settings, between about 1.3 GB and 2.4 GB each.
 
 ### Can I use it without making a bot?
 
@@ -248,15 +286,19 @@ Yes, Marimo Bot is useful on its own, and bots are for work you repeat.
 
 ### Does it work offline?
 
-The app, your chats and Recall work without a network, but a chat needs a model, and an online model needs the internet while a llama.cpp server can stay on your own machine or network.
+Yes, once the model you want is downloaded. The first download, a web search, a connector and the update check need a network; a conversation, the memory, Recall and voice do not.
 
 ### Do I need a graphics card?
 
-Not for Recall, which runs on the processor. If you run llama.cpp on the same machine, a graphics card helps speed and the model has to fit in its memory, so a bigger model may need more card than you have.
+No. The models run on the processor. A graphics card would make them faster, but this build deliberately offloads zero layers so it can run on the widest range of laptops. The trade is speed: the 1.7B model answers a short question in a few seconds on a recent laptop processor, and a longer answer takes longer.
+
+### How much memory does it need?
+
+About 2.5 GB free while a Q8 text model is loaded, or 1.6 GB for Q4. The vision and audio models have projectors on top. The app lets the model go after three quiet minutes, so the memory comes back.
 
 ### Where are my files?
 
-Your Space files stay in the folder you chose, and the app's own data is in its data folder, which on Linux is `~/.config/Marimo Bot`.
+Your Space files stay in the folder you chose. The app's own data is in its data folder, which on Linux is `~/.config/Marimo Bot`. The models are under `model/` inside that folder unless `MARIMO_MODEL_DIR` points somewhere else.
 
 ### What happens when I close the window?
 
@@ -264,33 +306,35 @@ The app stays in the tray and a scheduled job keeps going. You quit from the tra
 
 ### Can I change a bot later?
 
-Yes, Settings has its Role, Persona, tools, model, Space and icon. The Harness card can also restore an earlier version of them.
+Yes, Settings has its Role, Persona, tools, Space and icon. The Harness card can also restore an earlier version of them.
 
 ### Does it send my work anywhere?
 
-Only where you ask it to: an online model receives the conversation you send it, a web search receives the query, and a connector receives what it is asked to do. Recall downloads its engine and model once, then keeps its index and searches on your machine. The update check contacts GitHub only when you press the button.
+Only where you ask it to: a web search receives the query, and a connector receives what it is asked to do. The model, the speech recogniser and the speech synthesiser run here. The first model download and Recall's download contact Hugging Face; the update check contacts GitHub only when you press the button.
 
 ### What is not finished?
 
-See the next section for the short answer: Windows and macOS installers, automatic updating, and Discord and the notes and to-do tools.
+See the next section for the short answer: Windows and macOS installers, automatic updating, a GPU build, and Discord and the notes and to-do tools.
 
 ## What is not finished
 
-- The Windows and macOS installers are written but not built. Only the Linux AppImage has been run.
+- The Windows and macOS installers are written but not built. The model downloads and the engine run on all three, but only the Linux AppImage has been run end to end.
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
+- The engine is a CPU build. It is deliberately the same archive on every machine, which keeps the install small and the behaviour predictable, but it does not use a graphics card.
+- Voice mode is one microphone press and one spoken answer, not a hands-free conversation. There is no wake word and no barge-in.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
-- The app checks the Recall download against a fingerprint, but there is no signature to prove where it came from. No other model is downloaded.
+- The app checks every model download against a fingerprint, but there is no signature to prove where it came from.
 
 ## Requirements
 
 Will it run on my machine? These are the things it needs.
 
-- A 64-bit version of Linux, Windows or macOS. Linux is the only one with a built installer today.
-- About 310 MB for the recall model, 555 MB more for media, plus an index that grows with the folder.
-- An account and a key with an online service, if that is what you picked. A llama.cpp server needs no key.
-- If you run llama.cpp on this machine, close games and video editors before starting it. The model and the game want the same video memory.
+- A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
+- About 2 GB of free disk for the text model, and up to 2.4 GB more for each of the others you choose. Recall adds about 310 MB, or 865 MB with media.
+- About 3 GB of free memory while a Q8 model is loaded. Less for Q4.
+- No account, no key and no graphics card.
 
-The app carries no chat model, so you can change services without downloading a new one. Recall is the only model the app runs itself, and only after you turn it on.
+The app carries no hosted service. Everything it needs to answer is one of the four local models, downloaded once and checked against a pinned digest.
 
 Go build your next thing with it.
 

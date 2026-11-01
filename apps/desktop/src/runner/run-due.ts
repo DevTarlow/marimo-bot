@@ -16,10 +16,11 @@
  * this works over SSH, in a container, and at login before any compositor is up.
  *
  * **No `safeStorage`, and the one thing that needs it.** There is no `app` object
- * in Node mode, so a secret encrypted by the window cannot be decrypted here.
- * That is why a provider's key can be stored readable — per provider, by the
- * user's own choice — and why a job on an encrypted one fails with a sentence
- * naming the setting rather than with a failed request. See `readSecret` below.
+ * in Node mode, so a connector secret encrypted by the window cannot be
+ * decrypted here. That is why a connector's secret can be stored readable — per
+ * connector, by the user's own choice — and why a job on an encrypted one fails
+ * with a sentence naming the setting rather than dialling without it. The model
+ * needs no secret at all.
  *
  * **No web search.** That runs in a browser engine, and there is none here.
  * `web_search` is simply not offered, and the operating rules have the model say
@@ -34,7 +35,6 @@ import {pathToFileURL} from 'node:url';
 
 import {RecallHost} from '../main/recall.js';
 
-import {PROVIDERS} from '@marimo/protocol';
 import type {McpServer} from '@marimo/protocol';
 import {
   AgentRuntime,
@@ -44,6 +44,7 @@ import {
   isProcessHeld,
   JobScheduler,
   JobStore,
+  LocalModelHost,
   McpManager,
   resolveAppPaths,
   secretReaderFor,
@@ -238,23 +239,26 @@ export async function runDue(options: {
     clientVersion: MCP_CLIENT.version,
   });
 
+  /*
+   * The local model, started for the length of this run.
+   *
+   * A scheduled job needs the same engine the window uses, from the same
+   * directory, and it must not outlive the process: the timer starts a fresh
+   * process every minute, so an engine left behind would be one per minute. The
+   * host is created after the runtime because its settings reader is the
+   * runtime's; `ensureModel` is only called once a job is actually due.
+   */
+  let models: LocalModelHost | undefined;
+
   const agent: AgentRuntime = new AgentRuntime({
     paths,
     appName: PRODUCT_NAME,
-    /*
-     * No cipher, deliberately, and it is the whole of invariant 16 from this
-     * side. There is no `app` object in Node mode and therefore no `safeStorage`,
-     * so a key encrypted for the window could not be decrypted here even if this
-     * asked nicely. A key the user made readable is read, and an encrypted one
-     * comes back `unreadable` with the store's own sentence — which the job
-     * records against itself, so the failure a person sees names the setting that
-     * fixes it rather than arriving as a `401`.
-     */
-    readSecret: async (provider) =>
-      await new FileSecretStore(
-        paths.providerSecrets[provider],
-        `${PROVIDERS[provider].label} API key`,
-      ).read(),
+    ensureModel: async (modelId) => {
+      if (models === undefined) {
+        return {ok: false, problem: 'The local model host is not ready yet.'};
+      }
+      return await models.ensure(modelId);
+    },
     /*
      * What the servers are offering, read per turn rather than captured: a
      * connector that drops mid-run is a tool the next turn must not be offered,
@@ -269,6 +273,15 @@ export async function runDue(options: {
     services: async (profileId, workspaceRoot) => {
       const service = await recall.serviceFor(profileId, workspaceRoot);
       return service === undefined ? {} : {recallService: service};
+    },
+  });
+
+  models = new LocalModelHost({
+    userData: paths.userData,
+    readSettings: async () => await agent.settings(),
+    isBusy: () => agent.harness().isRunningAny(),
+    log: (line) => {
+      console.log(line);
     },
   });
 
@@ -334,6 +347,7 @@ export async function runDue(options: {
     // Before the runtime, so a connector's child process is stopped by the object
     // that started it rather than left to the process exiting.
     await mcp.stop();
+    await models.stop();
     await agent.dispose();
   }
 

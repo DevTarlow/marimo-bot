@@ -3124,3 +3124,165 @@ body.resizing-rail * {
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-xs);
 }
+
+/* ------------------------------------------------------------------ */
+/* The local model, and the things that make it audible                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The model badge is informational, not a control with a list. It names the
+ * family that is warm — the voice model when speech is on — and its dot carries
+ * the state that would otherwise be a sentence on every screen: awake, waking,
+ * resting, or needing a download. Clicking it opens the one card that manages
+ * them.
+ */
+.composer-model-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 42%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.composer-model-badge:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.composer-model-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.composer-model-badge.is-awake .composer-model-dot {
+  background: var(--success);
+}
+
+.composer-model-badge.is-waking .composer-model-dot {
+  background: var(--warning);
+  animation: model-pulse 1.1s ease-in-out infinite;
+}
+
+.composer-model-badge.is-failed .composer-model-dot {
+  background: var(--danger);
+}
+
+@keyframes model-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.composer-model-state {
+  color: var(--text-faint);
+}
+
+/*
+ * The microphone sits beside `+`, because both add something to the message and
+ * neither sends it. Hold to talk; the recording state is a filled accent so it
+ * cannot be mistaken for a button that did nothing.
+ */
+.composer-mic {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+.composer-mic:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.composer-mic.is-recording,
+.composer-mic.is-speaking {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.composer-mic:disabled {
+  border-color: var(--border);
+  color: var(--text-faint);
+}
+
+/* The first-run model card and the model rows in Settings. */
+.model-setup-card,
+.model-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.model-card {
+  margin-bottom: var(--space-3);
+}
+
+.model-setup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.model-setup-name {
+  font-weight: 600;
+}
+
+.model-setup-size {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.model-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.model-tasks .settings-field {
+  margin: 0;
+}
+
+.model-progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--accent);
+}
+
+.onboarding-download {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.onboarding-download progress {
+  width: 100%;
+}

@@ -23,7 +23,7 @@
  */
 import {useState} from 'react';
 
-import type {McpServer, McpStatus, ProviderKeyStorage} from '@marimo/protocol';
+import type {McpServer, McpStatus, SecretStorage} from '@marimo/protocol';
 
 import {
   formatCommandLine,
@@ -43,7 +43,7 @@ interface Draft {
   url: string;
   trusted: boolean;
   /** Where its secrets are written: encrypted unless the user said otherwise. */
-  secretStorage: ProviderKeyStorage;
+  secretStorage: SecretStorage;
   /**
    * Secrets this connector needs, as `target:name`.
    *
@@ -489,7 +489,7 @@ function SecretEditor({
   busy: boolean;
   encryptionAvailable: boolean;
   onChange: (secrets: string[]) => void;
-  onSecretStorage: (secretStorage: ProviderKeyStorage) => void;
+  onSecretStorage: (secretStorage: SecretStorage) => void;
   onSaved: () => void;
   onProblem: (problem: string | null) => void;
 }): React.JSX.Element {
@@ -554,9 +554,8 @@ function SecretEditor({
       </em>
 
       {/*
-        The same consent the provider card draws for a key, in the same words:
-        whether a scheduled job may dial this server is decided by where the
-        secret lives, and the runner has no keychain to unlock an encrypted one.
+        Whether a scheduled job may dial this server is decided by where the
+        secret lives: the runner has no keychain to unlock an encrypted one.
       */}
       <label className="settings-check">
         <input

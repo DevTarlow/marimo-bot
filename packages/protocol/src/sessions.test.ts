@@ -350,45 +350,6 @@ describe('the filing calls', () => {
       agentCallSchemas['sessions.compact'].safeParse({profileId: 'p'}).success,
     ).toBe(false);
   });
-
-  it('names the model a conversation is pointed at, or says to stop', () => {
-    /*
-     * A conversation may answer with a model of its own — the app's default, its
-     * agent's, or this one question's — and the call has to be able to express all
-     * three. `null` is the third: "follow the agent again", which a schema that
-     * only took a model would have no way to say.
-     */
-    expect(
-      agentCallSchemas['sessions.setModel'].safeParse({
-        profileId: 'p',
-        sessionId: 's',
-        model: {provider: 'deepseek', model: 'deepseek-v4-pro'},
-      }).success,
-    ).toBe(true);
-    expect(
-      agentCallSchemas['sessions.setModel'].safeParse({
-        profileId: 'p',
-        sessionId: 's',
-        model: null,
-      }).success,
-    ).toBe(true);
-    // A bare model id is refused: it means nothing without the endpoint, and a
-    // guess at which provider it belonged to is how a chat silently changes
-    // provider.
-    expect(
-      agentCallSchemas['sessions.setModel'].safeParse({
-        profileId: 'p',
-        sessionId: 's',
-        model: 'deepseek-v4-pro',
-      }).success,
-    ).toBe(false);
-    expect(
-      agentCallSchemas['sessions.setModel'].safeParse({
-        sessionId: 's',
-        model: null,
-      }).success,
-    ).toBe(false);
-  });
 });
 
 describe('a bot icon', () => {

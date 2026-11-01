@@ -16,9 +16,10 @@
  * out of it is exactly what the guard exists for.
  */
 import {open, stat} from 'node:fs/promises';
-import {basename, relative} from 'node:path';
+import {basename, extname, relative} from 'node:path';
 
 import {PathOutsideWorkspaceError, resolveInsideWorkspace} from '@marimo/agent';
+import {MAX_ATTACHMENT_BYTES} from '@marimo/protocol';
 import type {PickedFile, SkippedFile} from '@marimo/protocol';
 
 /**
@@ -61,10 +62,35 @@ export async function attachableFiles(
         skipped.push({name, reason: 'Not a regular file.'});
         continue;
       }
+      /*
+       * An image is the one binary this app sends: the vision model takes the
+       * bytes, and the file tools cannot read them. It is still the space's
+       * file — the guard above resolved it — and the size cap is the same one
+       * the driver enforces, so a file this accepts is not one the request will
+       * later refuse.
+       */
+      if (isImagePath(resolved)) {
+        if (info.size > MAX_ATTACHMENT_BYTES) {
+          skipped.push({
+            name,
+            reason:
+              `That image is larger than ` +
+              `${String(Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024)))} MB.`,
+          });
+          continue;
+        }
+        files.push({
+          path: resolved,
+          name: basename(resolved),
+          relative: relative(root, resolved),
+          kind: 'image',
+        });
+        continue;
+      }
       if (await looksBinary(resolved)) {
         skipped.push({
           name,
-          reason: 'That file is not text, and this app can send only text.',
+          reason: 'That file is not text, and this app can send only text or images.',
         });
         continue;
       }
@@ -72,6 +98,7 @@ export async function attachableFiles(
         path: resolved,
         name: basename(resolved),
         relative: relative(root, resolved),
+        kind: 'file',
       });
     } catch (error) {
       skipped.push({
@@ -106,5 +133,28 @@ async function looksBinary(path: string): Promise<boolean> {
     return buffer.subarray(0, bytesRead).includes(0);
   } finally {
     await handle.close();
+  }
+}
+
+/**
+ * Whether the vision model can read this file.
+ *
+ * By extension rather than by a decode: the picker runs before a model is warm,
+ * and a header sniff would only tell us what the extension already does for the
+ * five formats the llama.cpp encoder accepts. An extension the model cannot read
+ * is refused by the binary probe below, which is the honest answer for a file
+ * that might be a mislabelled image.
+ */
+function isImagePath(path: string): boolean {
+  switch (extname(path).toLowerCase()) {
+    case '.png':
+    case '.jpg':
+    case '.jpeg':
+    case '.webp':
+    case '.gif':
+    case '.bmp':
+      return true;
+    default:
+      return false;
   }
 }

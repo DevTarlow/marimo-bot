@@ -40,17 +40,17 @@
 import {useEffect, useRef, useState} from 'react';
 
 import type {
-  AgentModel,
   CommandId,
   PickedFile,
   SkippedFile,
+  SpeechLanguage,
 } from '@marimo/protocol';
 
 import {composeMessage, describeSkipped} from '../attachments.js';
 import {describe} from '../describe.js';
+import {useRecorder} from '../hooks/useRecorder.js';
 import {addressedAgent, mentionAt} from '../mentions.js';
 import type {Participant} from '../participants.js';
-import {ModelPicker} from './ModelPicker.js';
 import {Popover, PopoverItem} from './Popover.js';
 import type {PopoverAnchor} from './Popover.js';
 
@@ -72,12 +72,13 @@ export function Composer({
   onStop,
   busy,
   disabled,
-  models,
-  modelHint,
-  modelAction,
-  model,
-  inherited,
-  onSelectModel,
+  modelLabel,
+  modelState,
+  onOpenModels,
+  voiceEnabled,
+  speechLanguage,
+  speaking,
+  onStopSpeaking,
   onPickFiles,
   commands,
   onRunCommand,
@@ -96,55 +97,27 @@ export function Composer({
    * itself because the picker and the text are both here, and two places
    * deciding who a message is for is one place too many.
    */
-  onSend: (text: string, agentId?: string) => Promise<boolean>;
+  onSend: (
+    text: string,
+    agentId?: string,
+    attachments?: readonly PickedFile[],
+  ) => Promise<boolean>;
   onStop: () => void;
   busy: boolean;
   disabled: boolean;
-  /** What this model's provider offers. Must contain `model.model`. */
-  models: readonly string[];
-  /**
-   * A sentence about where that list came from, when it is not the provider's
-   * own answer.
-   *
-   * Drawn inside the picker rather than beside it: the model control is a chip
-   * at the end of the foot row, and a line of prose next to it would be wider
-   * than the conversation. Absent once the endpoint has been asked, because
-   * there is then nothing to explain.
-   */
-  modelHint?: string;
-  /**
-   * The way to the control that asks a provider what it serves, when the names
-   * on offer are placeholders.
-   *
-   * The composer cannot fetch: the request needs a stored key and an address,
-   * and the button that makes it belongs to the Provider card, where the key
-   * lives beside it. So what this carries is the route — `ModelPicker`'s
-   * `action`, labelled by the caller — rather than a second fetch path that
-   * would have to grow the same refusals a second time. The label is the
-   * caller's because it names a provider, and the provider catalogue is not
-   * something this component reads.
-   */
-  modelAction?: {label: string; onUse: () => void};
-  /**
-   * The model that will answer, as a pair.
-   *
-   * A pair rather than an id because the id means nothing without the endpoint
-   * serving it: choosing from this list pins the conversation to *that*
-   * provider, which is the one the list came from.
-   *
-   * Absent until the settings naming it have been read, and the picker is then
-   * not drawn at all — a trigger with an empty value and an empty list is a
-   * control that cannot do anything.
-   */
-  model?: AgentModel;
-  /**
-   * Where a model this conversation did not choose came from — the agent, or
-   * the app. Absent means the conversation has a choice of its own, which is
-   * also the only state in which giving it up changes anything.
-   */
-  inherited?: string;
-  /** `null` gives up the choice, so the conversation follows its agent again. */
-  onSelectModel: (model: AgentModel | null) => Promise<void>;
+  /** The local model's name, for the badge at the foot of the box. */
+  modelLabel?: string;
+  /** Its process state, drawn as a dot: awake, waking, resting, failed. */
+  modelState?: 'awake' | 'waking' | 'resting' | 'failed';
+  /** Opens Settings → Models. The badge is the route to managing them. */
+  onOpenModels?: () => void;
+  /** Voice mode is on: the microphone button is offered. */
+  voiceEnabled?: boolean;
+  /** The language the voice model listens and speaks. */
+  speechLanguage?: SpeechLanguage;
+  /** A spoken reply is playing; the stop button is shown. */
+  speaking?: boolean;
+  onStopSpeaking?: () => void;
   /**
    * Asks for files, judged against the space this conversation works in.
    *
@@ -187,6 +160,22 @@ export function Composer({
   const [running, setRunning] = useState<CommandId | null>(null);
   const [menu, setMenu] = useState<PopoverAnchor | null>(null);
   const [mention, setMention] = useState<MentionState | null>(null);
+  /*
+   * The microphone, if voice mode is on. The transcript goes into the box rather
+   * than straight out: a misheard word should be editable before it becomes a
+   * message, and the person is looking at the text anyway.
+   */
+  const recorder = useRecorder({
+    ...(speechLanguage === undefined ? {} : {language: speechLanguage}),
+    onText: (transcript) => {
+      setText((current) =>
+        current.trim().length === 0 ? transcript : `${current.trim()} ${transcript}`,
+      );
+    },
+    onError: (message) => {
+      setNote({text: message, failed: true});
+    },
+  });
   /**
    * Where the caret goes once a picked name is in the box.
    *
@@ -355,7 +344,7 @@ export function Composer({
      * and the files are one message, so a refusal must not leave the box empty
      * with two chips the user now has to remove by hand.
      */
-    if (await onSend(composeMessage(text, attached), addressed?.id)) {
+    if (await onSend(composeMessage(text, attached), addressed?.id, attached)) {
       setText('');
       setAttached([]);
       setNote(null);
@@ -405,8 +394,6 @@ export function Composer({
    * parameter may be reassigned, and TypeScript will not carry "not undefined"
    * into a closure for one.
    */
-  const chosen = model;
-
   return (
     <div className="composer">
       <div className="composer-box">
@@ -555,6 +542,54 @@ export function Composer({
             <span aria-hidden="true">+</span>
           </button>
 
+          {voiceEnabled === true && (
+            <button
+              type="button"
+              className={
+                recorder.recording
+                  ? 'composer-mic is-recording'
+                  : 'composer-mic'
+              }
+              aria-label={
+                recorder.recording ? 'Stop recording' : 'Record a message'
+              }
+              title={
+                recorder.recording
+                  ? 'Listening — release to transcribe'
+                  : 'Speak to Marimo'
+              }
+              disabled={disabled || recorder.busy}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                void recorder.start();
+              }}
+              onPointerUp={() => {
+                void recorder.stop();
+              }}
+              onPointerLeave={() => {
+                if (recorder.recording) {
+                  void recorder.stop();
+                }
+              }}
+            >
+              <span aria-hidden="true">
+                {recorder.busy ? '…' : recorder.recording ? '■' : '🎙'}
+              </span>
+            </button>
+          )}
+
+          {speaking === true && onStopSpeaking !== undefined && (
+            <button
+              type="button"
+              className="composer-mic is-speaking"
+              aria-label="Stop speaking"
+              title="Stop speaking"
+              onClick={onStopSpeaking}
+            >
+              <span aria-hidden="true">■</span>
+            </button>
+          )}
+
           <span
             className={
               note === null || !note.failed
@@ -566,36 +601,19 @@ export function Composer({
             {hint}
           </span>
 
-          {chosen !== undefined && (
-            <div className="composer-model">
-              <ModelPicker
-                models={models}
-                value={chosen.model}
-                disabled={disabled}
-                // Upwards: this box is at the bottom of the window.
-                placement="above"
-                /*
-                 * One or the other, never both: a model this conversation chose
-                 * has no source to name, and one it did not choose has nothing to
-                 * give up.
-                 */
-                {...(inherited === undefined
-                  ? {
-                      defaultChoice: {
-                        label: 'Follow the bot',
-                        onUse: () => {
-                          void onSelectModel(null);
-                        },
-                      },
-                    }
-                  : {note: inherited})}
-                {...(modelHint === undefined ? {} : {hint: modelHint})}
-                {...(modelAction === undefined ? {} : {action: modelAction})}
-                onChange={(next) => {
-                  void onSelectModel({provider: chosen.provider, model: next});
-                }}
-              />
-            </div>
+          {modelLabel !== undefined && (
+            <button
+              type="button"
+              className={`composer-model-badge is-${modelState ?? 'resting'}`}
+              title="The local model that answers. Open Settings → Models to manage it."
+              onClick={onOpenModels}
+            >
+              <span className="composer-model-dot" aria-hidden="true" />
+              <span>{modelLabel}</span>
+              {modelState === 'waking' && (
+                <span className="composer-model-state">waking…</span>
+              )}
+            </button>
           )}
         </div>
       </div>

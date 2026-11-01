@@ -11,7 +11,7 @@
  * them are durable, in what order, and what to do when the driver stops at a
  * gate or fails.
  */
-import type {AgentModel} from '@marimo/protocol';
+import type {AgentModel, Attachment} from '@marimo/protocol';
 
 import type {SessionEvent, TokenUsage} from './events.js';
 import type {HarnessSpec} from '../harness/spec.js';
@@ -26,6 +26,8 @@ export interface DriverRun {
   history: readonly SessionEvent[];
   /** Prompt text for this turn only, when the surface that asked has any. */
   instruction?: string;
+  /** Images this message carries, as paths relative to the Space. */
+  attachments?: readonly Attachment[];
   signal: AbortSignal;
 }
 

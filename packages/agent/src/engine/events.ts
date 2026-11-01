@@ -12,7 +12,7 @@
  */
 import {z} from 'zod';
 
-import {agentModelSchema} from '@marimo/protocol';
+import {agentModelSchema, attachmentSchema, MAX_ATTACHMENTS} from '@marimo/protocol';
 
 export const tokenUsageSchema = z.object({
   promptTokens: z.number().int().nonnegative(),
@@ -47,6 +47,15 @@ export const userMessageSchema = z.object({
   ...turnBase,
   type: z.literal('user.message'),
   text: z.string().min(1),
+  /**
+   * Images the message carried, as paths relative to the Space.
+   *
+   * The bytes are not here: the log is a record of the conversation, not a photo
+   * album, and a user's screenshot should not double the size of a JSONL file.
+   * The driver reads the files again when it replays the turn, with the same
+   * confinement the file tools use.
+   */
+  attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
 });
 
 export const turnStartedSchema = z.object({

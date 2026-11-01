@@ -7,10 +7,10 @@
  * one is a background service that looks healthy for a week and never runs
  * anything.
  *
- * The run itself is exercised against real stores and real files, with a keyed
- * provider and no key — the state an install that never signed in to anything is
- * in, and one that produces the designed outcome: the job runs, is refused for
- * want of a key, and records that as its result rather than failing silently.
+ * The run itself is exercised against real stores and real files. The checkout
+ * has no model downloaded, which is the state a fresh install is in and one that
+ * produces the designed outcome: the job runs, is refused for want of a model,
+ * and records that as its result rather than failing silently.
  */
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -18,7 +18,6 @@ import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {
-  FileSecretStore,
   mcpSecretFile,
   ProfileStore,
   SettingsStore,
@@ -152,74 +151,15 @@ describe('runDue', () => {
     const after = JSON.parse(await readFile(paths.jobs, 'utf8'));
     const job = after.jobs.jobs[0];
     /*
-     * This directory has no key in it, and the default provider is one that needs
-     * one — so the designed outcome is a recorded refusal rather than silence: the
-     * runner must not report a run it could not do as one it did. And the marker
-     * has moved, so it will not fire again the next minute.
+     * This directory has no model in it — so the designed outcome is a recorded
+     * refusal rather than silence: the runner must not report a run it could not
+     * do as one it did. And the marker has moved, so it will not fire again the
+     * next minute.
      */
     expect(job.lastStatus).toBe('error');
-    expect(job.lastError).toMatch(/needs an API key/iu);
+    expect(job.lastError).toMatch(/not ready/iu);
+    expect(job.lastError).toMatch(/Settings/iu);
     expect(job.sessionId).toBeTruthy();
-  });
-
-  /*
-   * The key, from the runner's side.
-   *
-   * This is the part that cannot be shared with the window and so has to be
-   * checked here: the runner has no `app`, therefore no `safeStorage`, therefore
-   * no way to decrypt — so what it can read is decided by the provider's stored
-   * `keyStorage` and by nothing else. An install in that state has to record a
-   * refusal that names the setting, because the alternative is a `401` from a
-   * provider that never saw a key, which reads as "the key is wrong".
-   */
-  it('records the refusal when the key is encrypted and it has no keychain', async () => {
-    await seedDueJob();
-    /*
-     * What the window writes for a provider left on `keychain`. Written by hand
-     * rather than through a store, because no store in this process can produce
-     * it — that is the whole point of the case.
-     */
-    await mkdir(join(paths.userData, 'secrets'), {recursive: true});
-    await writeFile(
-      paths.providerSecrets.deepseek,
-      `encrypted:${Buffer.from('sk-not-really').toString('base64')}\n`,
-      'utf8',
-    );
-
-    const report = await runDue({paths});
-
-    expect(report.problem).toBeUndefined();
-    const after = JSON.parse(await readFile(paths.jobs, 'utf8'));
-    const job = after.jobs.jobs[0];
-    expect(job.lastStatus).toBe('error');
-    expect(job.lastError).toMatch(/cannot decrypt/u);
-    // And the sentence points at the fix rather than at the provider.
-    expect(job.lastError).toMatch(/re-enter it/iu);
-  });
-
-  /*
-   * The other half, and the reason the plaintext opt-in exists.
-   *
-   * The same file, read the way each process reads it: the runner's store has no
-   * cipher and gets the key, and the window's has one and would decrypt. What is
-   * asserted is the *runner's* half of invariant 16 — a key the user chose to
-   * store readable is readable here — through the path `run-due` builds, so the
-   * derivation is what is under test rather than a store the test made up.
-   */
-  it('reads a key the user stored readable, through the same path', async () => {
-    await mkdir(join(paths.userData, 'secrets'), {recursive: true});
-    await writeFile(
-      paths.providerSecrets.deepseek,
-      `plaintext:${Buffer.from('sk-read-me').toString('base64')}\n`,
-      'utf8',
-    );
-
-    const read = await new FileSecretStore(
-      paths.providerSecrets.deepseek,
-      'DeepSeek API key',
-    ).read();
-
-    expect(read).toEqual({state: 'present', value: 'sk-read-me'});
   });
 
   /*

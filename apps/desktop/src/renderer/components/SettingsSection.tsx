@@ -2,7 +2,7 @@
  * One card of the settings screen, folded away until it is opened.
  *
  * The page grew a card at a time — agents, identity, abilities, the companion,
- * commands, the provider, memory, connectors — and the eighth is the one that
+ * commands, models, memory, connectors — and the eighth is the one that
  * turns it into a scroll. Folding is what puts its shape back on one screen:
  * eight headings to read, and the one you came for opened.
  *

@@ -13,6 +13,7 @@
  * to, because each of these fails silently in a different way.
  */
 import type {EmbeddingPooling} from './manifest.js';
+import type {LocalModelSpec} from './files.js';
 
 /**
  * The id the recall engine answers to, as `--alias` and as the request's `model`.
@@ -114,4 +115,63 @@ export interface EmbeddingSpec {
   port: number | string;
   contextSize: number;
   pooling: EmbeddingPooling;
+}
+
+/**
+ * The command line for one LFM3 model.
+ *
+ * Every flag here was run against the pinned engine and the real weights before
+ * it was written down, because each one fails silently in its own way:
+ *
+ * - `--jinja` is what makes tool calls work. The GGUF carries the model's own
+ *   chat template, and the template is what renders the tools; without it the
+ *   model answers prose and the harness sees no call.
+ * - `--reasoning off` is the measured choice described in `files.ts`: the small
+ *   model's default thinking produced 271 hidden tokens for a greeting on a
+ *   laptop processor. The answer is still the answer; only the rehearsal is
+ *   gone.
+ * - `--n-gpu-layers 0` is the CPU path the archive is pinned for. A machine with
+ *   a graphics card can be made faster later; a build that needs one cannot run
+ *   at all on the machines this app is for.
+ * - `--ctx-size` is the descriptor's working window, not the model's maximum.
+ *   The 256K window a 1.7B model supports would cost more KV cache than the
+ *   weights; the harness compacts inside the smaller one.
+ * - Sampling travels here rather than in the request so every turn uses the
+ *   model card's recipe, including a turn with no settings of its own.
+ * - `--no-ui` is the engine's own browser; there is no browser to serve.
+ */
+export function localModelArgs(spec: LocalModelSpec, port: number | string): string[] {
+  const sampling = spec.sampling;
+  return [
+    '--model',
+    spec.files.model,
+    ...(spec.files.projectorPresent && spec.files.projector.length > 0
+      ? ['--mmproj', spec.files.projector]
+      : []),
+    '--alias',
+    spec.alias,
+    '--host',
+    '127.0.0.1',
+    '--port',
+    String(port),
+    '--ctx-size',
+    String(spec.contextSize),
+    '--n-gpu-layers',
+    '0',
+    '--parallel',
+    '1',
+    '--no-ui',
+    '--jinja',
+    '--reasoning',
+    spec.reasoning,
+    '--temp',
+    String(sampling.temperature),
+    '--top-k',
+    String(sampling.topK),
+    '--repeat-penalty',
+    String(sampling.repeatPenalty),
+    ...(sampling.topP === undefined
+      ? []
+      : ['--top-p', String(sampling.topP)]),
+  ];
 }

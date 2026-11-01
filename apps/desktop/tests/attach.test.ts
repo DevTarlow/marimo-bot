@@ -47,6 +47,7 @@ describe('attaching files to a message', () => {
         path: join(root, 'src', 'index.ts'),
         name: 'index.ts',
         relative: join('src', 'index.ts'),
+        kind: 'file',
       },
     ]);
   });
@@ -81,8 +82,7 @@ describe('attaching files to a message', () => {
     expect(skipped[0]?.reason).toContain('Outside the space');
   });
 
-  it('refuses a file that is not text', async () => {
-    // A NUL byte in the first block: the same test `read_file` makes.
+  it('accepts an image, because the vision model takes bytes', async () => {
     await writeFile(
       join(root, 'shot.png'),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]),
@@ -90,6 +90,29 @@ describe('attaching files to a message', () => {
 
     const {files, skipped} = await attachableFiles(root, [
       join(root, 'shot.png'),
+    ]);
+
+    expect(skipped).toEqual([]);
+    expect(files).toEqual([
+      {
+        path: join(root, 'shot.png'),
+        name: 'shot.png',
+        relative: 'shot.png',
+        kind: 'image',
+      },
+    ]);
+  });
+
+  it('refuses a binary that is neither text nor an image', async () => {
+    // A NUL byte in the first block, and an extension the vision model does not
+    // read: the same test `read_file` makes, on a file no model here can use.
+    await writeFile(
+      join(root, 'scan.pdf'),
+      Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x01, 0x02]),
+    );
+
+    const {files, skipped} = await attachableFiles(root, [
+      join(root, 'scan.pdf'),
     ]);
 
     expect(files).toEqual([]);

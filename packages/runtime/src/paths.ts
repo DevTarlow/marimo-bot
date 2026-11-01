@@ -13,9 +13,6 @@
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
-import {providerIdSchema} from '@marimo/protocol';
-import type {ProviderId} from '@marimo/protocol';
-
 export interface AppPaths {
   /** The directory everything below lives under. */
   userData: string;
@@ -42,14 +39,6 @@ export interface AppPaths {
    * so the choice stays visible to anyone who looks.
    */
   secretsDir: string;
-  /**
-   * One file per provider, named by its id.
-   *
-   * A record rather than a function, because the set is the catalogue: a provider
-   * this build knows has a path here whether or not a key was ever saved for it,
-   * so nothing has to invent a file name at the moment a secret is written.
-   */
-  providerSecrets: Record<ProviderId, string>;
   /** Agent profiles: identities and the capabilities they carry. */
   profiles: string;
   /**
@@ -203,15 +192,6 @@ export function resolveAppPaths(
     harnessVersions: join(userData, 'harness', 'versions'),
     settings: join(userData, 'settings.json'),
     secretsDir,
-    /*
-     * One file per provider, named by its id, and derived from the catalogue so
-     * a provider added to it has a key path the moment it exists. The name is
-     * sanitised like any other secret name, which for these ids is a no-op —
-     * they are lowercase with at most an underscore.
-     */
-    providerSecrets: Object.fromEntries(
-      providerIdSchema.options.map((id) => [id, secretFileIn(secretsDir, id)]),
-    ) as Record<ProviderId, string>,
     profiles: join(userData, 'profiles.json'),
     avatars: join(userData, 'avatars'),
     workspaces: join(userData, 'workspaces.json'),

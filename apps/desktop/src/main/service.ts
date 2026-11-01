@@ -4,8 +4,8 @@
  * The plan and the install live in `@marimo/runtime`, which knows nothing about
  * Electron. This file is the part that can only be answered here: which binary to
  * name, where the runner script is, and — the one that is easy to get wrong —
- * whether the provider a scheduled job would use is one a process with no
- * keychain can actually read.
+ * whether every enabled connector holds a secret a process with no keychain can
+ * actually read. The model needs no such secret.
  */
 import {join} from 'node:path';
 
@@ -17,7 +17,6 @@ import {
 } from '@marimo/runtime';
 import type {AppPaths, ServiceSpec} from '@marimo/runtime';
 
-import {activeProvider, PROVIDERS} from '@marimo/protocol';
 import type {
   ServiceChange,
   ServiceStatus,
@@ -48,7 +47,7 @@ export interface ServiceContext {
    *
    * Injected rather than read from `context.paths.settings` here, because the
    * answer has to be the one the app is actually running under: a second reader
-   * of the same file would be a second answer to "which provider is active",
+   * of the same file would be a second answer to "which connectors are enabled",
    * and the one the card showed would be the wrong one.
    */
   readSettings: () => Promise<StoredSettings>;
@@ -57,27 +56,19 @@ export interface ServiceContext {
 /**
  * Whether a process with no keychain could run this install's jobs.
  *
- * That process is the runner, and the question decides whether switching the
- * service on is honest. It is about the *whole* job rather than about the
- * provider, which is why it grew a second half: a scheduled turn answers through
- * a provider and may use the connectors its agent was granted, so a job needs
- * both secrets. A provider that needs no key — a llama.cpp server on the user's
- * own machine — has nothing to decrypt, and one whose key the user chose to store
- * readable can be read by anything. The same two answers apply to each connector
- * that is switched on: one with no secrets needs none, one the user let the
- * runner read is readable, and an encrypted one is a connector the job dials
- * without — which is a turn that does less than it was asked to, or a `401` from
- * a server that never saw a credential.
+ * The model needs no key any more — it runs on this machine from weights the
+ * app downloaded. What is left is the connectors: a scheduled turn may use the
+ * tools its agent was granted, and the runner dials them without a window. A
+ * connector with no secrets needs none; one the user let the runner read is
+ * readable; an encrypted one is a connector the job dials without, which is a
+ * turn that does less than it was asked to, or a `401` from a server that never
+ * saw a credential.
  *
  * Anything else is a job that would be refused or degraded at the first turn,
  * which is what the card has to say beforehand rather than after somebody has
  * relied on it overnight.
  */
 export function keysReadableIn(settings: StoredSettings): boolean {
-  const {id, keyStorage} = activeProvider(settings.providers);
-  if (PROVIDERS[id].requiresApiKey && keyStorage !== 'plaintext') {
-    return false;
-  }
   return settings.mcpServers.every(
     (server) =>
       !server.enabled ||

@@ -57,6 +57,27 @@ const LENGTHS: Record<CompanionAnswerLength, string> = {
 };
 
 /**
+ * The instruction for a turn that will be heard rather than read.
+ *
+ * A reply written for the eye is a bad reply for the ear: markdown becomes
+ * punctuation noise, a code block becomes a minute of gibberish, and a list of
+ * caveats becomes something nobody asked to sit through. The cap is short on
+ * purpose — the audio model is answering on a laptop processor, and the
+ * companion is for a question in passing.
+ */
+const SPOKEN = [
+  '# This answer will be spoken',
+  '',
+  'The reply is read aloud by a speech model.',
+  '',
+  '- Keep it to one to three short sentences unless the person asked for detail.',
+  '- No markdown, bullet lists, tables, code fences or URLs. Say the answer, not',
+  '  its formatting.',
+  '- Say numbers, dates and units the way a person says them.',
+  '- Do not narrate tool use or describe what you are about to do. Just answer.',
+].join('\n');
+
+/**
  * The instruction for a turn, or undefined for an ordinary one.
  *
  * `origin` is optional so every existing caller — a job, a Discord mention, a
@@ -69,6 +90,12 @@ const LENGTHS: Record<CompanionAnswerLength, string> = {
  * block because it ends by saying that none of it is a request, and a model
  * reads the last instruction it was given most literally.
  *
+ * `voice` is the third fact about the surface: a spoken turn's answer is heard,
+ * and the block for it goes after everything else because it is the constraint
+ * most likely to be lost if it is buried. It is not folded into the pet length
+ * block: the main window speaks too, and a window turn that is read aloud has the
+ * same rules as a pet turn that is.
+ *
  * It is also why a window turn can now answer with something rather than
  * `undefined`: the window has no length preference to state, but it is still a
  * person typing at a particular time of day.
@@ -77,9 +104,10 @@ export function turnInstruction(
   origin: 'window' | 'pet' | undefined,
   answerLength: CompanionAnswerLength,
   context?: string,
+  voice = false,
 ): string | undefined {
   const length = origin === 'pet' ? LENGTHS[answerLength] : undefined;
-  const parts = [length, context?.trim()].filter(
+  const parts = [length, context?.trim(), voice ? SPOKEN : undefined].filter(
     (part): part is string => part !== undefined && part.length > 0,
   );
   return parts.length === 0 ? undefined : parts.join('\n\n');

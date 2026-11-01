@@ -14,6 +14,7 @@
  */
 import {randomUUID} from 'node:crypto';
 import {stat} from 'node:fs/promises';
+import {totalmem} from 'node:os';
 
 import {
   app,
@@ -25,7 +26,8 @@ import {
 } from 'electron';
 import type {OpenDialogOptions} from 'electron';
 
-import {agentCallSchemas, IPC_CALL_CHANNEL, PROVIDERS} from '@marimo/protocol';
+import {agentCallSchemas, IPC_CALL_CHANNEL} from '@marimo/protocol';
+import type {LocalModelId, LocalModelVariant} from '@marimo/protocol';
 
 import {checkForUpdates} from './updates.js';
 import type {
@@ -37,6 +39,7 @@ import type {
   ThemeMode,
 } from '@marimo/protocol';
 import type {AppPaths} from '@marimo/runtime';
+import {missingProblem} from '@marimo/runtime';
 
 import {PRODUCT_NAME} from '../shared/product.js';
 
@@ -123,9 +126,10 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
   /**
    * The settings a window may see.
    *
-   * No credential is here and none can be. A provider is reported as a *boolean* —
-   * a key is set for it or it is not — and the one secret this app stores besides
-   * the connector tokens never crosses this boundary in any other form.
+   * No credential is here and none can be: the models run on this machine, so
+   * there is no model key at all. What crosses is the model situation — what is
+   * installed, what is running, and what a first run should recommend — plus the
+   * one connector fact the form needs before it asks somebody to type a secret.
    */
   async function publicSettings(): Promise<PublicSettings> {
     const service = dependencies.agent();
@@ -134,18 +138,24 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     }
     const settings = await service.settings();
     const profiles = await service.profiles();
-    const readiness = await providerReadiness(service);
+    const readiness = await modelReadiness(service);
+    const localModels = await service.modelStatus();
 
     return settingsForWindow({
       settings,
       readiness,
-      providerKeys: await service.providerKeys(),
       /*
        * Asked every time rather than cached: on Linux a keyring that was locked
-       * at launch can become usable later in the session, and the key card has to
-       * know before it offers a field whose storage will refuse it.
+       * at launch can become usable later in the session, and the connector form
+       * has to know before it offers a field whose storage will refuse it.
        */
       encryptionAvailable: safeStorageCipher.available(),
+      localModels,
+      hardware: {
+        totalMemoryMb: Math.round(totalmem() / (1024 * 1024)),
+        platform: process.platform,
+        arch: process.arch,
+      },
       profiles: profiles.profiles,
       activeProfileId: profiles.activeProfileId,
     });
@@ -154,52 +164,41 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
   /**
    * Whether this install could answer a question right now.
    *
-   * A fact only the main process has: the window holds the catalogue but not the
-   * keys, so "there is a key for the provider this build is pointed at, and this
-   * process can read it" is not something it can work out for itself. A window
-   * that guessed would open a chat on a machine that cannot reply.
+   * A fact only the main process has: the window sees a status but not the
+   * engine, and "the chat model's weights and the engine are both here" is not
+   * something it can work out for itself. A window that guessed would open a chat
+   * on a machine that cannot reply.
    *
-   * The order is the order of the fixes. A provider nobody chose is a choice; a
-   * provider with no key is a key; and a key this process cannot decrypt is not
-   * the same problem as a key that was never entered, which is why the store's
-   * own sentence is passed through rather than replaced with "add a key" — that
-   * would send somebody to re-enter a key they already have.
-   *
-   * `modelReady` and `modelProblem` keep their names because the window's gate
-   * reads them; what answers them is a provider now rather than an engine.
+   * The order is the order of the fixes. A platform with no engine build cannot
+   * be fixed by a download, and saying so before 1.9GB is spent is the whole
+   * reason the engine is checked first. After that, a missing file is a
+   * download, and the sentence names the parts.
    */
-  async function providerReadiness(
+  async function modelReadiness(
     service: AgentService,
   ): Promise<{ok: boolean; problem?: string}> {
     const settings = await service.settings();
-    const provider = PROVIDERS[settings.providers.active];
-    /*
-     * Only reachable through a document naming a service this build has never
-     * heard of, which every schema in the protocol refuses — a hand-edited file
-     * is the one way in, and a dereference of `undefined.label` would be a crash
-     * rather than a sentence.
-     */
-    if (provider === undefined) {
+    const status = await service.modelStatus();
+    if (!status.engine.platformSupported) {
       return {
         ok: false,
         problem:
-          'The selected service is not one this version of the app knows. ' +
-          'Choose a provider in Settings.',
+          `This build has no llama.cpp engine for ${process.platform}-${process.arch}, ` +
+          'so it cannot run a local model on this computer.',
       };
     }
-    const secret = await service.readSecret(settings.providers.active);
-    if (secret.state === 'unreadable') {
-      return {ok: false, problem: secret.reason};
-    }
-    if (provider.requiresApiKey && secret.state !== 'present') {
+    const modelId = settings.localModels.tasks.chat;
+    const model = status.models[modelId];
+    if (model === undefined) {
       return {
         ok: false,
-        problem: `${provider.label} needs an API key. Add one in Settings.`,
+        problem: `The chat model is set to ${modelId}, which this build does not ship.`,
       };
     }
-    // A provider that needs no key is ready: a local server is the case this
-    // exists for, and its address is set by default.
-    return {ok: true};
+    if (model.installed) {
+      return {ok: true};
+    }
+    return {ok: false, problem: missingProblem(modelId, model.missing)};
   }
 
   /** Both halves of what the window needs after an agent changes. */
@@ -339,36 +338,6 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
       dependencies.onSettingsChanged?.();
       return {settings: await publicSettings()};
     },
-
-    /*
-     * A key is written here rather than through `settings.set`, because it is not
-     * a preference: it goes into a secret file through the keychain, and a patch
-     * that quietly did that would report success for a write the store may have
-     * refused.
-     */
-    'settings.setApiKey': async (params) => {
-      await agent().setApiKey(params.apiKey, params.provider);
-      return {settings: await publicSettings()};
-    },
-
-    /*
-     * Reaches the network, and may fail in ways the user has to be told about —
-     * an unreachable host, a refused key, a list this build cannot read. The
-     * failure is thrown rather than returned, which is where Electron puts it:
-     * the button that asked sees the sentence.
-     */
-    'providers.fetch': async (params) => {
-      await agent().fetchModels(params.provider);
-      return {settings: await publicSettings()};
-    },
-
-    'sessions.setModel': async (params) => ({
-      session: await agent().setSessionModel(
-        params.profileId,
-        params.sessionId,
-        params.model,
-      ),
-    }),
 
     'sessions.setParticipants': async (params) => ({
       session: await agent().setParticipants(
@@ -569,6 +538,49 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         ? {installed: false, notes: [], failures: []}
         : await disable(dependencies.service),
 
+    /*
+     * The local models.
+     *
+     * A read and five buttons. `install` returns as soon as the download has
+     * *started*; progress and completion arrive on the event channel, because an
+     * invoke that blocked for 1.9GB is one nobody could cancel.
+     */
+    'models.status': async () => await agent().modelStatus(),
+    'models.install': async (params: {
+      modelId: LocalModelId;
+      variant: LocalModelVariant;
+    }) => await agent().installModel(params.modelId, params.variant),
+    'models.cancel': () => agent().cancelModelInstall(),
+    'models.remove': async (params: {modelId: LocalModelId}) => ({
+      status: await agent().removeModel(params.modelId),
+    }),
+    'models.sleep': async () => ({status: await agent().sleepModels()}),
+    'models.warm': async (params: {modelId: LocalModelId}) =>
+      await agent().warmModel(params.modelId),
+
+    /*
+     * Speech. The WAV arrives from the renderer as base64 and is checked for a
+     * RIFF/WAVE header here rather than trusted: a recorder bug that sent JSON
+     * would otherwise reach the model as an audio part and fail with the
+     * engine's generic sentence. It never touches disk.
+     */
+    'speech.transcribe': async (params) => {
+      const wav = Buffer.from(params.audioBase64, 'base64');
+      if (
+        wav.length < 44 ||
+        wav.toString('ascii', 0, 4) !== 'RIFF' ||
+        wav.toString('ascii', 8, 12) !== 'WAVE'
+      ) {
+        throw new Error(
+          'The microphone recording was not a WAV file, so it could not be ' +
+            'transcribed.',
+        );
+      }
+      return await agent().transcribeSpeech(wav, params.language);
+    },
+    'speech.speak': async (params) =>
+      await agent().speak(params.text, params.language, params.voice),
+
     /* Recall: a read and four buttons. */
     'recall.status': async () => await agent().recallStatus(),
     'recall.install': async (params) =>
@@ -762,6 +774,7 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         params.text,
         params.origin,
         params.agentId,
+        params.attachments,
       ),
 
     'chat.approve': async (params) =>
@@ -770,6 +783,7 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         params.sessionId,
         params.callId,
         params.confirmed,
+        params.origin,
       ),
 
     'chat.abort': async (params) =>

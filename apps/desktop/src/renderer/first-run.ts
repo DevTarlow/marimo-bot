@@ -60,14 +60,19 @@ export function firstRunScreen(read: FirstRunRead): FirstRunScreen {
   if (read.phase === 'inSetup') {
     return 'setup';
   }
+  /*
+   * The flow is the first run, not the "cannot answer" screen. A model can
+   * already be on disk — preinstalled by a future build, or left by a previous
+   * install that lost its settings — and the flow still asks the two questions a
+   * working model does not answer: which Space, and who the first bot is. The
+   * other order made a preinstalled model skip the introduction entirely, which
+   * is the one case where a person meets the app with no bot of their own.
+   */
+  if (!read.setupSeen) {
+    return 'setup';
+  }
   if (read.modelReady) {
     return 'app';
   }
-  /*
-   * Not ready, and no flow on screen: either nobody has been through it, or they
-   * have and this is a later launch that still cannot answer. `setupSeen` is the
-   * only thing that tells those apart, which is why it is stored rather than
-   * derived — both states look identical from here.
-   */
-  return read.setupSeen ? 'cannotAnswer' : 'setup';
+  return 'cannotAnswer';
 }

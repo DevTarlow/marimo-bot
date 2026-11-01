@@ -8,7 +8,17 @@
  */
 import {z} from 'zod';
 
-import {providerKeyStorageSchema} from './providers.js';
+/**
+ * How a connector's secret is stored.
+ *
+ * `keychain` is the default: the OS encrypts it at rest. `plaintext` is the
+ * per-connector consent that lets a scheduled job read it while the app is
+ * closed, because the runner has no `app` object and therefore no keychain. The
+ * two values used to live beside the provider catalogue; the catalogue is gone
+ * and the choice is still the connector's own.
+ */
+export const secretStorageSchema = z.enum(['keychain', 'plaintext']);
+export type SecretStorage = z.infer<typeof secretStorageSchema>;
 
 /**
  * The characters a server name may use, and why they are so few.
@@ -122,7 +132,7 @@ export const mcpServerSchema = z
      * with no keychain refuses to store a secret rather than writing a token in
      * the clear.
      */
-    secretStorage: providerKeyStorageSchema.default('keychain'),
+    secretStorage: secretStorageSchema.default('keychain'),
     /** Connect at launch, and reconnect when it drops. */
     enabled: z.boolean(),
     /**

@@ -10,12 +10,12 @@
  * change their bot's identity, and it made the app look like two products. Every
  * capability is still a switch, and every switch is here.
  *
- * The repair that matters most is first in spirit. The app carries no model and
- * runs no engine, so a fresh install cannot answer until it is pointed at a
- * provider — and the card that does it, the Provider card, is where the welcome
- * screen sends somebody on their first run. Connectors are on the same screen for
- * the same reason from the other end: the card is where a server is added and
- * trusted, and a capability nobody can see is one nobody turns on.
+ * The repair that matters most is first in spirit. The app carries no model, so
+ * a fresh install cannot answer until one is downloaded — and the card that does
+ * it, the Models card, is where the welcome screen sends somebody on their first
+ * run. Connectors are on the same screen for the same reason from the other end:
+ * the card is where a server is added and trusted, and a capability nobody can
+ * see is one nobody turns on.
  *
  * The tool list is drawn in two groups, and the grouping is the point. Twenty
  * checkboxes with no distinction between reading a file and running a shell
@@ -44,7 +44,6 @@
 import {useEffect, useRef, useState} from 'react';
 
 import type {
-  AgentModel,
   AgentProfile,
   CatalogConnector,
   CatalogTool,
@@ -53,7 +52,8 @@ import type {
   HarnessReport,
   ProfileCatalog,
   PublicSettings,
-  SettingsPatch,
+  SpeechLanguage,
+  SpeechVoice,
   SkillDraft,
   SkillHistoryEntry,
   StoredSkill,
@@ -66,15 +66,14 @@ import {
   COMMANDS,
   COMPANION_ANSWER_LENGTHS,
   defaultBotAvatarFor,
-  PROVIDER_IDS,
-  PROVIDERS,
+  LOCAL_MODELS,
+  SPEECH_LANGUAGES,
   SKILL_DESCRIPTION_MAX,
   SKILL_INSTRUCTIONS_MAX,
 } from '@marimo/protocol';
 
 import {chosenPreset} from '../capabilities.js';
 import {describe} from '../describe.js';
-import {modelChoicesFor, SEARCHABLE_MODEL_THRESHOLD} from '../model-search.js';
 import {BotAvatar} from './BotAvatar.js';
 import {BotIconGrid} from './BotIconGrid.js';
 import {BotMenu} from './BotMenu.js';
@@ -82,7 +81,7 @@ import {Connectors} from './Connectors.js';
 import {ControlChoice} from './ControlChoice.js';
 import {Learning} from './Learning.js';
 import {Memory} from './Memory.js';
-import {ModelPicker} from './ModelPicker.js';
+import {ModelsSection} from './ModelsSection.js';
 import type {PopoverAnchor} from './Popover.js';
 import {Recall} from './Recall.js';
 import {NewBotDialog} from './NewBotDialog.js';
@@ -130,16 +129,7 @@ interface Loaded {
   activeSpaceName: string | undefined;
 }
 
-/**
- * The Provider card's title, named once.
- *
- * Something outside this file opens that card: the composer's model picker,
- * when a conversation is pinned to a provider that has never been asked what it
- * serves. A title spelled out in both places is one that can drift, and a
- * section name nothing matches fails *silently* — the settings file tolerates
- * unknown names by design, so the card would simply stay folded.
- */
-export const PROVIDER_SECTION = 'Provider';
+
 
 export function Settings({
   onClose,
@@ -470,6 +460,15 @@ export function Settings({
   const granted = new Set(loaded.profile?.enabledTools ?? []);
   const opened = new Set(openSections ?? []);
   /*
+   * Whether the voice model is on disk. The switch is refused before the
+   * download rather than after the first click: a toggle that turns on and then
+   * fails at the first sentence is worse than one that says what to fetch.
+   */
+  const voiceModelInstalled =
+    loaded.settings.localModels.models[
+      loaded.settings.localModels.tasks.voice
+    ]?.installed ?? false;
+  /*
    * The bot an open menu belongs to, looked up rather than held in the state: a
    * menu left open while another window removed that bot would otherwise offer
    * actions for a profile this list no longer has.
@@ -674,27 +673,9 @@ export function Settings({
                   </>
                 )}
                 {/*
-                  The agent's own model, beside its name rather than in a card of
-                  its own: it is a fact about that agent, and a second list of
-                  agents to look through would be two places holding one answer.
-                */}
-                <AgentModelChoice
-                  profile={entry}
-                  settings={loaded.settings}
-                  disabled={saving}
-                  onChoose={(profileId, model) => {
-                    void change(async () => {
-                      await window.marimo.call('profiles.update', {
-                        profileId,
-                        patch: {model},
-                      });
-                    });
-                  }}
-                />
-                {/*
-                  Where this agent starts its chats, in the same row as its name
-                  and its model: it is a fact about that agent, and one list of
-                  agents is enough to carry all three.
+                  Where this agent starts its chats, in the same row as its name:
+                  it is a fact about that agent, and one list of agents is enough
+                  to carry both.
                 */}
                 <AgentSpaceChoice
                   profile={entry}
@@ -1212,6 +1193,83 @@ export function Settings({
             ))}
           </select>
 
+          <h4 className="settings-group">Talking</h4>
+          <p className="settings-muted">
+            While this is on, the voice model listens, answers and speaks. It is
+            the same model for all three so a spoken turn never needs two loaded
+            at once — which also means it answers with the voice model rather
+            than the text one. Turn it off for harder work.
+          </p>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={loaded.settings.companion.speakReplies}
+              disabled={saving || (!voiceModelInstalled && !loaded.settings.companion.speakReplies)}
+              onChange={(event) => {
+                const speakReplies = event.target.checked;
+                void change(async () => {
+                  await window.marimo.call('settings.set', {
+                    patch: {companion: {speakReplies}},
+                  });
+                });
+              }}
+            />
+            <span>
+              Talk to Marimo
+              <em className="settings-why">
+                A microphone button appears in the window and on the moss. The
+                answer is spoken aloud, so it is kept short and read as prose.
+              </em>
+            </span>
+          </label>
+          {!voiceModelInstalled && (
+            <p className="settings-muted">
+              Voice needs {LOCAL_MODELS[loaded.settings.localModels.tasks.voice].label}{' '}
+              — download it in Models above to turn this on.
+            </p>
+          )}
+          <label className="settings-field">
+            <span>Voice</span>
+            <select
+              className="settings-input"
+              value={loaded.settings.companion.speechVoice}
+              disabled={saving || !loaded.settings.companion.speakReplies}
+              onChange={(event) => {
+                const speechVoice = event.target.value as SpeechVoice;
+                void change(async () => {
+                  await window.marimo.call('settings.set', {
+                    patch: {companion: {speechVoice}},
+                  });
+                });
+              }}
+            >
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+            </select>
+          </label>
+          <label className="settings-field">
+            <span>Language</span>
+            <select
+              className="settings-input"
+              value={loaded.settings.companion.speechLanguage}
+              disabled={saving || !loaded.settings.companion.speakReplies}
+              onChange={(event) => {
+                const speechLanguage = event.target.value as SpeechLanguage;
+                void change(async () => {
+                  await window.marimo.call('settings.set', {
+                    patch: {companion: {speechLanguage}},
+                  });
+                });
+              }}
+            >
+              {SPEECH_LANGUAGES.map((language) => (
+                <option key={language.code} value={language.code}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <h4 className="settings-group">How much it shows</h4>
           <label className="settings-field">
             <span>
@@ -1349,12 +1407,11 @@ export function Settings({
         {/*
           What answers.
 
-          It is not tuning. The app carries no model of its own, so a fresh
-          install has nothing to think with until this card has been filled in —
-          and a first run that cannot answer has to be fixable from the screen it
-          lands on.
+          It is not tuning: a fresh install has nothing to think with until the
+          first model is downloaded, and the screen a first run lands on has to
+          be able to fix that.
         */}
-        <ProviderSection
+        <ModelsSection
           settings={loaded.settings}
           opened={opened}
           onToggle={fold}
@@ -1427,131 +1484,6 @@ export function Settings({
   );
 }
 
-/**
- * One agent's own model, and the way back to the app's.
- *
- * The list is the one the Provider card draws, because the window has a
- * catalogue per provider and only ever fetches the active one's. An agent pinned
- * to another provider is therefore offered the single id stored for it — plus
- * the way back, which is what keeps that a state it can leave rather than a
- * corner it is stuck in.
- *
- * The stored value is offered even when the catalogue has stopped carrying it,
- * for the reason the Provider card offers it: a model the endpoint has retired
- * may still answer.
- */
-function AgentModelChoice({
-  profile,
-  settings,
-  disabled,
-  onChoose,
-}: {
-  profile: AgentProfile;
-  settings: PublicSettings;
-  disabled: boolean;
-  /** `null` puts the agent back on the app's default. */
-  onChoose: (profileId: string, model: AgentModel | null) => void;
-}): React.JSX.Element {
-  /** What answers when this agent names nothing of its own. */
-  const fallback: AgentModel = {
-    provider: settings.providers.active,
-    model: settings.providers.configs[settings.providers.active].model,
-  };
-  const chosen = profile.model;
-  const shown = chosen ?? fallback;
-  /*
-   * The provider is part of what this row chooses, so it is drawn beside the
-   * model rather than assumed to be the app's: an agent pinned to another
-   * endpoint is the case the whole control exists for, and a row that offered
-   * only the active provider's list could not express that choice — it could
-   * only show the one id already stored.
-   */
-  const choices = modelChoicesFor(
-    settings.availableModels,
-    shown.provider,
-    shown.model,
-  );
-  const descriptor = PROVIDERS[shown.provider];
-
-  return (
-    <>
-      <select
-        className="settings-input settings-agent-provider"
-        aria-label={`Provider for ${profile.name}`}
-        value={shown.provider}
-        disabled={disabled}
-        onChange={(event) => {
-          const next = PROVIDER_IDS.find((id) => id === event.target.value);
-          if (next === undefined) {
-            return;
-          }
-          /*
-           * Choosing a provider chooses a model with it, because a model id
-           * means nothing at another endpoint — and the value written is the one
-           * the settings file already holds for that provider, which is what the
-           * app itself would answer with there. Writing `null` instead would
-           * drop the agent back onto the app's default, which is the provider
-           * the user just moved it off.
-           */
-          onChoose(profile.id, {
-            provider: next,
-            model: settings.providers.configs[next].model,
-          });
-        }}
-      >
-        {PROVIDER_IDS.map((id) => (
-          <option key={id} value={id}>
-            {PROVIDERS[id].label}
-          </option>
-        ))}
-      </select>
-      <ModelPicker
-        models={choices.models}
-        value={shown.model}
-        disabled={disabled}
-        /*
-         * Said in the popover rather than beside the chip: the row is a name and
-         * three choices, and a sentence about one of them would wrap it. The
-         * refresh it points at is the card further up this same screen.
-         */
-        {...(choices.fetched
-          ? {}
-          : {
-              hint:
-                `${descriptor.label} has not been asked what it serves yet, so ` +
-                'these are the names this build ships with. Fetch Models is in ' +
-                'the Provider card above.',
-            })}
-        /*
-         * One or the other: a model this agent chose can be given up, and one it
-         * did not has nothing to give up.
-         */
-        {...(chosen === undefined
-          ? {note: 'default'}
-          : {
-              defaultChoice: {
-                label: 'Follow the app default',
-                onUse: () => {
-                  onChoose(profile.id, null);
-                },
-              },
-            })}
-        onChange={(model) => {
-          onChoose(profile.id, {provider: shown.provider, model});
-        }}
-      />
-    </>
-  );
-}
-
-/**
- * One agent's own space, and the way back to wherever the rail is.
- *
- * Unlike the model picker, the fallback is not something this row can name on
- * its own: "wherever I am" is a fact about the rail rather than about the agent,
- * so the note beside the picker says which space that is right now. Without it
- * the setting would be one whose effect is only visible somewhere else.
- */
 function AgentSpaceChoice({
   profile,
   spaces,
@@ -1616,404 +1548,6 @@ function AgentSpaceChoice({
   );
 }
 
-/**
- * Which provider answers, how it is reached, and which of its models.
- *
- * One section because none of these stands alone: a model id is only meaningful
- * at one endpoint, the address is what makes a server of your own reachable, and
- * both are unusable without the key that endpoint wants. They were two sections
- * for a while — a Provider card and a Model card — and the split was arbitrary:
- * the key belongs to the picker above it, and the model list could not be
- * refreshed without leaving the section it lives in.
- *
- * Two choices here are deliberate. The provider is a pick-list, because the ids
- * are the app's own and a mistyped one would leave the settings file naming a
- * provider nothing can resolve. The model is a pick-list for the same reason — a
- * mistyped model id is a 404 at the start of a turn, which reads as "the agent is
- * broken" rather than "that model does not exist" — and the stored value is shown
- * even when the list no longer carries it, because a model the provider has
- * stopped advertising may still work.
- *
- * "Fetch Models" is what replaces those placeholder names with what the endpoint
- * actually serves, and it is offered only once a key is on file: asking a service
- * that will answer 401 is a button whose only outcome is an error. A provider
- * that needs no key — a local server beside the app — is asked directly.
- *
- * Saving is immediate, like every other control here. The base URL is the one
- * exception in *when*: it waits for the box to lose focus, because saving per
- * keystroke would write a half-typed address to disk and offer it to the next
- * turn.
- */
-function ProviderSection({
-  settings,
-  opened,
-  onToggle,
-  onSaved,
-}: {
-  settings: PublicSettings;
-  opened: ReadonlySet<string>;
-  onToggle: (title: string, expanded: boolean) => void;
-  /** Re-reads the dialog after a write, so no card is left disagreeing. */
-  onSaved: () => Promise<void>;
-}): React.JSX.Element {
-  const [saving, setSaving] = useState(false);
-  const [fetching, setFetching] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  /** What is in the base URL box, or null while it shows what is stored. */
-  const [baseUrlDraft, setBaseUrlDraft] = useState<string | null>(null);
-  /** What went wrong, shown in this section rather than only in the banner. */
-  const [problem, setProblem] = useState<string | null>(null);
-  /** What a good fetch found, so the button's effect is visible. */
-  const [note, setNote] = useState<string | null>(null);
-
-  const active = settings.providers.active;
-  const descriptor = PROVIDERS[active];
-  const config = settings.providers.configs[active];
-  /*
-   * This provider's models, and whether it has actually been asked.
-   *
-   * The provider here is the one the card is showing, which is also the one the
-   * picker above chooses and the one Fetch Models asks — three controls whose
-   * subject has to be the same value, or the button refreshes a list the field
-   * below is not drawing.
-   */
-  const choices = modelChoicesFor(
-    settings.availableModels,
-    active,
-    config.model,
-  );
-  const models = choices.models;
-  const baseUrl = baseUrlDraft ?? config.baseUrl;
-  /*
-   * Whether a key is *set*, and never what it is: the payload carries the fact
-   * and there is no call that reads one back into a field.
-   */
-  const keyStored = settings.providerKeys[active] === true;
-
-  /** Runs one write, then re-reads so this card and the rest of the dialog agree. */
-  const write = async (work: () => Promise<unknown>): Promise<void> => {
-    setSaving(true);
-    setProblem(null);
-    setNote(null);
-    try {
-      await work();
-      setBaseUrlDraft(null);
-      await onSaved();
-    } catch (failure) {
-      setProblem(describe(failure));
-      // Put the box back rather than leaving a refused address in it.
-      setBaseUrlDraft(null);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const save = (patch: SettingsPatch): void => {
-    void write(async () => {
-      await window.marimo.call('settings.set', {patch});
-    });
-  };
-
-  /** Writes the key and forgets it here: the window is never told one back. */
-  const saveKey = async (): Promise<void> => {
-    const value = apiKey;
-    setSaving(true);
-    setProblem(null);
-    setNote(null);
-    try {
-      await window.marimo.call('settings.setApiKey', {
-        apiKey: value,
-        provider: active,
-      });
-      setApiKey('');
-      await onSaved();
-    } catch (failure) {
-      setProblem(describe(failure));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /**
-   * Asks the endpoint what it serves and redraws the list from the answer.
-   *
-   * A base URL still sitting in the box has not been written yet — that field
-   * saves on blur — while the fetch reads the stored address. Committing the
-   * draft first is what stops this from asking the address the user just
-   * replaced, which would look like the button ignored the edit.
-   */
-  const fetchModels = async (): Promise<void> => {
-    setFetching(true);
-    setProblem(null);
-    setNote(null);
-    try {
-      const draft = baseUrlDraft?.trim() ?? '';
-      if (draft.length > 0 && draft !== config.baseUrl) {
-        await window.marimo.call('settings.set', {
-          patch: {providers: {configs: {[active]: {baseUrl: draft}}}},
-        });
-        setBaseUrlDraft(null);
-      }
-      const {settings: refreshed} = await window.marimo.call(
-        'providers.fetch',
-        {provider: active},
-      );
-      setNote(
-        `${descriptor.label} returned ` +
-          `${String(refreshed.availableModels[active]?.length ?? 0)} model(s).`,
-      );
-      await onSaved();
-    } catch (failure) {
-      setProblem(describe(failure));
-    } finally {
-      setFetching(false);
-    }
-  };
-
-  const busy = saving || fetching;
-  const canFetch = !busy && (!descriptor.requiresApiKey || keyStored);
-
-  return (
-    <SettingsSection
-      title={PROVIDER_SECTION}
-      opened={opened}
-      onToggle={onToggle}
-    >
-      <p className="settings-muted">
-        Which service answers, how the app reaches it, and which of its models.
-        Every provider keeps its own address, model and key, so trying one and
-        coming back does not cost you the setup of the other.
-      </p>
-
-      <label className="settings-field">
-        <span>Provider</span>
-        <em className="settings-why">{descriptor.blurb}</em>
-        <select
-          className="settings-input"
-          value={active}
-          disabled={busy}
-          onChange={(event) => {
-            const next = PROVIDER_IDS.find((id) => id === event.target.value);
-            if (next === undefined) {
-              return;
-            }
-            save({providers: {active: next}});
-          }}
-        >
-          {PROVIDER_IDS.map((id) => (
-            <option key={id} value={id}>
-              {PROVIDERS[id].label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {/*
-        The key, drawn for every provider — and what it says depends on whether
-        one is needed. A local server usually takes none, but `--api-key` is a
-        flag it can be started with, so a field that is absent there would be a
-        configuration the app could not reach at all. What the sentence must not
-        do is let somebody believe a key is required when it is not.
-      */}
-      <div className="settings-field">
-        <span>API key</span>
-        <p className="settings-muted">
-          {keyStored
-            ? `A key for ${descriptor.label} is stored. It is kept on this machine and never sent back to this window.`
-            : descriptor.requiresApiKey
-              ? `No ${descriptor.label} key yet — the bot cannot answer, and its models cannot be fetched, until there is one.`
-              : `${descriptor.label} needs no key. Anything pasted here is sent as one, which matters only if the server asks for it.`}
-        </p>
-        {/*
-          Said before the field rather than after a failed save: the storage is
-          about to refuse an encrypted key, and a secret typed into a box whose
-          Save cannot work is a secret spent for nothing.
-        */}
-        {!settings.encryptionAvailable && (
-          <p className="settings-muted">
-            This machine has no keychain, so a key cannot be encrypted here at
-            all. It can only be stored readable, which is what the switch below
-            asks for — and saving is refused until that switch is on.
-          </p>
-        )}
-        <div className="settings-row">
-          <input
-            className="settings-input"
-            type="password"
-            value={apiKey}
-            placeholder={descriptor.keyPlaceholder}
-            aria-label={`${descriptor.label} API key`}
-            autoComplete="off"
-            disabled={busy}
-            onChange={(event) => {
-              setApiKey(event.target.value);
-            }}
-          />
-          <button
-            type="button"
-            className="button button-primary"
-            disabled={busy || apiKey.trim().length === 0}
-            onClick={() => {
-              void saveKey();
-            }}
-          >
-            Save key
-          </button>
-        </div>
-        <p className="settings-muted">{descriptor.keyHelp}</p>
-
-        {/*
-          The one consent that decides whether a scheduled job can reach a hosted
-          provider at all: the runner has no keychain, so a key it must decrypt is
-          a key it cannot use. Per provider rather than one switch for the app,
-          because trusting one vendor's key to disk is not trusting all of them.
-        */}
-        <label className="settings-check">
-          <input
-            type="checkbox"
-            checked={config.keyStorage === 'plaintext'}
-            disabled={busy}
-            onChange={(event) => {
-              save({
-                providers: {
-                  configs: {
-                    [active]: {
-                      keyStorage: event.target.checked
-                        ? 'plaintext'
-                        : 'keychain',
-                    },
-                  },
-                },
-              });
-            }}
-          />
-          <span>
-            Let the background runner read this key
-            <em className="settings-why">
-              {settings.encryptionAvailable
-                ? 'On, the key is stored readable instead of encrypted — which is what a scheduled job needs, because the runner has no keychain to unlock it. Anything that can read the file can then read the key, so leave it off unless jobs have to run while the app is closed. Save the key again after changing this.'
-                : 'Your key can only be stored readable here, because there is no keychain to encrypt it with. It is readable by anything that can open the file.'}
-            </em>
-          </span>
-        </label>
-      </div>
-
-      <label className="settings-field">
-        <span>Base URL</span>
-        <em className="settings-why">
-          Where requests for {descriptor.label} go. The usual address is{' '}
-          <code>{descriptor.defaultBaseUrl}</code>; change it to point at a
-          server of your own.
-        </em>
-        <input
-          className="settings-input"
-          type="text"
-          value={baseUrl}
-          placeholder={descriptor.defaultBaseUrl}
-          disabled={busy}
-          spellCheck={false}
-          onChange={(event) => {
-            setBaseUrlDraft(event.target.value);
-          }}
-          onBlur={() => {
-            const next = baseUrl.trim();
-            // An empty box is not an address: fall back to what is stored rather
-            // than writing a value the schema refuses and the user cannot see.
-            if (next.length === 0 || next === config.baseUrl) {
-              setBaseUrlDraft(null);
-              return;
-            }
-            save({providers: {configs: {[active]: {baseUrl: next}}}});
-          }}
-        />
-      </label>
-
-      <div className="settings-field">
-        <span>Model</span>
-        <em className="settings-why">
-          Cheaper models are fine for reading and summarising; harder questions
-          want a bigger one.
-        </em>
-        <div className="settings-row">
-          {models.length > SEARCHABLE_MODEL_THRESHOLD ? (
-            <ModelPicker
-              models={models}
-              value={config.model}
-              disabled={busy}
-              onChange={(model) => {
-                save({providers: {configs: {[active]: {model}}}});
-              }}
-            />
-          ) : (
-            <select
-              className="settings-input"
-              aria-label="Model"
-              value={config.model}
-              disabled={busy}
-              onChange={(event) => {
-                save({
-                  providers: {configs: {[active]: {model: event.target.value}}},
-                });
-              }}
-            >
-              {models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          )}
-          <button
-            type="button"
-            className="button button-quiet"
-            disabled={!canFetch}
-            title={
-              descriptor.requiresApiKey && !keyStored
-                ? `Save a ${descriptor.label} key first`
-                : undefined
-            }
-            onClick={() => {
-              void fetchModels();
-            }}
-          >
-            {fetching ? 'Fetching…' : 'Fetch Models'}
-          </button>
-        </div>
-        {note !== null && <p className="settings-muted">{note}</p>}
-        {/*
-          The half that stops a placeholder from reading as an answer. The names
-          above are what this build ships with until somebody presses the button
-          beside them, and a field that showed them silently is one nobody has
-          any reason to refresh — a model the endpoint retired stays on offer and
-          the list looks complete either way.
-        */}
-        {!choices.fetched && (
-          <p className="settings-muted">
-            {descriptor.label} has not been asked what it serves yet, so these
-            are the names this build ships with. &ldquo;Fetch Models&rdquo; asks
-            it.
-          </p>
-        )}
-        {problem !== null && <p className="settings-problem">{problem}</p>}
-      </div>
-    </SettingsSection>
-  );
-}
-
-/**
- * The skills card: what this bot may load, and the editor for the files.
- *
- * Two decisions live here and they are deliberately separate. The switch grants a
- * skill to the active bot, which is what makes it appear in the prompt and
- * loadable. The editor writes the file, which every bot can then be granted — a
- * skill is the person's, not one bot's.
- *
- * The authoring path is not the only one: `save_skill` writes the same files from
- * inside a turn, and the note above the list says whether this bot has that
- * tool. The card does not tick the switch when it saves, for the reason the
- * agent's save does: a list of switches is where a person makes that decision
- * deliberately.
- */
 function HarnessCard({
   profileId,
   onRestored,

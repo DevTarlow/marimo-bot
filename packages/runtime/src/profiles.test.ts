@@ -280,27 +280,6 @@ describe('ProfileStore', () => {
   });
 
   /*
-   * The model, which is another field a patch can unset, and which was in the
-   * schema without the store ever writing it — so the picker in Settings moved a
-   * value nothing kept.
-   */
-  it("stores the agent's own model, and unsets it with a null", async () => {
-    const profiles = store();
-    const profile = await profiles.activeProfile();
-
-    const chosen = await profiles.update(profile.id, {
-      model: {provider: 'gemini', model: 'gemini-3.1-pro'},
-    });
-    expect(chosen.model).toEqual({
-      provider: 'gemini',
-      model: 'gemini-3.1-pro',
-    });
-
-    const back = await profiles.update(profile.id, {model: null});
-    expect(back.model).toBeUndefined();
-  });
-
-  /*
    * The space an agent starts new chats in, and another field a patch can
    * unset. It is what lets a person say once that their Writer drafts into the
    * website repo, rather than saying it again in every new chat.

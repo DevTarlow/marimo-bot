@@ -58,11 +58,11 @@ import {
   DEFAULT_AGENT_PERSONA,
   DEFAULT_AGENT_ROLE,
   DRAFT_BOT_TOOL,
+  LOCAL_PROVIDER_ID,
   MAIN_AGENT_NAME,
 } from '@marimo/protocol';
-import type {BotDraft, ProviderId, SessionPurpose} from '@marimo/protocol';
+import type {BotDraft, LocalModelId, ProviderId, SessionPurpose} from '@marimo/protocol';
 import type {
-  AgentModel,
   AgentProfile,
   AgentUiEvent,
   CatalogEntry,
@@ -96,7 +96,6 @@ import {ProfileStore} from '../profiles.js';
 import type {ProfileFile} from '../profiles.js';
 import {FeedbackStore} from '../feedback.js';
 import {MemoryProposalStore} from '../memory-proposals.js';
-import type {SecretRead} from '../secrets.js';
 import {SettingsStore} from '../settings.js';
 import {SkillStore} from '../skills.js';
 import {RuntimeSkillService} from '../skill-service.js';
@@ -127,16 +126,14 @@ export interface AgentRuntimeOptions {
   /** Present in the window, absent in the runner, which has no browser. */
   webSearch?: WebSearchProvider;
   /**
-   * Reads one provider's key, already decrypted by the process that owns the
-   * keychain.
+   * Starts the local model a turn needs, or says why it cannot.
    *
-   * A function rather than a store, because the cipher is injected and the two
-   * processes answer differently: the window has `safeStorage`, and the headless
-   * runner has none — so a key stored for the runner is read by the runner and an
-   * encrypted one comes back `unreadable`, with a sentence the caller can show.
-   * Neither answer belongs in this file.
+   * Passed through to the v2 turn path; the app's host owns the engine. Absent
+   * in a test that never makes a request.
    */
-  readSecret: (provider: ProviderId) => Promise<SecretRead>;
+  ensureModel?: (modelId: LocalModelId) => Promise<
+    {ok: true; baseUrl: string} | {ok: false; problem: string}
+  >;
   /**
    * The rest of the app's tools, resolved per profile and folder.
    *
@@ -373,18 +370,15 @@ export class AgentRuntime {
     const profiles = await this.profileStore.profiles().catch(() => []);
 
     /*
-     * The catalogue is drawn for the *app's* provider rather than for whichever
-     * agent is selected, and that is the honest answer to what this call asks:
-     * it is what this install could offer, and an agent's own model is a choice
-     * made inside that. The one tool it decides is `GOOGLE_SEARCH`, which a
-     * Gemini agent gets and the catalogue would not have listed — so it is listed
-     * whenever the app's own provider is Gemini, and an agent pointed at Gemini
-     * while the app is on DeepSeek is the one case where the switch is missing.
+     * The catalogue is drawn for the app's Chat model. The one tool it decides
+     * is `GOOGLE_SEARCH`, which belongs to Gemini's grounding API and is never
+     * offered for a local model; the local provider id is passed so the
+     * decision is made by the same function rather than by a second `if` here.
      */
-    const provider = settings.providers.active;
+    const provider: ProviderId = LOCAL_PROVIDER_ID;
     const tools = describeTools({
       workspaceRoot,
-      model: settings.providers.configs[provider].model,
+      model: settings.localModels.tasks.chat,
       provider,
       ...(this.options.webSearch ? {webSearch: this.options.webSearch} : {}),
       /*
@@ -1126,32 +1120,6 @@ export class AgentRuntime {
   }
 
   /**
-   * Points a conversation at a model of its own, or back at its agent's.
-   *
-   * The next turn in that conversation resolves through `host()`, which reads the
-   * entry this writes — so this is a write and nothing else. No host is rebuilt
-   * and no turn is interrupted: choosing a model is a decision about the *next*
-   * question, and a user who changes it mid-answer has not asked for the answer
-   * they are reading to be thrown away.
-   *
-   * `null` means "follow the agent", which is a real answer rather than an absent
-   * one: without it there would be no way to move a conversation back off a
-   * choice it once made.
-   */
-  async setSessionModel(
-    profileId: string,
-    sessionId: string,
-    model: AgentModel | null,
-  ): Promise<SessionSummary> {
-    await this.assertIndexOwned(sessionId, profileId);
-    const entry = await this.sessionIndex.setSessionModel(
-      sessionId,
-      model ?? undefined,
-    );
-    return summaryOf(requireEntry(entry, sessionId));
-  }
-
-  /**
    * Who is in a conversation: the agents the user put in it, lead first.
    *
    * `undefined` is a chat with one agent — the one that owns it — which is every
@@ -1168,9 +1136,8 @@ export class AgentRuntime {
   /**
    * Sets who is in a conversation. An empty list is "just the agent that owns it".
    *
-   * `ensureHost` rather than `host`, for the reason `setSessionModel` uses it:
-   * this writes metadata about a chat, so it must work on an install whose model
-   * cannot be reached. Adding somebody to a conversation is a decision about the
+   * This writes metadata about a chat, so it must work on an install whose model
+   * is not downloaded: adding somebody to a conversation is a decision about the
    * next question, not a reason to refuse the write.
    */
   async setParticipants(
@@ -1184,33 +1151,6 @@ export class AgentRuntime {
       agentIds,
     );
     return summaryOf(requireEntry(entry, sessionId));
-  }
-
-  /**
-   * Records what a provider says it serves.
-   *
-   * The store does the writing, including moving that provider's default model
-   * off a name the endpoint no longer offers. What this adds is the consequence
-   * the store cannot have: every host drops what it had applied, so the next turn
-   * resolves again — a conversation that was about to answer with a retired model
-   * answers with the replacement instead of failing for a reason nobody can see.
-   */
-  async setAvailableModels(
-    provider: ProviderId,
-    models: string[],
-  ): Promise<StoredSettings> {
-    const stored = await this.settingsStore.setAvailableModels(
-      provider,
-      models,
-    );
-    /*
-     * The applied signatures are dropped and the hosts are left standing: the
-     * placeholder-config host holds conversations and their file positions, so
-     * rebuilding it would be work done to no purpose. What has to go is this
-     * cache of "which config has this host been given", because the answer just
-     * changed.
-     */
-    return stored;
   }
 
   async renameSession(
@@ -1558,7 +1498,9 @@ export class AgentRuntime {
       settings: this.settingsStore,
       profiles: this.profileStore,
       workspaces: this.workspaceStore,
-      readSecret: this.options.readSecret,
+      ...(this.options.ensureModel === undefined
+        ? {}
+        : {ensureModel: this.options.ensureModel}),
       recallFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))
           ?.recallService,
@@ -1718,7 +1660,6 @@ function summaryOf(entry: SessionIndexEntry): SessionSummary {
       : {workspaceId: entry.workspaceId}),
     ...(entry.source === undefined ? {} : {source: entry.source}),
     ...(entry.purpose === undefined ? {} : {purpose: entry.purpose}),
-    ...(entry.model === undefined ? {} : {model: entry.model}),
     ...(entry.agentIds !== undefined && entry.agentIds.length > 1
       ? {agentIds: entry.agentIds}
       : {}),

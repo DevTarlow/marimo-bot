@@ -3,15 +3,14 @@
  *
  * `@marimo/runtime`'s `FileSecretStore` owns the file format and the
  * three-valued read. All this file supplies is the encryption itself, which only
- * Electron has.
+ * Electron has. There used to be a second export here for a provider's API key;
+ * the models are local now and need no key, so the store is only ever a
+ * connector's secret.
  */
 import {safeStorage} from 'electron';
 
-import {PROVIDERS} from '@marimo/protocol';
-import type {ProviderId} from '@marimo/protocol';
-
 import {FileSecretStore} from '@marimo/runtime';
-import type {AppPaths, SecretCipher} from '@marimo/runtime';
+import type {SecretCipher} from '@marimo/runtime';
 
 export const safeStorageCipher: SecretCipher = {
   available(): boolean {
@@ -30,26 +29,4 @@ export const safeStorageCipher: SecretCipher = {
 /** The store for one secret file, with the OS keychain behind it. */
 export function secretStore(file: string, label: string): FileSecretStore {
   return new FileSecretStore(file, label, safeStorageCipher);
-}
-
-/**
- * The store for one provider's API key.
- *
- * The path comes from the resolved paths rather than being composed here, so the
- * file this writes is the file the headless runner reads — invariant 16 rests on
- * both processes naming the same one, and a second derivation of the name is
- * exactly how they would stop agreeing.
- *
- * The label names the provider, because it is what a refusal quotes back at the
- * user: "the Google Gemini API key could not be decrypted" says which key to
- * re-enter, and a bare "the API key" does not.
- */
-export function providerSecretStore(
-  paths: AppPaths,
-  providerId: ProviderId,
-): FileSecretStore {
-  return secretStore(
-    paths.providerSecrets[providerId],
-    `${PROVIDERS[providerId].label} API key`,
-  );
 }

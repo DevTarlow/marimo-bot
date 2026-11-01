@@ -13,7 +13,7 @@
  */
 export const STEPS = [
   {id: 'control', label: 'Control'},
-  {id: 'provider', label: 'Model'},
+  {id: 'model', label: 'Model'},
   {id: 'space', label: 'Space'},
   {id: 'bot', label: 'Your first bot'},
   {id: 'persona', label: 'Make it yours'},
@@ -45,10 +45,10 @@ export function backTargetFor({
       return null;
     case 'control':
       return 'welcome';
-    case 'provider':
+    case 'model':
       return 'control';
     case 'space':
-      return 'provider';
+      return 'model';
     case 'bot':
       return 'space';
     case 'persona':

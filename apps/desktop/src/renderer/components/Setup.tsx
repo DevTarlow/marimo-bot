@@ -1,13 +1,14 @@
 /**
  * The first run, as a model, a Space, a bot, its Persona, and more bots.
  *
- * What a fresh install is missing is not one thing. It has no provider, so
- * nothing can answer; the Space it starts in is one the app made, so somebody
+ * What a fresh install is missing is not one thing. It has no model downloaded,
+ * so nothing can answer; the Space it starts in is one the app made, so somebody
  * whose work already lives in a folder has to point it there; and there is no
  * bot but the one it talks to, so a person who came here to make one has to find
  * the right card in Settings first. The control choice comes first because it
- * is about access; the model is the first required step because the guided path
- * needs something to think with, and the rest of the flow is offered after it.
+ * is about access; the model download is the first required step because the
+ * guided path needs something to think with, and the rest of the flow is offered
+ * after it.
  *
  * Ten rules shape it:
  *
@@ -16,10 +17,11 @@
  *   the bots made later. The model is the first *required* step, because the
  *   guided path needs something to think with, but the question about access is
  *   asked before it so the person knows what they are giving the bot up front.
- * - **The model is the only required step.** Until a provider is chosen and
- *   readable the window offers no message box at all, and a wizard that asked for
- *   a Space and a bot first would be asking about work nothing can do. "Set this
- *   up later" closes the flow; the short card is where somebody comes back.
+ * - **The model is the only required step.** Until the model files are on disk
+ *   and the engine for this computer is present, the window offers no message box
+ *   at all, and a wizard that asked for a Space and a bot first would be asking
+ *   about work nothing can do. "Set this up later" closes the flow; the short
+ *   card is where somebody comes back.
  * - **Finishing lands where the person chose.** A folder picked here is where the
  *   window opens a new chat when the flow closes. The starter chat was created by
  *   the app before the flow ran, so leaving somebody in it after they chose
@@ -49,8 +51,8 @@
  *   is talking to Marimo Bot, and a window that reopened on a bot they made in a
  *   wizard would be a different app.
  *
- * The provider step is its own component: it is half the code and all of the
- * caveats.
+ * The model step is its own component: it is half the code and all of the
+ * download caveats.
  */
 import {useEffect, useState} from 'react';
 
@@ -73,7 +75,7 @@ import {BotIconGrid} from './BotIconGrid.js';
 import {BotTemplatePicker} from './BotTemplatePicker.js';
 import {ControlChoice} from './ControlChoice.js';
 import {PersonaForm} from './PersonaForm.js';
-import {SetupProvider} from './SetupProvider.js';
+import {SetupModel} from './SetupModel.js';
 
 type BotPath = 'template' | 'step' | null;
 
@@ -561,7 +563,7 @@ export function Setup({
                 className="button button-primary"
                 disabled={busy}
                 onClick={() => {
-                  go('provider');
+                  go('model');
                 }}
               >
                 Continue
@@ -571,8 +573,8 @@ export function Setup({
           </div>
         )}
 
-        {screen === 'provider' && (
-          <SetupProvider
+        {screen === 'model' && (
+          <SetupModel
             settings={settings}
             onSettings={onSettings}
             onBack={() => {

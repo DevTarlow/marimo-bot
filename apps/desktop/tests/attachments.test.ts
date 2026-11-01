@@ -10,8 +10,8 @@ import {describe, expect, it} from 'vitest';
 
 import {ATTACHED_HEADING, composeMessage, describeSkipped} from '../src/renderer/attachments.js';
 
-const one = {path: '/home/me/proj/src/index.ts', name: 'index.ts', relative: 'src/index.ts'};
-const two = {path: '/home/me/proj/README.md', name: 'README.md', relative: 'README.md'};
+const one = {path: '/home/me/proj/src/index.ts', name: 'index.ts', relative: 'src/index.ts', kind: 'file' as const};
+const two = {path: '/home/me/proj/README.md', name: 'README.md', relative: 'README.md', kind: 'file' as const};
 
 describe('composing a message with attachments', () => {
   it('leaves a message with no files exactly as typed', () => {

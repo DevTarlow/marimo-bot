@@ -15,11 +15,11 @@ import {
 
 describe('setup back targets', () => {
   it('walks back through the steps in order', () => {
-    expect(backTargetFor({screen: 'provider', hasMadeBot: false})).toBe(
+    expect(backTargetFor({screen: 'model', hasMadeBot: false})).toBe(
       'control',
     );
     expect(backTargetFor({screen: 'space', hasMadeBot: false})).toBe(
-      'provider',
+      'model',
     );
     expect(backTargetFor({screen: 'bot', hasMadeBot: false})).toBe('space');
     expect(backTargetFor({screen: 'persona', hasMadeBot: true})).toBe('bot');

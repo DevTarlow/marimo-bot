@@ -18,19 +18,32 @@ export interface OpenAiToolCall {
 
 export interface OpenAiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  /**
+   * Text, or the content array an image-bearing user message needs.
+   *
+   * The OpenAI dialect allows a user message's content to be a list of typed
+   * parts. Everything that is not a user message with an image stays a string,
+   * because a second shape for text would be a second thing every reader of this
+   * type has to handle for no gain.
+   */
+  content: string | OpenAiContentPart[];
   tool_calls?: OpenAiToolCall[];
   tool_call_id?: string;
   /**
    * The model's chain of thought for this turn.
    *
-   * DeepSeek requires a turn's `reasoning_content` to be echoed back on every
-   * later request that carries `tools`, and answers 400 when it is missing, so
-   * this is not decorative: it is why assistant thought parts are carried
-   * through ADK instead of being discarded.
+   * The local LFM3 template carries thinking in a `<think>` block that llama.cpp
+   * parses into this field, and the harness replays it on later tool-carrying
+   * turns. It is not decoration: a template that expects the block back and does
+   * not get it produces a worse turn, and DeepSeek's own API refused a
+   * tool-carrying turn whose reasoning was missing.
    */
   reasoning_content?: string;
 }
+
+export type OpenAiContentPart =
+  | {type: 'text'; text: string}
+  | {type: 'image_url'; image_url: {url: string}};
 
 export interface OpenAiTool {
   type: 'function';
@@ -227,7 +240,41 @@ export function toOpenAiMessages(contents: Content[]): OpenAiMessage[] {
     // A user-authored content carrying tool results is the framework reporting
     // what a tool returned, not the human speaking.
     messages.push(...toolResults);
-    if (text.length > 0) {
+    /*
+     * An image arrives as ADK `inlineData` and leaves as an OpenAI `image_url`
+     * data URL. The bytes are read by the driver from the Space at request time;
+     * a missing or unreadable file has already been turned into a text note, so
+     * there is nothing here to refuse.
+     */
+    const images = parts.flatMap((part): OpenAiContentPart[] => {
+      const inline = part.inlineData;
+      if (
+        inline === undefined ||
+        typeof inline.data !== 'string' ||
+        inline.data.length === 0
+      ) {
+        return [];
+      }
+      const mimeType =
+        typeof inline.mimeType === 'string' && inline.mimeType.length > 0
+          ? inline.mimeType
+          : 'image/png';
+      return [
+        {
+          type: 'image_url',
+          image_url: {url: `data:${mimeType};base64,${inline.data}`},
+        },
+      ];
+    });
+    if (images.length > 0) {
+      messages.push({
+        role: 'user',
+        content: [
+          ...(text.length > 0 ? [{type: 'text' as const, text}] : []),
+          ...images,
+        ],
+      });
+    } else if (text.length > 0) {
       messages.push({role: 'user', content: text});
     }
   });

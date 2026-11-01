@@ -25,7 +25,9 @@ import {
   app,
   nativeImage,
   screen,
+  session,
   shell,
+  systemPreferences,
 } from 'electron';
 
 import {IPC_EVENT_CHANNEL, defaultWindowState} from '@marimo/protocol';
@@ -75,6 +77,15 @@ const devServerUrl = process.env['MARIMO_DEV_SERVER_URL'];
  */
 adoptFormerUserDataDir();
 applyUserDataPath();
+
+/*
+ * Spoken replies are started by a click and then play after a model round trip.
+ * Chromium's autoplay policy counts the click as a gesture, but the gap between
+ * the click and the audio is long enough to look like a fresh page in some
+ * builds; this is a desktop app with no untrusted content, so the policy is
+ * relaxed once rather than asking the renderer to hit play and catch a refusal.
+ */
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 /**
  * `MARIMO_OFFSCREEN=1` renders into CPU frames instead of a compositor surface.
@@ -344,8 +355,59 @@ async function refreshCompanionSettings(): Promise<void> {
  */
 let toldAboutTray = false;
 
+/**
+ * Allowing the microphone, and nothing else.
+ *
+ * The renderer asks for `getUserMedia({audio:true})` when somebody presses the
+ * mic. Chromium routes that through these two handlers, and the app has no
+ * untrusted content to speak of — but the boundary still matters: a page that is
+ * not one of this app's own windows must not be able to open a microphone, and a
+ * request for a camera is not one this app has a feature for. macOS asks the OS
+ * for the first time here; the usage description that makes its prompt
+ * meaningful is in the packaged `Info.plist` (see `apps/desktop/package.json`).
+ */
+function installMicrophonePermission(): void {
+  const ownPage = (url: string): boolean =>
+    url.startsWith('file://') ||
+    (devServerUrl !== undefined && url.startsWith(devServerUrl));
+
+  session.defaultSession.setPermissionRequestHandler(
+    (contents, permission, callback, details) => {
+      if (permission !== 'media' || !ownPage(contents.getURL())) {
+        callback(false);
+        return;
+      }
+      const mediaTypes =
+        (details as {mediaTypes?: string[]}).mediaTypes ?? [];
+      if (mediaTypes.includes('video')) {
+        callback(false);
+        return;
+      }
+      if (process.platform === 'darwin') {
+        void systemPreferences.askForMediaAccess('microphone').then(
+          (granted) => {
+            callback(granted);
+          },
+          () => {
+            callback(false);
+          },
+        );
+        return;
+      }
+      callback(true);
+    },
+  );
+
+  session.defaultSession.setPermissionCheckHandler(
+    (_contents, permission, requestingOrigin) =>
+      permission === 'media' && ownPage(requestingOrigin),
+  );
+}
+
 async function bootstrap(): Promise<void> {
   const paths = resolvePaths();
+
+  installMicrophonePermission();
 
   /*
    * The handler for uploaded bot icons. It has to exist before the window loads,
@@ -372,7 +434,7 @@ async function bootstrap(): Promise<void> {
     // Resolved now and written into the definition rather than read when the
     // timer fires: a service started at login may not have these.
     configHome: process.env['XDG_CONFIG_HOME'] ?? join(homedir(), '.config'),
-    // Read per call rather than captured: the provider can change while the
+    // Read per call rather than captured: the connector can change while the
     // app is open, and a copy taken here would answer about the one that was
     // active when the window opened.
     readSettings: async () =>

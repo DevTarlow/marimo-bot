@@ -29,21 +29,16 @@ export type {
   McpToolInfo,
 } from './mcp/index.js';
 /*
- * The one client, for every backend: each provider speaks the OpenAI
- * chat-completions dialect, so what changes between one and the next is an
- * address, a key and a model id rather than a second transport. The
- * `DeepSeekLlm` alias went with the single backend it named.
+ * The one client, for the one endpoint: the local llama.cpp server speaks the
+ * OpenAI chat-completions dialect, so a turn is an address, a model id and a
+ * stream rather than a vendor SDK. The `DeepSeekLlm` alias went with the single
+ * backend it named.
  */
 export {
   OpenAiCompatLlm,
   OpenAiCompatRequestError,
 } from './models/openai-compat-llm.js';
 export type {OpenAiCompatLlmOptions} from './models/openai-compat-llm.js';
-export {
-  fetchProviderModels,
-  ProviderModelsError,
-} from './models/provider-models.js';
-export type {ProviderModelsOptions} from './models/provider-models.js';
 export {FileSessionService} from './sessions/file-session-service.js';
 export {reviewDelay} from './review-cadence.js';
 export type {ReviewDelay, ReviewDueOptions} from './review-cadence.js';

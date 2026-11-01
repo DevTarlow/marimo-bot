@@ -313,22 +313,19 @@ export class ProfileStore {
       /*
        * The fields a patch may *unset*, resolved before the literal below
        * because "unset" is a third case the spread cannot express: `null` means
-       * "back to the app's default" for a model, "every connector" for a grant
-       * and "wherever the rail is" for an agent's space, and the absence of the
-       * field is what says so. They are taken out of what is carried over and
-       * put back only when there is something to put back, so a cleared field
-       * cannot survive in the copy.
+       * "every connector" for a grant and "wherever the rail is" for an agent's
+       * space, and the absence of the field is what says so. They are taken out
+       * of what is carried over and put back only when there is something to put
+       * back, so a cleared field cannot survive in the copy.
        */
       const {
         mcpServerIds: storedGrant,
-        model: storedModel,
         spaceId: storedSpace,
         avatar: storedAvatar,
         policy: storedPolicy,
         ...carried
       } = current;
       const grant = patchedValue(clean.mcpServerIds, storedGrant);
-      const model = patchedValue(clean.model, storedModel);
       const space = patchedValue(clean.spaceId, storedSpace);
       const policy = patchedValue(clean.policy, storedPolicy);
       /*
@@ -367,7 +364,6 @@ export class ProfileStore {
         // set, and naming one connector twice is a second answer to what the
         // agent may use.
         ...(grant === undefined ? {} : {mcpServerIds: [...new Set(grant)]}),
-        ...(model === undefined ? {} : {model}),
         ...(space === undefined ? {} : {spaceId: space}),
         ...(avatar === undefined ? {} : {avatar}),
         ...(policy === undefined ? {} : {policy}),

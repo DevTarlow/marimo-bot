@@ -86,16 +86,21 @@ export {
 export type {FileLockOptions, ProcessLock, ProcessLockOptions} from './lock.js';
 
 /*
- * The recall model: its pins, its download, and the engine that serves it.
+ * The local models: their pins, their downloads, the engine that serves them,
+ * and the host that decides which one is in memory.
  *
  * Here rather than in the desktop app because both halves of the app need it —
- * the window to search while somebody is looking, the headless runner to answer
+ * the window to answer while somebody is looking, the headless runner to answer
  * a scheduled job with the window closed — and this is the package both of them
- * already share. It is the only model left: the chat model this app used to
- * download and supervise is gone, and what remains of that machinery is the
- * generic engine supervisor below, which recall is the only user of.
+ * already share. The recall model is still below: a different download with its
+ * own engine pin, under the same model directory.
  */
 export {
+  CHAT_PINS,
+  CHAT_PIN_KEYS,
+  chatModelParts,
+  chatModelUrl,
+  defaultVariantFor,
   EMBEDDING_ALIAS,
   EMBEDDING_PIECES,
   EMBEDDING_PINS,
@@ -111,22 +116,43 @@ export {
   freePort,
   installEmbeddingPiece,
   installEngine,
+  installLocalModel,
   InstallError,
+  localModelArgs,
+  localModelDir,
+  localModelMarkerFile,
+  localModelOnDisk,
+  localModelSpec,
+  LocalModelHost,
   LocalModelService,
   ManifestError,
+  MAX_SPEECH_CHARS,
+  missingProblem,
   MODEL_DIR_ENV,
   MODEL_DIR_NAME,
   modelDir,
+  parseChatModelManifest,
   parseEmbeddingManifest,
   platformKey,
+  readLocalModelMarker,
   RECALL_DIR_NAME,
   recallDir,
   recallPiecesInstalled,
   recallSpec,
+  resolveLocalModelFiles,
   resolveRecallFiles,
+  SpeechError,
+  synthesizeSpeech,
+  transcribeAudio,
+  trimForSpeech,
   unpackEngine,
+  writeLocalModelMarker,
 } from './local-model/index.js';
 export type {
+  ChatModelFilePin,
+  ChatModelManifest,
+  ChatModelPin,
+  ChatModelVariantPin,
   DownloadProgress,
   EmbeddingInstallOptions,
   EmbeddingManifest,
@@ -140,10 +166,22 @@ export type {
   EngineManifest,
   EngineRunSpec,
   EngineStatus,
+  EnsureModelResult,
   InstallOptions,
+  LocalModelDiskState,
+  LocalModelFiles,
+  LocalModelHostOptions,
+  LocalModelInstallOptions,
+  LocalModelMarker,
+  LocalModelMarkerFile,
   LocalModelOptions,
+  LocalModelSampling,
+  LocalModelSpec,
   RecallFiles,
   RecallSpec,
+  SpeakOptions,
+  SpokenAudio,
+  TranscribeOptions,
 } from './local-model/index.js';
 
 /*

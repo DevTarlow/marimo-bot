@@ -7,8 +7,9 @@
  * is the same class the headless job runner hosts — this file is the part that
  * is specific to being inside Electron, which is three things:
  *
- * - **Where secrets come from.** Provider keys are decrypted with `safeStorage`,
- *   which only exists here. The runner passes the plain-text reader instead.
+ * - **Where secrets come from.** Connector secrets are decrypted with
+ *   `safeStorage`, which only exists here. The runner passes the plain-text
+ *   reader instead.
  * - **Where web search comes from.** `web_search` needs a browser engine, and
  *   Electron ships one; without it the tool is simply not offered, which is why
  *   this is allowed to be absent.
@@ -22,6 +23,7 @@ import {
   holdProcessLock,
   JobScheduler,
   JobStore,
+  LocalModelHost,
   McpManager,
   secretReaderFor,
   turnInstruction,
@@ -33,14 +35,13 @@ import type {
   DocumentService,
   EmbeddingPart,
   MediaKind,
-  SecretRead,
 } from '@marimo/runtime';
 
-import {PROVIDERS, PROVIDER_IDS} from '@marimo/protocol';
+import {modelSupportsTask} from '@marimo/protocol';
 import type {
-  AgentModel,
   AgentProfile,
   AgentUiEvent,
+  Attachment,
   BotDraft,
   CompactResult,
   DocumentRead,
@@ -48,29 +49,32 @@ import type {
   DocumentWrite,
   HarnessReport,
   Job,
+  LocalModelId,
+  LocalModelsStatus,
+  LocalModelVariant,
   McpServer,
   McpStatus,
   PendingGate,
   ProfileCatalog,
-  ProviderId,
-  ProviderKeyStorage,
   RecallModelStatus,
   RecallPiece,
   RecallQueryResult,
   RecallScopeName,
+  SecretStorage,
   SessionSummary,
   SessionUsage,
   SkillDraft,
   SkillHistoryEntry,
+  SpeechLanguage,
+  SpeechVoice,
   StoredSkill,
   TranscriptMessage,
   Workspace,
   WorkspaceState,
 } from '@marimo/protocol';
-import {fetchProviderModels} from '@marimo/agent';
 import type {JobService} from '@marimo/agent';
 
-import {providerSecretStore, secretStore} from './secrets.js';
+import {secretStore} from './secrets.js';
 import {shouldUseV2} from './harness-route.js';
 import {BrowserSearchProvider} from './search/search-window.js';
 import {RecallHost} from './recall.js';
@@ -154,6 +158,16 @@ export class AgentService {
    */
   private readonly recall: RecallHost;
   /**
+   * The one local model in memory, and the rules about when it is there.
+   *
+   * Owned here because starting a process and downloading a file are not things
+   * the shared package does at boot; the runtime asks this for an address before
+   * a turn, and the window draws what it reports. Built before the runtime for
+   * the same reason recall is, and its settings closure is only read once the
+   * runtime exists.
+   */
+  private readonly models: LocalModelHost;
+  /**
    * The hidden window that decodes media, when the projector is installed.
    *
    * Built unconditionally for the reason the recall engine is: nothing happens
@@ -173,6 +187,13 @@ export class AgentService {
   private readonly harnessReviews = new Map<string, NodeJS.Timeout>();
   /** Which agent the turn in flight belongs to, for the review that follows. */
   private busyProfileId: string | undefined;
+  /**
+   * Which surface started the turn in flight.
+   *
+   * Not stored: it is a fact about the window that asked, and `pump` puts it on
+   * the completion event so exactly that surface speaks the answer.
+   */
+  private turnOrigin: 'window' | 'pet' | undefined;
   private stopped = false;
 
   constructor(private readonly options: AgentServiceOptions) {
@@ -265,15 +286,45 @@ export class AgentService {
       },
     });
 
+    this.models = new LocalModelHost({
+      userData: paths.userData,
+      readSettings: async () => await this.runtime.settings(),
+      isBusy: () => this.runtime.harness().isRunningAny(),
+      onStatus: (status) => {
+        options.sendEvent({type: 'model.status', status});
+      },
+      onProgress: (progress) => {
+        options.sendEvent({
+          type: 'model.progress',
+          modelId: progress.modelId,
+          label: progress.label,
+          receivedBytes: progress.receivedBytes,
+          totalBytes: progress.totalBytes,
+          ...(progress.percent === undefined
+            ? {}
+            : {percent: progress.percent}),
+        });
+      },
+      onInstalled: (modelId) => {
+        options.sendEvent({type: 'model.installed', modelId});
+      },
+      onFailed: (modelId, message) => {
+        options.sendEvent({type: 'model.failed', modelId, message});
+      },
+      log: (line) => {
+        console.log(line);
+      },
+    });
+
     this.runtime = new AgentRuntime({
       paths,
       webSearch: this.search,
       /*
-       * Which provider answers, and the key it answers with. The cipher is the
-       * only part of this the shared package cannot have: it exists in Electron
-       * and nowhere else, which is why the reader is a function it is given.
+       * Which model answers. The engine's address exists only in this process,
+       * and only while it is running, so the runtime asks the host before a turn
+       * rather than reading an address from a document.
        */
-      readSecret: async (provider) => await this.readSecret(provider),
+      ensureModel: async (modelId) => await this.models.ensure(modelId),
       recall: {
         stop: async () => {
           await this.recall.stop();
@@ -412,6 +463,13 @@ export class AgentService {
     await this.appLock?.release();
     this.appLock = undefined;
     await this.mcp.stop();
+    /*
+     * The chat engine is a child too. It is stopped before the runtime goes so
+     * a model is never left loaded with no window to explain it, and the pid
+     * file it writes is what lets the next launch reap one that outlived a
+     * crash.
+     */
+    await this.models.stop();
     // Stops the recall engine too, through the runner the runtime was given: a
     // child still loading weights when its parent exits is memory and a spinning
     // fan with no window left to explain it.
@@ -803,7 +861,7 @@ export class AgentService {
    * token is exactly as sensitive as any other, because most of them *are* one.
    *
    * Written the way this connector's own settings say to write it, which is the
-   * per-connector version of the choice `setApiKey` makes for a provider: a
+   * per-connector version of the choice a key store makes: a
    * process with no keychain can read only a secret stored readable, so a
    * connector a scheduled job is meant to use has to be written that way — and
    * one the user left on `keychain` stays encrypted, because encrypting a good
@@ -818,7 +876,7 @@ export class AgentService {
     target: 'env' | 'header',
     name: string,
     value: string,
-    secretStorage?: ProviderKeyStorage,
+    secretStorage?: SecretStorage,
   ): Promise<void> {
     const settings = await this.runtime.settings();
     const server = settings.mcpServers.find((entry) => entry.id === serverId);
@@ -974,92 +1032,73 @@ export class AgentService {
   }
 
   /**
-   * One provider's key, for the runtime to answer a turn with.
+   * The local models, as the Models card and the composer draw them.
    *
-   * The `unreadable` case is passed through rather than flattened to an empty
-   * string: "no key yet" and "a key this machine cannot decrypt" are fixed in
-   * different places, and this is the read that decides which of them a turn is
-   * refused for.
+   * A read only: asking for status must never start an engine or a download,
+   * because the window asks on every launch.
    */
-  async readSecret(providerId: ProviderId): Promise<SecretRead> {
-    return await providerSecretStore(this.options.paths, providerId).read();
+  async modelStatus(): Promise<LocalModelsStatus> {
+    return await this.models.status();
   }
 
-  /**
-   * Stores one provider's API key, or clears it with an empty string.
-   *
-   * Written the way the provider's own settings say to write it, which is the
-   * per-provider plaintext consent invariant 16 is about: the headless runner has
-   * no keychain, so a key it is meant to use has to be readable by a process that
-   * has none. A provider left on `keychain` refuses to write at all on a machine
-   * with no keychain, rather than quietly putting a secret in the clear.
-   */
-  async setApiKey(apiKey: string, providerId?: ProviderId): Promise<void> {
-    const settings = await this.runtime.settings();
-    const id = providerId ?? settings.providers.active;
-    await providerSecretStore(this.options.paths, id).set(apiKey, {
-      allowPlaintext: settings.providers.configs[id].keyStorage === 'plaintext',
+  /** Starts a download. Answers as soon as it has started. */
+  async installModel(
+    modelId: LocalModelId,
+    variant: LocalModelVariant,
+  ): Promise<{started: boolean}> {
+    return await this.models.install(modelId, variant);
+  }
+
+  cancelModelInstall(): {cancelled: boolean} {
+    return this.models.cancel();
+  }
+
+  async removeModel(modelId: LocalModelId): Promise<LocalModelsStatus> {
+    return await this.models.remove(modelId);
+  }
+
+  async sleepModels(): Promise<LocalModelsStatus> {
+    return await this.models.sleep();
+  }
+
+  /** Starts a model and proves it loads. A first run uses this. */
+  async warmModel(modelId: LocalModelId): Promise<{
+    ok: boolean;
+    problem?: string;
+    status: LocalModelsStatus;
+  }> {
+    return await this.models.warm(modelId);
+  }
+
+  /** Speech in. The WAV is never written to disk. */
+  async transcribeSpeech(
+    wav: Buffer,
+    language?: SpeechLanguage,
+  ): Promise<{text: string}> {
+    return {
+      text: await this.models.transcribe({
+        wav,
+        ...(language === undefined ? {} : {language}),
+      }),
+    };
+  }
+
+  /** Speech out, as a WAV for the window to play. */
+  async speak(
+    text: string,
+    language?: SpeechLanguage,
+    voice?: SpeechVoice,
+  ): Promise<{wavBase64: string; sampleRate: number; truncated: boolean}> {
+    const spoken = await this.models.speak({
+      text,
+      ...(language === undefined ? {} : {language}),
+      ...(voice === undefined ? {} : {voice}),
     });
-  }
-
-  /**
-   * Which providers have a key stored, by id.
-   *
-   * Booleans and never values, which is what keeps invariant 8 true through a new
-   * door: the window needs to know whether the field it draws is already filled,
-   * and `has` is the only question asked of the store here.
-   */
-  async providerKeys(): Promise<Partial<Record<ProviderId, boolean>>> {
-    const state: Partial<Record<ProviderId, boolean>> = {};
-    for (const id of PROVIDER_IDS) {
-      state[id] = await providerSecretStore(this.options.paths, id).has();
-    }
-    return state;
-  }
-
-  /**
-   * Asks a provider what it serves, and records the answer.
-   *
-   * The refusals come before the request on purpose. A key the user has not
-   * entered yet is not a network problem, and a `401` reported as "could not
-   * reach the endpoint" sends them to look at an address that was never wrong;
-   * the stored secret's own sentence is quoted for the same reason it exists.
-   *
-   * The list is written through the runtime rather than the settings store, so
-   * every host drops what it had applied — a default model the endpoint has
-   * retired is replaced before the next turn resolves, rather than after it
-   * fails.
-   */
-  async fetchModels(providerId?: ProviderId): Promise<void> {
-    const settings = await this.runtime.settings();
-    const id = providerId ?? settings.providers.active;
-    const config = settings.providers.configs[id];
-    const provider = PROVIDERS[id];
-
-    const secret = await providerSecretStore(this.options.paths, id).read();
-    if (secret.state === 'unreadable') {
-      throw new Error(`${secret.reason} Re-save it, then fetch its models.`);
-    }
-    if (provider.requiresApiKey && secret.state !== 'present') {
-      throw new Error(
-        `${provider.label} needs an API key before it can list its models.`,
-      );
-    }
-
-    const models = await fetchProviderModels({
-      provider: id,
-      apiKey: secret.state === 'present' ? secret.value : '',
-      /*
-       * The address as the user set it, so a server on their own network is
-       * asked rather than the catalogue's default for that provider — and the
-       * catalogue's when the field was cleared, because an empty string is a
-       * field somebody emptied rather than an instruction to request `/models`
-       * from nowhere.
-       */
-      baseUrl:
-        config.baseUrl.length > 0 ? config.baseUrl : provider.defaultBaseUrl,
-    });
-    await this.runtime.setAvailableModels(id, models);
+    return {
+      wavBase64: spoken.wav.toString('base64'),
+      sampleRate: spoken.sampleRate,
+      truncated: spoken.truncated,
+    };
   }
 
   mcpStatuses(): Record<string, McpStatus> {
@@ -1290,34 +1329,10 @@ export class AgentService {
   }
 
   /**
-   * Points one conversation at a model of its own, or back at its agent's.
-   *
-   * The choice belongs to the conversation rather than to the window that made
-   * it: a reloaded window, the companion, and a scheduled job all resolve the
-   * same entry, so "use the big model for this one question" survives all three.
-   */
-  async setSessionModel(
-    profileId: string,
-    sessionId: string,
-    model: AgentModel | null,
-  ): Promise<SessionSummary> {
-    const session = await this.runtime.setSessionModel(
-      profileId,
-      sessionId,
-      model,
-    );
-    if (await this.harnessHasLog(sessionId)) {
-      await this.runtime.harness().setSessionModel(profileId, sessionId, model);
-    }
-    return session;
-  }
-
-  /**
    * Sets who is in a conversation, the lead first. An empty list clears it.
    *
-   * A write and nothing else, like the model above it: the next turn resolves who
-   * is in the chat from the index entry, so there is no host to rebuild and no
-   * turn to interrupt.
+   * A write and nothing else: the next turn resolves who is in the chat from the
+   * index entry, so there is no host to rebuild and no turn to interrupt.
    */
   async setParticipants(
     profileId: string,
@@ -1585,6 +1600,7 @@ export class AgentService {
     text: string,
     origin?: 'window' | 'pet',
     agentId?: string,
+    attachments?: readonly Attachment[],
   ): Promise<{accepted: boolean}> {
     /*
      * Checked here as well as inside the agent, purely so the answer is
@@ -1626,6 +1642,37 @@ export class AgentService {
         });
         return {accepted: false};
       }
+      const settings = await this.runtime.settings();
+      const saysImages = (attachments ?? []).some(
+        (attachment) => attachment.kind === 'image',
+      );
+      /*
+       * Voice mode is one model for the whole turn. An image needs eyes, so it
+       * is refused rather than silently answered by the audio model, which
+       * cannot see — unless the voice model is Omni, which can.
+       */
+      if (
+        settings.companion.speakReplies &&
+        saysImages &&
+        !modelSupportsTask(settings.localModels.tasks.voice, 'vision')
+      ) {
+        this.options.sendEvent({
+          type: 'turn.failed',
+          sessionId,
+          messageId: '',
+          code: 'voice',
+          message:
+            'Voice mode is on, and the audio model cannot look at pictures. ' +
+            'Turn voice off in Settings → Desktop companion, or use the omni ' +
+            'model for Voice.',
+        });
+        return {accepted: false};
+      }
+      const task = settings.companion.speakReplies
+        ? 'voice'
+        : saysImages
+          ? 'vision'
+          : 'chat';
       const v2Info = (await harness.hasLog(sessionId))
         ? await harness.sessionInfo(sessionId)
         : undefined;
@@ -1633,16 +1680,32 @@ export class AgentService {
         v2Info?.purpose ??
         (await this.runtime.sessionPurpose(profileId, sessionId));
       const instruction =
-        origin === 'pet'
+        origin === 'pet' || settings.companion.speakReplies
           ? turnInstruction(
-              'pet',
-              (await this.runtime.settings()).companion.answerLength,
+              origin === 'pet' ? 'pet' : 'window',
+              settings.companion.answerLength,
+              undefined,
+              settings.companion.speakReplies,
             )
           : purpose === 'bot-builder'
             ? BOT_BUILDER_INSTRUCTION
             : undefined;
+      this.turnOrigin = origin ?? 'window';
       this.pump(
-        harness.run(profileId, sessionId, text, agentId, instruction, purpose),
+        harness.run(
+          profileId,
+          sessionId,
+          text,
+          agentId,
+          instruction,
+          purpose,
+          {
+            task,
+            ...(attachments === undefined || attachments.length === 0
+              ? {}
+              : {attachments: [...attachments]}),
+          },
+        ),
       );
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};
@@ -1664,6 +1727,7 @@ export class AgentService {
     sessionId: string,
     callId: string,
     confirmed: boolean,
+    origin?: 'window' | 'pet',
   ): Promise<{accepted: boolean}> {
     /*
      * Which agent is about to be busy, for the review that follows the turn.
@@ -1693,6 +1757,7 @@ export class AgentService {
         });
         return {accepted: false};
       }
+      this.turnOrigin = origin ?? 'window';
       this.pump(harness.approve(profileId, {sessionId, callId, confirmed}));
       return {accepted: true};
     }
@@ -1740,11 +1805,29 @@ export class AgentService {
           if (this.stopped) {
             return;
           }
-          this.options.sendEvent(event);
+          /*
+           * Which surface asked rides the completion, not the stored turn: the
+           * window and the pet share a conversation, and a spoken reply that
+           * came out of both would be two voices reading one answer. The event
+           * is otherwise exactly what the projection produced.
+           */
+          const outgoing =
+            event.type === 'turn.completed' && this.turnOrigin !== undefined
+              ? {...event, origin: this.turnOrigin}
+              : event;
+          this.options.sendEvent(outgoing);
           this.noteForReview(event);
+          if (
+            event.type === 'turn.completed' ||
+            event.type === 'turn.failed' ||
+            event.type === 'turn.aborted'
+          ) {
+            this.turnOrigin = undefined;
+          }
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
+        this.turnOrigin = undefined;
         this.options.sendEvent({
           type: 'turn.failed',
           sessionId: '',

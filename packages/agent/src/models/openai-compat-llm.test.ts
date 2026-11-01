@@ -133,17 +133,10 @@ describe('OpenAiCompatLlm request shape', () => {
    * this is a difference between a working chat and a broken one.
    */
   it('asks for a trailing usage chunk where the endpoint allows it', async () => {
-    const {llm, calls} = client({provider: 'deepseek'});
+    const {llm, calls} = client({});
     await drain(llm);
 
     expect(calls[0]!.body['stream_options']).toEqual({include_usage: true});
-  });
-
-  it('does not ask for usage at an endpoint that refuses the field', async () => {
-    const {llm, calls} = client({provider: 'gemini'});
-    await drain(llm);
-
-    expect(calls[0]!.body).not.toHaveProperty('stream_options');
   });
 
   /*
@@ -155,21 +148,21 @@ describe('OpenAiCompatLlm request shape', () => {
    * because nothing else would notice: a body carrying it works.
    */
   it('leaves the sampling temperature to the endpoint', async () => {
-    const {llm, calls} = client({provider: 'deepseek'});
+    const {llm, calls} = client({});
     await drain(llm);
 
     expect(calls[0]!.body).not.toHaveProperty('temperature');
   });
 
   it('sends the key as a bearer token when there is one', async () => {
-    const {llm, calls} = client({provider: 'deepseek', apiKey: 'sk-secret'});
+    const {llm, calls} = client({apiKey: 'sk-secret'});
     await drain(llm);
 
     expect(calls[0]!.headers['Authorization']).toBe('Bearer sk-secret');
   });
 
   it('sends no Authorization header when there is no key', async () => {
-    const {llm, calls} = client({provider: 'llamacpp'});
+    const {llm, calls} = client({});
     await drain(llm);
 
     // Not `Bearer ` with nothing after it, and not a key: a local server usually
@@ -179,58 +172,22 @@ describe('OpenAiCompatLlm request shape', () => {
   });
 
   /*
-   * The one gateway that routes and caches per conversation asks to be told which
-   * one this is. Read at send time rather than captured, because the client
-   * outlives the turn: a session id captured at construction would be the first
-   * conversation's for ever.
-   */
-  it('names the conversation to the provider that asks for it', async () => {
-    const {llm, calls} = client({
-      provider: 'opencode_go',
-      readSessionId: () => 'session-42',
-    });
-    await drain(llm);
-
-    expect(calls[0]!.headers['x-opencode-session']).toBe('session-42');
-  });
-
-  it('leaves the session header out when there is no conversation', async () => {
-    const {llm, calls} = client({
-      provider: 'opencode_go',
-      readSessionId: () => undefined,
-    });
-    await drain(llm);
-
-    // A lost prompt cache, which the catalogue says is the whole cost. What must
-    // not happen is the header going out empty, naming a conversation that does
-    // not exist.
-    expect(calls[0]!.headers).not.toHaveProperty('x-opencode-session');
-  });
-
-  /*
    * Thinking arrives on a channel only some endpoints have, and the flag decides
    * whether thinking that *did* arrive is kept. Reading an absent field costs
    * nothing, so this is about not throwing away a thought part — and about not
    * inventing one for an endpoint that never sent it.
    */
   it('keeps thinking that arrived as a thought part', async () => {
-    const {llm} = client({provider: 'deepseek'}, REASONING_BODY);
+    const {llm} = client({}, REASONING_BODY);
     const parts = thoughtParts(await drain(llm));
 
     expect(parts).toContainEqual({text: 'weighing it', thought: true});
   });
 
-  it('has no thought part for an endpoint with no reasoning channel', async () => {
-    const {llm} = client({provider: 'gemini'}, REASONING_BODY);
-    const parts = thoughtParts(await drain(llm));
-
-    expect(parts).toEqual([]);
-  });
-
-  it('names the provider in an error the user will read', async () => {    const llm = new OpenAiCompatLlm({
+  it('names the model in an error the user will read', async () => {
+    const llm = new OpenAiCompatLlm({
       model: 'test-model',
       baseUrl: 'http://127.0.0.1:8137/v1',
-      provider: 'deepseek',
       fetchImpl: (async () =>
         new Response('model not loaded', {
           status: 429,
@@ -238,6 +195,6 @@ describe('OpenAiCompatLlm request shape', () => {
     });
 
     await expect(drain(llm)).rejects.toThrow(OpenAiCompatRequestError);
-    await expect(drain(llm)).rejects.toThrow(/DeepSeek returned 429/);
+    await expect(drain(llm)).rejects.toThrow(/The local model returned 429/);
   });
 });

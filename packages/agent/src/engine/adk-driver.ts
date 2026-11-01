@@ -23,7 +23,11 @@ import {
 } from '@google/adk';
 import type {BaseLlm} from '@google/adk';
 import type {Content, Part} from '@google/genai';
-import {stat} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
+import {extname} from 'node:path';
+
+import type {Attachment} from '@marimo/protocol';
+import {MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS} from '@marimo/protocol';
 
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
 import {
@@ -119,7 +123,7 @@ const DEFAULT_USER_ID = 'local';
  * the oldest turns are dropped and a note says so. A model summary is the better
  * answer and is what compaction should become; this is the failure it replaces.
  */
-const MAX_HISTORY_CHARS = 240_000;
+const MAX_HISTORY_CHARS = 80_000;
 const MAX_HISTORY_EVENTS = 600;
 
 const GATE_STRENGTH: Record<GateRule, number> = {
@@ -178,11 +182,13 @@ export class AdkDriver implements TurnDriver {
       input.instruction,
       input.sessionId,
     );
+    const parts: Part[] = [{text: input.text}];
+    parts.push(...(await this.attachmentParts(input.attachments, input.harness)));
     yield* this.stream(runner, {
       sessionId: input.sessionId,
       harness: input.harness,
       signal: input.signal,
-      message: {role: 'user', parts: [{text: input.text}]},
+      message: {role: 'user', parts},
     });
   }
 
@@ -293,8 +299,12 @@ export class AdkDriver implements TurnDriver {
       });
       await service.appendEvent({session, event: note});
     }
+    const attachmentParts = await this.historyAttachmentParts(
+      capped.events,
+      harness,
+    );
     for (const event of capped.events) {
-      const mapped = this.historyEvent(event, harness);
+      const mapped = this.historyEvent(event, harness, attachmentParts);
       if (mapped !== undefined) {
         await service.appendEvent({session, event: mapped});
       }
@@ -302,9 +312,89 @@ export class AdkDriver implements TurnDriver {
     return service;
   }
 
+  /**
+   * The images each replayed user message carried, read from the Space.
+   *
+   * A missing or oversized file is a text note rather than a failed turn: the
+   * conversation still has its words, and an attachment the user has since
+   * deleted should cost the picture, not the history. The path guard is the same
+   * one the file tools use, so a hand-edited log cannot read outside the folder.
+   */
+  private async historyAttachmentParts(
+    events: readonly SessionEvent[],
+    harness: HarnessSpec,
+  ): Promise<Map<string, Part[]>> {
+    const result = new Map<string, Part[]>();
+    for (const event of events) {
+      if (event.type !== 'user.message' || event.attachments === undefined) {
+        continue;
+      }
+      result.set(
+        event.id,
+        await this.attachmentParts(event.attachments, harness),
+      );
+    }
+    return result;
+  }
+
+  private async attachmentParts(
+    attachments: readonly Attachment[] | undefined,
+    harness: HarnessSpec,
+  ): Promise<Part[]> {
+    if (attachments === undefined || attachments.length === 0) {
+      return [];
+    }
+    if (harness.workspaceRoot === undefined) {
+      return [
+        {
+          text: '[An image was attached, but this turn has no Space to read it from.]',
+        },
+      ];
+    }
+    const parts: Part[] = [];
+    for (const attachment of attachments.slice(0, MAX_ATTACHMENTS)) {
+      if (attachment.kind !== 'image') {
+        continue;
+      }
+      try {
+        const resolved = await resolveInsideWorkspace(
+          harness.workspaceRoot,
+          attachment.path,
+        );
+        const info = await stat(resolved);
+        if (!info.isFile()) {
+          throw new Error('it is not a regular file');
+        }
+        if (info.size > MAX_ATTACHMENT_BYTES) {
+          parts.push({
+            text:
+              `[The image at ${attachment.path} is larger than this app sends ` +
+              `(${String(Math.round(MAX_ATTACHMENT_BYTES / (1024 * 1024)))} MB).]`,
+          });
+          continue;
+        }
+        const mimeType = imageMimeType(attachment.path) ?? 'image/png';
+        parts.push({
+          inlineData: {
+            mimeType,
+            data: (await readFile(resolved)).toString('base64'),
+          },
+        });
+      } catch (error) {
+        parts.push({
+          text:
+            `[The image at ${attachment.path} could not be read: ` +
+            `${error instanceof Error ? error.message : String(error)}.]`,
+        });
+      }
+    }
+    return parts;
+  }
+
   private historyEvent(
     event: SessionEvent,
     harness: HarnessSpec,
+    attachmentParts: ReadonlyMap<string, Part[]> = new Map(),
   ): ReturnType<typeof createEvent> | undefined {
     const author = adkAgentName(harness.id);
     const at = Date.parse(event.at);
@@ -318,7 +408,13 @@ export class AdkDriver implements TurnDriver {
         return createEvent({
           ...base,
           author: 'user',
-          content: {role: 'user', parts: [{text: event.text}]},
+          content: {
+            role: 'user',
+            parts: [
+              {text: event.text},
+              ...(attachmentParts.get(event.id) ?? []),
+            ],
+          },
         });
       case 'task.result': {
         /*
@@ -1142,7 +1238,15 @@ function capHistory(history: readonly SessionEvent[]): {
 function eventChars(event: SessionEvent): number {
   switch (event.type) {
     case 'user.message':
-      return event.text.length;
+      /*
+       * An image is charged a fixed estimate rather than its byte count. The
+       * file is read at request time and the model tokenizes it at its own
+       * resolution; using the encoded size here would make a 300KB screenshot
+       * look like 75K tokens and compact a conversation that still fits.
+       */
+      return (
+        event.text.length + (event.attachments?.length ?? 0) * 4000
+      );
     case 'assistant.message':
       return event.text.length + (event.reasoning?.length ?? 0);
     case 'tool.call':
@@ -1151,6 +1255,25 @@ function eventChars(event: SessionEvent): number {
       return JSON.stringify(event.result ?? '').length;
     default:
       return 80;
+  }
+}
+
+/** The content type an image path is sent with, by extension. */
+function imageMimeType(path: string): string | undefined {
+  switch (extname(path).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.bmp':
+      return 'image/bmp';
+    default:
+      return undefined;
   }
 }
 

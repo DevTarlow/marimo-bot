@@ -356,3 +356,33 @@ body.companion-body {
 .pet-note:hover {
   color: var(--text);
 }
+
+/* A microphone or a stop, beside the ask bar. Smaller than the send arrow: it
+   adds to the message rather than ending it. */
+.pet-button {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+.pet-button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.pet-button.pet-button-go {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.pet-button:disabled {
+  color: var(--text-faint);
+  border-color: var(--border);
+}

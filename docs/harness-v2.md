@@ -43,7 +43,7 @@ invariants have a named test in the new engine. See
 | Tool policy and the built-in tool set                               | New                                                  |
 | Delegation and group collaboration                                  | New                                                  |
 | Learning: traces, proposals, versions, rollback                     | New                                                  |
-| OpenAI-compatible transport, provider catalogue                     | Ported                                               |
+| OpenAI-compatible transport, local model catalogue                   | Ported                                               |
 | MCP client and wire format                                          | Ported                                               |
 | Profiles, Spaces, documents, jobs, text recall, secrets, OS service | Kept, adapted                                        |
 | Electron shell, preload, tray, companion window                     | Kept                                                 |
@@ -116,7 +116,7 @@ interface HarnessSpec {
     delegates: string[];
     maxDepth: 1;
   };
-  model: {provider: ProviderId; model: string; maxOutputTokens?: number};
+  model: {provider: 'local'; model: string; maxOutputTokens?: number};
   plugins: string[];
   learning: {mode: 'propose' | 'off'; retainTraces: boolean};
 }
@@ -192,9 +192,9 @@ Rules the engine owns:
 - **Pending gates are derived from the log.** A reloaded window and a restarted
   process see the same card, and a click resumes the invocation that asked.
 - **Every tool call gets an answer.** Denied, abandoned and gated calls all
-  produce a result the provider will accept.
+  produce a result the engine will accept.
 - **Reasoning is replayed.** A tool-carrying turn without its reasoning is
-  refused by some providers on that turn and every later one.
+  refused by the engine on that turn and every later one.
 - **Gating happens before the tool list is built.** A tool the profile does not
   have is absent, not refused.
 - **Budgets stop a turn with a sentence**, not a stack trace: steps, tool calls,
@@ -255,9 +255,9 @@ routes a message to a participant. Every event names its author.
 ## Data
 
 V2 starts clean. On first launch the old documents are moved, not deleted, to
-`userData/archive/v1-<timestamp>/`. Provider and connector secrets and window
-state are preserved; re-entering API keys is a bad first run, and neither file is
-part of the rebuilt model.
+`userData/archive/v1-<timestamp>/`. Connector secrets and window state are preserved; re-entering a
+connector's token is a bad first run, and neither file is part of the rebuilt
+model. The chat models live outside this migration, under `model/`.
 
 ```
 profiles.json                          v2 profile + harness overrides
@@ -370,7 +370,7 @@ its parent. The reason is stored beside it. The turn carries the version and has
 which is what names the record.
 
 **The Harness card** in Settings reads a report on demand: v1 and v2
-conversation counts for the active bot, turns, the token totals the provider
+conversation counts for the active bot, turns, the token totals the engine
 reported, the frozen specs, memory facts still queued because a write failed,
 conversations reviewed and refusals, the skill library and its earlier bodies,
 jobs, and the two data paths. It reads every v2 log, so it mounts only when the card is opened

@@ -41,9 +41,8 @@ const paths = resolveAppPaths(dir);
 
 const profiles = new ProfileStore({
   file: paths.profiles,
-  defaultWorkspaceRoot: dir,
-  defaultIdentity: '',
-  botIdentity: () => '',
+  defaultRole: 'Help the person with the work in their Space.',
+  defaultPersona: 'Dry and direct.',
   defaultTools: [],
   defaultSkills: [],
 });

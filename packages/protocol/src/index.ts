@@ -14,12 +14,21 @@ import type {BotTemplate} from './bots.js';
 import {parseCron} from './cron.js';
 import {mcpServerSchema, mcpServersAreDistinct} from './mcp.js';
 import {
-  providerIdSchema,
-  providerKeyStorageSchema,
-  providersPatchSchema,
-  providersSchema,
-} from './providers.js';
-import type {ProviderId} from './providers.js';
+  attachmentSchema,
+  localModelsPatchSchema,
+  localModelsSettingsSchema,
+  localModelIdSchema,
+  localModelVariantSchema,
+  MAX_ATTACHMENTS,
+  speechLanguageSchema,
+  speechVoiceSchema,
+} from './local-models.js';
+import type {
+  HostHardware,
+  LocalModelId,
+  LocalModelsStatus,
+} from './local-models.js';
+import {secretStorageSchema} from './mcp.js';
 
 /*
  * The starter bots and the two texts a bot is seeded with. They live in their
@@ -62,46 +71,91 @@ export {
   mcpToolName,
   mcpToolPrefix,
   mcpTransportSchema,
+  secretStorageSchema,
 } from './mcp.js';
-export type {McpSecretRef, McpServer, McpTransport} from './mcp.js';
+export type {
+  McpSecretRef,
+  McpServer,
+  McpTransport,
+  SecretStorage,
+} from './mcp.js';
 import type {McpServer} from './mcp.js';
 
 /* -------------------------------------------------------------------------- */
-/* Providers                                                                   */
+/* Local models                                                                */
 /* -------------------------------------------------------------------------- */
 
 /*
- * The model backends this app can talk to, their descriptors, the settings
- * schemas that choose one, and the rules about how a key is kept.
+ * The LFM3 family: the four models the app downloads, what each can do, and how
+ * a task is assigned to one. It is its own module because it is a catalogue
+ * with its own shape and its own tests, and because this file is the IPC
+ * contract rather than a place for model prose.
  *
- * It is its own module rather than a block in this file because it is a
- * catalogue with its own shape and its own tests, and because this file is the
- * IPC contract: what every provider *is* belongs beside the shapes that carry it
- * rather than in the middle of them.
+ * The provider id module sits beside it and is deliberately tiny: `local` is
+ * the only id this build writes, and the old names survive only so yesterday's
+ * conversation can still be read.
  */
 export {
-  activeProvider,
-  DEFAULT_PROVIDER_ID,
-  defaultProviders,
-  fallbackModelsFor,
-  PROVIDER_IDS,
-  PROVIDER_KEY_STORAGE,
-  providerConfigSchema,
-  providerDescriptor,
-  providerIdSchema,
-  providerKeyStorageSchema,
-  PROVIDERS,
-  providersPatchSchema,
-  providersSchema,
-} from './providers.js';
+  attachmentKindSchema,
+  attachmentSchema,
+  defaultLocalModelsSettings,
+  LOCAL_MODEL_CAPABILITIES,
+  LOCAL_MODEL_IDS,
+  LOCAL_MODEL_PARTS,
+  LOCAL_MODEL_VARIANTS,
+  LOCAL_MODELS,
+  LOCAL_TASKS,
+  localModelIdSchema,
+  localModelPartSchema,
+  localModelStateSchema,
+  localModelVariantSchema,
+  localModelsPatchSchema,
+  localModelsSettingsSchema,
+  localTaskSchema,
+  LOCAL_MODEL_RESERVE_TOKENS,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS,
+  modelSupportsTask,
+  modelsForTask,
+  SPEECH_LANGUAGE_CODES,
+  SPEECH_LANGUAGES,
+  SPEECH_VOICES,
+  speechLanguage,
+  speechLanguageSchema,
+  speechVoiceSchema,
+  TASK_CAPABILITIES,
+  TASK_LABELS,
+  variantBytes,
+  workContextTokens,
+} from './local-models.js';
 export type {
-  ProviderConfig,
-  ProviderDescriptor,
-  ProviderId,
-  ProviderKeyStorage,
-  Providers,
-  ProvidersPatch,
+  Attachment,
+  AttachmentKind,
+  HostHardware,
+  LocalModelCapability,
+  LocalModelDescriptor,
+  LocalModelId,
+  LocalModelPart,
+  LocalModelState,
+  LocalModelStatus,
+  LocalModelsPatch,
+  LocalModelsSettings,
+  LocalModelsStatus,
+  LocalModelVariant,
+  LocalModelVariantBytes,
+  LocalTask,
+  SpeechLanguage,
+  SpeechVoice,
+} from './local-models.js';
+export {
+  agentModelSchema,
+  isLegacyProviderId,
+  LEGACY_PROVIDER_IDS,
+  LOCAL_PROVIDER_ID,
+  PROVIDER_IDS,
+  providerIdSchema,
 } from './providers.js';
+export type {AgentModel, ProviderId} from './providers.js';
 
 /**
  * The things the window can do to a conversation, as opposed to things said
@@ -360,6 +414,22 @@ export const companionSettingsSchema = z.object({
    * whatever is behind it.
    */
   clickThrough: z.boolean(),
+  /**
+   * Whether the companion talks and listens.
+   *
+   * One switch rather than a mic switch and a speaker switch, because the two
+   * are one experience and — the reason that matters here — one model. A spoken
+   * turn runs on the voice model for its whole length: it hears, thinks and
+   * speaks on the same weights. Turning speech input on while speech output
+   * stayed on the text model would need two models resident, which is the thing
+   * the local model design exists to avoid. Off returns every turn to the text
+   * model.
+   */
+  speakReplies: z.boolean(),
+  /** Which voice the audio model uses. */
+  speechVoice: speechVoiceSchema,
+  /** The language the microphone prompt and the voice ask for. */
+  speechLanguage: speechLanguageSchema,
 });
 
 export type CompanionSettings = z.infer<typeof companionSettingsSchema>;
@@ -371,6 +441,12 @@ export function defaultCompanionSettings(): CompanionSettings {
     visibleMessages: 6,
     alwaysOnTop: true,
     clickThrough: true,
+    // Speech is a model download and a new way for the app to answer, so it is
+    // off until somebody turns it on. The voice and language are the model's
+    // defaults, so turning it on is one click rather than a form.
+    speakReplies: false,
+    speechVoice: 'female',
+    speechLanguage: 'en',
   };
 }
 
@@ -673,27 +749,26 @@ export function defaultRecallSettings(): RecallSettings {
 
 /**
  * Settings are what applies to the app as a whole: how it looks, how literal the
- * model's wording is, and the escape hatches. Anything about *an agent's*
- * behaviour — who it is, which folder it works in, which tools it may use — lives
- * in a profile below, because that is the unit the user switches between.
+ * model's wording is, which local model does which job, and the escape hatches.
+ * Anything about *an agent's* behaviour — who it is, which folder it works in,
+ * which tools it may use — lives in a profile below, because that is the unit
+ * the user switches between.
  *
- * There is nothing here about *which* model answers. The app carries one, so
- * there is no address, no key and no model id to choose — and a settings file
- * that named a service is a file from a build that had a catalogue, which the
- * schema simply strips.
+ * There is no address, key or provider here any more. The app answers with its
+ * own local models; what is left to choose is which of the four does Chat,
+ * Images and Voice, and how long it stays warm between turns.
  */
 export const settingsSchema = z.object({
   /**
    * Whether the setup flow has had its turn.
    *
-   * The flow that makes a first bot, loads a Space and points the app at a
-   * provider is a *first run*, and a first run is a fact rather than a state
-   * that can be recomputed: an install with no key looks the same on its first
+   * The flow that makes a first bot, loads a Space and downloads the first
+   * model is a *first run*, and a first run is a fact rather than a state that
+   * can be recomputed: an install with no model looks the same on its first
    * launch and on its fiftieth, and the difference that matters is whether
    * somebody has already been walked through it. Without this, a user who chose
    * "set this up later" would be handed the wizard again every time they opened
-   * the app, and a user whose key stopped being readable would be asked to name
-   * their first bot a second time.
+   * the app.
    *
    * True means the flow has run or been declined; it is not a claim that the app
    * can answer. `modelReady` is that claim, and it is the main process's.
@@ -707,18 +782,14 @@ export const settingsSchema = z.object({
   /** Background, accent and text size: how the app looks, not what it does. */
   appearance: appearanceSchema,
   /**
-   * Which service answers, and what each one was last set to.
+   * The local models, and which task each one does.
    *
-   * The app's default, and the fallback for an agent that has no model of its
-   * own: an agent may name its own provider and model, and a conversation may
-   * override both, but every request resolves through this block when neither
-   * says anything.
-   *
-   * It is here rather than per profile because a provider key is one key for the
-   * install: a second agent using the same service must not need a second copy of
-   * the credential.
+   * The installed copy is deliberately absent: whether a model is on disk and
+   * which quantization it is are facts about the disk, recorded beside the
+   * weights by the installer. A settings file that claimed a 4-bit copy nobody
+   * downloaded would be a card offering a button whose model is not there.
    */
-  providers: providersSchema,
+  localModels: localModelsSettingsSchema,
   maxOutputTokens: z.number().int().positive().optional(),
   /** Opt-in escape hatch for `http_fetch` hitting loopback/private hosts. */
   allowPrivateNetworkFetch: z.boolean(),
@@ -909,7 +980,7 @@ export const settingsPatchSchema = settingsSchema.partial().extend({
   appearance: appearancePatchSchema.optional(),
   /* Any subset of the block, merged over what is stored — the reason above. */
   recall: recallSettingsSchema.partial().optional(),
-  providers: providersPatchSchema.optional(),
+  localModels: localModelsPatchSchema.optional(),
 });
 
 /*
@@ -922,31 +993,14 @@ export type Settings = z.infer<typeof settingsSchema>;
 export type SettingsPatch = z.infer<typeof settingsPatchSchema>;
 
 /**
- * What each endpoint last said it serves, keyed by provider.
+ * The settings as they are on disk.
  *
- * Out of the patchable half on purpose, and that is the whole reason this type
- * exists beside `Settings`: a list a provider reported is a *fact* rather than a
- * preference, and a window holding a copy from before a refresh would otherwise
- * be able to overwrite the newer list with its guess — silently, because both
- * writes succeed.
- *
- * **Absent means the provider has never been asked**, which is why every entry
- * is optional and why a list nobody fetched is not filled in with the
- * catalogue's `fallbackModels` here. Those names are what this build ships with
- * rather than what an endpoint said, and a window that could not tell the two
- * apart could not offer to go and ask — see `modelChoicesFor` in the renderer,
- * which is where a placeholder becomes a list to show and says so.
+ * It used to carry a second half — the model names each provider reported — and
+ * that half is gone with the catalogue. What a model is now is fixed by the
+ * build and by what was downloaded, so there is no fetched fact to keep beside
+ * the preferences.
  */
-export type AvailableModels = Partial<Record<ProviderId, string[]>>;
-
-/**
- * The settings as they are on disk: the preferences, plus what was fetched.
- *
- * The split matters at exactly one boundary — the patch. A caller may write any
- * preference through `settings.set`; the fetched lists are written only by the
- * call that fetched them.
- */
-export type StoredSettings = Settings & {availableModels: AvailableModels};
+export type StoredSettings = Settings;
 
 /* -------------------------------------------------------------------------- */
 /* Agent profiles and workspaces                                               */
@@ -962,8 +1016,8 @@ export type StoredSettings = Settings & {availableModels: AvailableModels};
  * rather than a fact about who is talking.
  *
  * The user calls one a **Space** — the thing that owns its documents, its chats
- * and its agents — and this document goes on saying `workspace` anyway. It is
- * the decision `PROVIDERS.llamacpp` makes about its id: `workspaces.json`,
+ * and its agents — and this document goes on saying `workspace` anyway. The
+ * reason is the same one the local model ids are stable: `workspaces.json`,
  * `Workspace` and `workspaceId` are what the file, every session index entry and
  * every migration already name, so renaming them would mean a migration to reach
  * something the user reads as a Space either way. The new word lives where the
@@ -1094,24 +1148,11 @@ export const DEFAULT_AGENT_PERSONA = [
   'guessing, and when the answer is short, keep it short.',
 ].join('\n');
 
-/**
- * What an agent answers with, when it does not want the app's default.
- *
- * Absent means "the provider block in settings decides", which is what every
- * agent written before this field existed gets — and it stays the right answer
- * for the agent most people use: one default, chosen once.
- *
- * A pair rather than a model id alone, because a model id means nothing apart
- * from the endpoint that serves it: `glm-5.3-flash` at OpenCode Go and a file of
- * the same name on somebody's llama.cpp server are two different models, and a
- * bare string would let the app pick the wrong one silently.
+/*
+ * `AgentModel` and its schema live in `./providers.js` now: the pair is what a
+ * turn answers with, and the only provider this build writes is `local`. The
+ * old ids stay in the enum so a document written by an older build still reads.
  */
-export const agentModelSchema = z.object({
-  provider: providerIdSchema,
-  model: z.string().trim().min(1),
-});
-
-export type AgentModel = z.infer<typeof agentModelSchema>;
 
 /**
  * The icons a bot can wear without the user supplying a picture.
@@ -1319,16 +1360,6 @@ export const agentProfileSchema = z.object({
    */
   mcpServerIds: z.array(z.string().min(1)).optional(),
   /**
-   * What this agent answers with, when it is not the app's default.
-   *
-   * Optional for the reason `persona` above is optional, and the reason is
-   * not tidiness: a required field here would fail this schema for every agent
-   * that already exists, and `ProfileStore.parseFile` skips a profile it cannot
-   * parse — a file whose profiles were all skipped is renamed aside and replaced
-   * with a fresh agent. The whole roster would be lost to an upgrade.
-   */
-  model: agentModelSchema.optional(),
-  /**
    * The space this agent starts new chats in.
    *
    * Absent means "wherever the rail is", which is what every agent written
@@ -1382,20 +1413,11 @@ export const profilePatchSchema = z.object({
    * use, where an empty array means none.
    *
    * The empty array is why clearing is a `null` rather than `[]`, which is the
-   * same reason `model` above needs one: "this agent uses none of them" is a real
-   * answer a user can give, and overloading `[]` to mean "back to all" would make
-   * it impossible to express *and* impossible to store.
+   * same reason `mcpServerIds` above needs one: "this agent uses none of them"
+   * is a real answer a user can give, and overloading `[]` to mean "back to all"
+   * would make it impossible to express *and* impossible to store.
    */
   mcpServerIds: z.array(z.string().min(1)).nullable().optional(),
-  /**
-   * The agent's own model, or `null` to go back to the app's default.
-   *
-   * Where every other field here says "absent leaves it alone", this one has to
-   * be able to *unset*: an agent moved back to the default is a real answer, and
-   * without a null there would be no way to express it — the picker would only
-   * ever move an agent off the default, never back onto it.
-   */
-  model: agentModelSchema.nullable().optional(),
   /**
    * The agent's own space, or `null` to go back to wherever the rail is.
    *
@@ -1530,57 +1552,42 @@ export function emptySkillsFile(): SkillsFile {
 /**
  * What the renderer is allowed to see.
  *
- * No credential is here and none can be: the window is told whether a key is
- * *set* for a provider, never what it is. What it does need is the two facts only
- * the main process has — whether the app could answer a question right now, and
- * whether this machine can encrypt a key at all.
+ * No credential is here and none can be: the models run on this machine, so
+ * there is no model key at all. What the window needs is the two facts only the
+ * main process has — whether the app could answer a question right now, and what
+ * state every downloaded model is in — plus the one connector fact it needs
+ * before it asks somebody to type a secret (whether this machine can encrypt).
  */
 export type PublicSettings = Settings & {
   /**
    * Whether the app can answer at all, right now.
    *
-   * A fact only the process that resolved it can supply: it is true when the
-   * active provider's model is known and its key is either unnecessary or stored
-   * and readable. A window that guessed from what it can see would open a chat on
-   * a machine that cannot reply.
+   * A fact only the process that resolved it can supply: true when the model
+   * assigned to Chat is installed with its engine. A window that guessed from
+   * what it can see would open a chat on a machine that cannot reply.
    */
   modelReady: boolean;
   /**
    * Why not, when it is not — the sentence the welcome screen shows.
    *
    * A reason rather than a boolean, because the failures have nothing in common:
-   * no key, an unreadable key and a provider this build does not know are fixed in
-   * different places, and a screen that said "not ready" for all of them would be
-   * a dead end for each.
+   * no model downloaded, no engine build for this platform, a file removed from
+   * under it. Each is fixed in a different place, and a screen that said "not
+   * ready" for all of them would be a dead end for each.
    */
   modelProblem?: string;
   /**
-   * Which providers have a key stored, by id. Never the key.
+   * Whether this machine can encrypt a connector's secret at rest.
    *
-   * A provider that needs no key reports `false` here and is not thereby
-   * unusable; this says what is stored, and `requiresApiKey` on the descriptor
-   * says whether that matters.
-   */
-  providerKeys: Partial<Record<ProviderId, boolean>>;
-  /**
-   * Whether this machine can encrypt a key at rest.
-   *
-   * False is not a failure to report as one — a local server needs no key — but
-   * it is what the key card has to say before a user types a secret into a field
-   * whose storage is about to refuse it.
+   * Unrelated to models, which need no key, and still needed by the connector
+   * form: a secret typed into a box whose storage is about to refuse it should
+   * say so before it is typed.
    */
   encryptionAvailable: boolean;
-  /**
-   * What every provider last said it serves, by id.
-   *
-   * Every provider's rather than only the active one's, because a model is a
-   * pair: an agent or a conversation pinned to another endpoint is offered that
-   * endpoint's models, and a window given only the active provider's list is a
-   * control that cannot show anything for the choice it is holding. A provider
-   * absent from this record has never been asked, and the catalogue's names are
-   * what a picker shows for it in the meantime.
-   */
-  availableModels: AvailableModels;
+  /** Every model's files and process state, for the Models card and the badge. */
+  localModels: LocalModelsStatus;
+  /** What a first run needs to recommend a copy that fits this machine. */
+  hardware: HostHardware;
   profiles: AgentProfile[];
   activeProfileId: string;
 };
@@ -1651,15 +1658,6 @@ export interface SessionSummary {
    * conversation a person started to talk to a bot.
    */
   purpose?: SessionPurpose;
-  /**
-   * The model this conversation was pointed at, when it has one of its own.
-   *
-   * Absent means "whatever the agent answers with", which is the state every
-   * conversation starts in and the state most stay in. A conversation is the
-   * right place for this rather than a second agent: "answer this one question
-   * with the big model" is a decision about a question, not about a bot.
-   */
-  model?: AgentModel;
   /**
    * The agents in this conversation, the lead first.
    *
@@ -2070,6 +2068,15 @@ export interface PickedFile {
    * terms of, and it does not leak the user's home directory into the transcript.
    */
   relative: string;
+  /**
+   * Whether the model is handed the bytes or just the path.
+   *
+   * An image travels as an `image_url` part because the file tools cannot read
+   * binary; a text file travels as its path, because the agent's own reader is
+   * the one that opens it and inlining it here would be a second reader to keep
+   * in step.
+   */
+  kind: 'image' | 'file';
 }
 
 /** A file the picker refused, and the sentence explaining why. */
@@ -2714,6 +2721,15 @@ export type AgentUiEvent =
       sessionId: string;
       messageId: string;
       usage?: TokenUsage;
+      /**
+       * Which surface started the turn, when one did.
+       *
+       * Not stored: it is a fact about the window that asked, and its one
+       * reader is speech. A spoken reply must come out of the window the
+       * question came from, or both windows speak over each other. Absent for a
+       * job, a Discord mention, or a resume with no surface.
+       */
+      origin?: 'window' | 'pet';
     }
   | {type: 'turn.aborted'; sessionId: string; messageId: string}
   | {
@@ -2808,6 +2824,26 @@ export type AgentUiEvent =
     }
   | {type: 'recall.installed'; piece: RecallPiece}
   | {type: 'recall.failed'; message: string}
+  /*
+   * The local models.
+   *
+   * `model.status` carries the whole situation rather than a diff: it changes
+   * when a download finishes, when an engine starts or stops, and when a turn
+   * changes which model is in memory, and the window draws all of those from
+   * one small object. Progress is separate because it arrives once per percent
+   * and the status is not worth recomputing for each one.
+   */
+  | {type: 'model.status'; status: LocalModelsStatus}
+  | {
+      type: 'model.progress';
+      modelId: LocalModelId;
+      label: string;
+      receivedBytes: number;
+      totalBytes: number;
+      percent?: number;
+    }
+  | {type: 'model.installed'; modelId: LocalModelId}
+  | {type: 'model.failed'; modelId: LocalModelId; message: string}
   /**
    * Something was indexed, so a card or a search box showing counts is stale.
    *
@@ -3190,12 +3226,29 @@ export const agentCallSchemas = {
      * worse than a refusal.
      */
     agentId: z.string().min(1).optional(),
+    /**
+     * Images handed to the model with this message.
+     *
+     * A path rather than bytes, because the main process already judged the
+     * file against the Space and the driver can read it again at request time.
+     * The message text still names it, so the transcript says what was attached
+     * without holding the image.
+     */
+    attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
   }),
   'chat.approve': z.object({
     profileId: z.string().min(1),
     sessionId: z.string().min(1),
     callId: z.string().min(1),
     confirmed: z.boolean(),
+    /**
+     * Which surface answered the card.
+     *
+     * A resumed turn speaks in the window the decision was made in, which may
+     * not be the one that started it: a card can be answered from the pet after
+     * the question was typed in the window.
+     */
+    origin: z.enum(['window', 'pet']).optional(),
   }),
   'chat.abort': z.object({
     profileId: z.string().min(1),
@@ -3239,7 +3292,7 @@ export const agentCallSchemas = {
      * Optional so a caller that has nothing to say falls back to the connector's
      * own entry, and then to the safe answer.
      */
-    secretStorage: providerKeyStorageSchema.optional(),
+    secretStorage: secretStorageSchema.optional(),
   }),
   /*
    * Dials a server without saving it, so somebody can find out that a command is
@@ -3379,43 +3432,41 @@ export const agentCallSchemas = {
   'service.disable': z.object({}),
 
   /*
-   * The provider a request goes to.
+   * The local models.
    *
-   * `settings.set` carries every *preference* about it — which provider is
-   * active, each one's address, its model, and how its key is stored — because
-   * those are values in a document. The two calls here are not: one writes a
-   * secret, and one reaches the network. A settings patch that quietly did either
-   * would report success for work it had not done.
+   * Reads and buttons, for the same reason the recall card's are: a settings
+   * write that quietly reached the network for 1.9GB would report success for
+   * work it had not done. `install` answers as soon as the download has
+   * *started*, and progress arrives on the event channel.
    */
-  'settings.setApiKey': z.object({
-    apiKey: z.string(),
-    /* Absent means the active provider, which is what the key card is about. */
-    provider: providerIdSchema.optional(),
+  'models.status': z.object({}),
+  'models.install': z.object({
+    modelId: localModelIdSchema,
+    variant: localModelVariantSchema,
   }),
+  'models.cancel': z.object({}),
+  'models.remove': z.object({modelId: localModelIdSchema}),
+  /* Stop the engine now rather than waiting for the idle timer. */
+  'models.sleep': z.object({}),
+  /* Start it and prove it loads, for a first run that should not lie. */
+  'models.warm': z.object({modelId: localModelIdSchema}),
+
   /*
-   * Asks one provider what it serves: `GET /models`, with its key.
-   *
-   * A call rather than a patch because the answer is a fact about an endpoint
-   * rather than a preference, and because it can fail in ways the user has to be
-   * told about — an unreachable host, a refused key, an empty list. The stored
-   * list it returns is written by the store, with a provider's own list replaced
-   * rather than merged.
+   * Speech. Both start the voice model on demand and stop it with the idle
+   * timer, so a person can talk to Marimo without having turned anything on in
+   * advance. The audio never touches disk: it is base64 in memory on the way
+   * in, and a WAV data URL on the way out.
    */
-  'providers.fetch': z.object({provider: providerIdSchema.optional()}),
-  /*
-   * One conversation's own model, or `null` to follow the agent again.
-   *
-   * A call rather than a profile patch for the obvious reason: it is a fact about
-   * a conversation, and the conversation may not be the one the agent's card is
-   * about.
-   */
-  /*
-   * Who is in a conversation.
-   *
-   * A call rather than a field of `sessions.create` alone, because a group is
-   * something a chat grows into: a conversation that started with one agent is
-   * how somebody adds a second.
-   */
+  'speech.transcribe': z.object({
+    audioBase64: z.string().min(1).max(12_000_000),
+    language: speechLanguageSchema.optional(),
+  }),
+  'speech.speak': z.object({
+    text: z.string().min(1).max(4000),
+    language: speechLanguageSchema.optional(),
+    voice: speechVoiceSchema.optional(),
+  }),
+
   /*
    * A Space's documents.
    *
@@ -3473,11 +3524,6 @@ export const agentCallSchemas = {
     sessionId: z.string().min(1),
     /* The lead first. An empty list means "just the agent that owns it". */
     agentIds: z.array(z.string().min(1)),
-  }),
-  'sessions.setModel': z.object({
-    profileId: z.string().min(1),
-    sessionId: z.string().min(1),
-    model: agentModelSchema.nullable(),
   }),
 
   /*
@@ -3680,9 +3726,20 @@ export interface AgentCallResults {
   'service.status': ServiceStatus;
   'service.enable': ServiceChange;
   'service.disable': ServiceChange;
-  'settings.setApiKey': {settings: PublicSettings};
-  'providers.fetch': {settings: PublicSettings};
-  'sessions.setModel': {session: SessionSummary};
+  'models.status': LocalModelsStatus;
+  'models.install': {started: boolean};
+  'models.cancel': {cancelled: boolean};
+  'models.remove': {status: LocalModelsStatus};
+  'models.sleep': {status: LocalModelsStatus};
+  'models.warm': {ok: boolean; problem?: string; status: LocalModelsStatus};
+  'speech.transcribe': {text: string};
+  'speech.speak': {
+    /** `audio/wav` bytes, base64; the renderer makes a data URL from it. */
+    wavBase64: string;
+    sampleRate: number;
+    /** True when the reply was too long and the end was left unspoken. */
+    truncated: boolean;
+  };
   'sessions.setParticipants': {session: SessionSummary};
   /*
    * `notes` for the same reason `recall.query` has one: a library that hit its

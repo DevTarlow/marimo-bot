@@ -25,12 +25,11 @@ pnpm --filter @marimo/desktop smoke
 ```
 
 **A checkout answers with whatever service you point it at.** There is no chat
-model to fetch: the app carries none, and a development run configures a provider
-the way a user's does — except that a checkout usually points it at a llama.cpp
-server on the machine, which is the entry that needs no account and no network.
-The one download left is recall's; `MARIMO_MODEL_DIR` is how a live run finds
-those weights, and a run without them skips the two live tests rather than
-failing.
+model to fetch: the first run downloads one of four LFM3 models, and a
+development run can skip that by placing the weights under `model/` (or pointing
+`MARIMO_MODEL_DIR` at a directory already laid out that way). The same variable
+is how a live run finds recall's weights, and a run without them skips the two
+live tests rather than failing.
 
 Two environment quirks are worth knowing about up front, both covered in
 [AGENTS.md](./AGENTS.md):
@@ -65,21 +64,22 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 
 | State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Done        | Five providers to answer with — DeepSeek, Google Gemini, OpenCode Go, OpenRouter, and a llama.cpp server of your own — each with its own address, model and key. The catalogue is data, the transport is one OpenAI-compatible client, and a key is encrypted unless you say otherwise                                                                                                                                                                                                                                             |
-| Removed     | The model the app used to carry and run itself: Qwen3.5-4B on a llama.cpp engine it downloaded and supervised. Two tiers chosen from what the GPU reported, no account and no key — and 2.7 GB before the first answer                                                                                                                                                                                                                                                                                                             |
+| Done        | Four Liquid AI LFM3 models — text, vision, audio and omni — downloaded per task, at Q8 or Q4, and run on a pinned llama.cpp CPU build. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                                                                                                                                                 |
+| Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same audio model, and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the vision model, not a path the file tools would refuse                                                                                                                                                                                                                                          |
+| Done        | The first run downloads the text model, checks every byte against a pinned digest, verifies the engine can load it, and only then offers the chat. The other three models are downloads somebody chooses in Settings → Models                                                                                                                                                                                                                                                                                                      |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
 | Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                               |
 | Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                            |
 | Done        | One settings screen, and bots at the top of the sidebar with their own icons — five shipped presets and an uploaded image, changed in Settings                                                                                                                                                                                                                                                                                                                                                                                     |
-| Done        | The agent core: every conversation runs on the v2 harness — a canonical append-only JSONL log, a frozen versioned spec, one ADK adapter behind a boundary test, and a tool set whose availability follows the grant. The session index is a runtime-owned `FileSessionService`, so create/list/rename/move/model/delete and the transcript need no turn engine. The old `AgentHost` is deleted; `ask_agent` runs its helper in the parent's session and answers the helper's gate from the parent's card. See `docs/harness-v2.md` |
+| Done        | The agent core: every conversation runs on the v2 harness — a canonical append-only JSONL log, a frozen versioned spec, one ADK adapter behind a boundary test, and a tool set whose availability follows the grant. The session index is a runtime-owned `FileSessionService`, so create/list/rename/move/delete and the transcript need no turn engine. The old `AgentHost` is deleted; `ask_agent` runs its helper in the parent's session and answers the helper's gate from the parent's card. See `docs/harness-v2.md` |
 | Done        | Approvals that survive a restart, because a pending call is derived from the stored conversation rather than held in memory                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Done        | MCP connectors: add one from either settings screen, test it from the same form, and choose whether to trust it — untrusted servers ask before every call. An agent uses the ones it was granted, and a scheduled job dials them too                                                                                                                                                                                                                                                                                               |
 | Done        | Per-agent capabilities: every tool is a switch, and a tool that is off is not offered to the model at all                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Done        | The stores: jobs, profiles, settings, skills, memory proposals — with format versioning that refuses to overwrite a document it cannot read                                                                                                                                                                                                                                                                                                                                                                                        |
-| Done        | Secrets: one file per provider key and per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear                                                                                                                                                                                                                                                                |
+| Done        | Connector secrets: one file per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear. The models need no key                                                                                                                                                                                                                                                  |
 | Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                             |
-| Done        | A first run in six steps: choose how much control Marimo Bot gets, choose the service that answers, load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and finish — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                                                                                                                                                  |
+| Done        | A first run in six steps: choose how much control Marimo Bot gets, download the model that answers, load a Space, make a bot (and as many more as you want, or none), say how you want to be talked to, and finish — with no message box anywhere until the app can actually answer, and one flag so the flow is a first run rather than a screen that comes back                                                                                                                                                                  |
 | Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                                  |
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -106,66 +106,79 @@ boot, over SSH, or in a container, none of which a plain Electron process can do
 The cost is real and worth stating: with no `app` object there is no
 `safeStorage`, so an encrypted secret cannot be read. It stopped mattering for a
 while, when the app answered with a bundled model and the runner dialled no
-connectors; it matters again now that a job answers through a provider and may use
-the connectors its agent was granted. Both kinds of secret — the active provider's
-key, and each enabled connector's — are therefore stored readable only where the
-user says so, per key and per connector, and a job whose secret is encrypted says
-so rather than failing with a `401`. What the runner also needs is the same
+connectors; it matters now that a job may use the connectors its agent was granted. An
+enabled connector's secret is therefore stored readable only where the user says
+so, per connector, and a job whose secret is encrypted says so rather than
+dialling without it. What the runner also needs is the same
 user-data directory the window is using, which is why the service definition bakes
 that path in.
 
-### What answers, and where the key is
+### What answers, and what stays running
 
-**The app runs no chat model of its own, and that is a deliberate inversion.**
-For most of its life it downloaded a llama.cpp engine and a quantized Qwen, started
-it on loopback and answered from it — no account, no key, nothing typed into the
-chat leaving the machine. What that cost was 2.7 GB on a first run, a graphics
-card as a hard requirement, and a model whose ceiling was the machine it ran on.
-It now talks to a _provider_, and the honest consequence is on the first screen
-rather than hidden: a fresh install cannot answer until somebody picks one.
+**The app runs its own models again, and the trade is different this time.** The
+version before the provider build bundled a 4B Qwen and a CUDA build, which meant
+2.7 GB, a graphics card as a hard requirement, and a model whose ceiling was the
+machine it ran on. The provider build removed all of that and made a fresh
+install useless until somebody typed an API key.
 
-**Five of them, and one keeps the old promise.** DeepSeek, Google Gemini, OpenCode
-Go and OpenRouter are hosted services reached with an API key; a llama.cpp server
-you run yourself is reached at an address you type and is the entry that needs no
-account and sends nothing off the machine. The catalogue lives in
-`packages/protocol/src/providers.ts`, and it is plain data: label, blurb, default
-address, placeholder models, whether a key is required, and four facts about the
-_endpoint_ — whether thinking arrives as `reasoning_content`, whether
-`stream_options.include_usage` may be sent, which header a gateway wants a
-conversation named in, and whether a key is needed at all.
+The LFM3 build takes the third position: four small Liquid AI models, a pinned
+CPU build of llama.cpp, and no account. The models are downloaded rather than
+bundled, so a checkout and a packaged app are the same thing and a release does
+not carry gigabytes. They are small enough that the CPU build is usable on an
+ordinary laptop: the 1.7B text model answers a short question in a few seconds.
 
-**One transport serves all five, which is why the flags matter.** Every one of
-these speaks the OpenAI chat-completions dialect, so switching provider is an
-address, a key and a model id. What is _not_ uniform is which fields may be sent:
-Gemini's compatibility layer answers an unsupported `stream_options` with an error
-rather than ignoring it, so a transport that always asked for usage would fail
-every turn there, and one that never asked would leave the token counts blank
-everywhere else. Those decisions travel with the provider id, so the transport has
-no `if (provider === ...)` in it.
+**The catalogue is one file and it is data.** `packages/protocol/src/local-models.ts`
+holds the four ids, what each can do, the licence, the context length, and the
+byte sizes per variant. The pinned repository revisions, file names and SHA-256
+digests live beside the installer in `packages/runtime/src/local-model/chat-pins.ts`.
+The split is deliberate: the protocol is what the window may render and what the
+schema accepts, while a digest is a download fact that belongs with the download.
 
-**A key is encrypted, and the runner is the exception that proves it.** Secrets
-are one file per provider under `secrets/`, named from the catalogue by
-`paths.providerSecrets`, and encrypted with the OS keychain. The headless job
-runner has no `app` object and therefore no `safeStorage`, so it cannot decrypt
-anything — which is why each provider carries a `keyStorage` of `keychain` or
-`plaintext`, why the card has a box that says exactly what storing it readable
-means, and why a scheduled job whose agent needs an encrypted key fails with a
-sentence rather than a 401.
+**One model is resident, and the task decides which.** Chat uses the text model,
+an image uses the vision model, and voice uses the audio model for the whole
+turn. The voice model is the brain as well as the mouth, because the alternative
+— a text model for the answer and an audio model for the voice — is two models in
+memory at once, which is exactly what a laptop does not have. A voice turn that
+also carries an image is refused unless the voice model can see, rather than
+silently answered by one that cannot.
 
-**A model is a pair.** `{provider, model}` is the only shape stored or sent,
-because an id means nothing apart from the endpoint that serves it — and the
-resolution order is one function, `modelChoiceFor`: the conversation's choice,
-then its agent's, then the app's. Each level contributes its provider _and_ its
-model id, because taking one from each is how a window comes to name a model the
-turn is not using.
+**The address exists only in the process that started the engine.** `LocalModelHost`
+picks a free loopback port, starts `llama-server` there, and hands the base URL to
+the turn. Nothing stores it; a stored port is an address pointing at a process
+that died a minute ago. The host starts the model in `ensure`, refuses a second
+model while a turn is in flight, and stops it after three quiet minutes — never
+between a tool call and its answer, which is what `isBusy` and `inFlight` are for.
+A pid file under `model/local-model.pid` lets the next launch reap an engine whose
+window crashed.
 
-**The one engine left is recall's.** It downloads its own embedding model and runs
-its own llama.cpp build under `model/recall/`, supervised by the same
-`LocalModelService` the chat engine used to use — kept precisely because recall
-still needs it. So the pin discipline, the verified resumable download and the
-never-leave-an-engine-behind rule all still apply; what is gone is the tier plan,
-the hardware probe and the chat weights, because nothing chooses a chat tier any
-more.
+**Installation is verified, resumable and reversible.** `installLocalModel`
+fetches the pinned engine once, then the weights and the projector for the
+chosen variant, checks each against its digest, and writes `local-model.json`
+only after every file is in place. A marker that does not match the pin's
+revision or file list is "not installed", so a half-written file is never loaded.
+Removing a model stops the engine first and deletes only its directory.
+
+**A model is still a pair.** `{provider: 'local', model: '<lfm3 id>'}` is what a
+turn records and what a harness version freezes. The provider is a constant now
+rather than a choice, but the pair is what lets a resume use the model the turn
+started with — five minutes later, after a task assignment has moved, the card
+must be answered by the model that asked the question. The task routing happens
+once, before the turn starts, in `AgentService.send`; `HarnessRuntime.prepare` is
+what starts the model and hands its address to `resolveAgentConfig`.
+
+**The one key left is a connector's.** Secrets are one file per connector under
+`secrets/`, encrypted with the OS keychain. The headless runner has no `app`
+object and therefore no `safeStorage`, so it can only read a secret the user
+chose to store readable; a job whose connector needs an encrypted one says so
+rather than dialling without a credential. There is no provider key, no provider
+address and no provider catalogue in this build.
+
+**Recall is still a separate engine.** It downloads its own embedding model and
+runs its own pinned llama.cpp build under `model/recall/`, supervised by the same
+`LocalModelService` the chat engine uses. The pin discipline, the verified
+resumable download and the never-leave-an-engine-behind rule all apply to both.
+The chat models and recall's model cannot share a process: each is a different
+architecture with a different projector, and one resident model is the rule.
 
 ### A connector belongs to the install; a grant belongs to an agent
 
@@ -204,8 +217,8 @@ one nobody can decide about. Adding, testing and trusting a server is on the one
 settings screen, because that is a capability the user has; the grant itself is
 one switch per connector per agent, beside the tool switches.
 
-**A connector's secret carries the same consent a provider's key does, and the
-consent has to travel with the write.** `secretStorage` is per connector and
+**A connector's secret carries a consent, and the consent has to travel with
+the write.** `secretStorage` is per connector and
 defaults to `keychain`; a scheduled job runs in a process with no keychain, so a
 connector that job is meant to use has to be readable by one, and only the user
 can say so. The trap here is ordering rather than storage: the consent is a field
@@ -217,8 +230,7 @@ directions of the disagreement.
 
 **And a scheduled job dials them.** `run-due` builds the window's own
 `McpManager` over the same settings document and hands its toolsets to the
-runtime, with a `FileSecretStore` that has no cipher — the reader the provider key
-beside it already had. Before that it dialled nothing and said nothing, so a job's
+runtime, with a `FileSecretStore` that has no cipher. Before that it dialled nothing and said nothing, so a job's
 agent was the agent the window runs minus every tool a connector offers. One quiet
 failure was found in the same place: a connector secret that could not be read was
 silently skipped, so the server was dialled without its credential and answered a
@@ -241,7 +253,7 @@ been verified against anything.
 
 **It is off until somebody asks.** Turning it on downloads 310 MB and starts a
 process of its own, so it is not a default; the question is asked once, on the
-screen that follows the provider choice, and afterwards the switch lives in
+screen that follows the model download, and afterwards the switch lives in
 Settings where every other capability does. The corpora are separate switches
 because they are separate consents: the folder is the work, memory is what the
 agent wrote down _about_ the user, a conversation is everything they said, and
@@ -429,11 +441,11 @@ custom. All of them write `enabledTools`, the card that is lit is worked out by
 comparing that grant against the lists, and the profile remains the one source of
 truth for what an agent may do.
 
-The provider card is not tuning and has never been optional: the app carries no
-model, so a fresh install cannot answer until it is pointed at one. The connector
-list is on the same screen for the reason from the other end — a capability nobody
-can see is one nobody turns on. The per-bot connector grant lives with the bot,
-above.
+The Models card is not tuning: a fresh install cannot answer until one of the
+four models is on disk, and the card is where each download, its variant, its
+task and its sleep state are visible. The connector list is on the same screen
+for the reason from the other end — a capability nobody can see is one nobody
+turns on. The per-bot connector grant lives with the bot, above.
 
 **An icon is a profile field and a file, and the field can never cost the bot.**
 `avatar` is optional on the profile: a preset names one of five shipped SVGs, and
@@ -483,8 +495,8 @@ moment before a turn, and it uses the same mechanism: a compacted event is an
 ordinary event carrying a summary and the span it stands for, so nothing on disk
 is rewritten and ADK's `getActiveEvents` does the rest. The trigger is a character
 budget (`AUTO_COMPACT_AT_CHARS`), not a token count: this app has no tokenizer and
-the provider catalogue carries no context-window metadata, so the number is a
-deliberately conservative estimate — four characters to a token is ADK's own
+the model catalogue carries a context length but the conversation's actual use
+is not tokenized, so the number is a deliberately conservative estimate — four characters to a token is ADK's own
 rule — with room left for the instruction, tool schemas and the reply. The
 measurement counts reasoning, tool arguments and full tool results, which the
 summary renderer deliberately caps.
@@ -506,11 +518,12 @@ the catalogue offers — write that grant through `profiles.update`; the lit car
 derived by comparing the grant, never stored. Power is the one preset that
 includes `run_shell`, because this is the moment the person is explicitly
 choosing control; the shell's approval gate is unchanged. The model is the first
-_required_ step: until a provider is chosen and readable the window offers no
-message box at all, and a wizard that asked for a Space and a bot before it had a
-model would be asking somebody to describe work nothing can do. A provider that
-cannot answer is the one step that cannot be continued past; "set this up later"
-closes the flow rather than walking into screens that cannot work. It writes as
+_required_ step: until the weights are on disk and the engine has loaded them the
+window offers no message box at all, and a wizard that asked for a Space and a bot
+before it had a model would be asking somebody to describe work nothing can do.
+A download that has not finished is the one step that cannot be continued past;
+"set this up later" closes the flow rather than walking into screens that cannot
+work. It writes as
 it goes, exactly as Settings does, so quitting in the middle loses nothing, and
 each step reads what already exists rather than creating a second copy of it.
 
@@ -551,7 +564,7 @@ of that session carries `BOT_BUILDER_INSTRUCTION` after the ordinary turn contex
 ask one question at a time, and when there is enough, call `draft_bot`. The opening
 question is a card the window draws from the purpose and the same constant the
 instruction quotes, not a seeded model message — an assistant-first history is
-accepted by some providers and not others, and a small model can lose an
+accepted by the engine on one machine and not on another, and a small model can lose an
 instruction it was never given. The tool never creates anything. The window draws
 its arguments as a review card, the person edits the name, Persona and template,
 and only their Create press reaches `profiles.create`. `createdFromCall` on the
@@ -569,7 +582,7 @@ saving a key and reading what happened.
 
 `setupSeen` is what makes the flow a first run rather than a screen that returns
 whenever the app cannot answer. It is set when the flow closes either way — a
-provider working, or "set this up later" — and an install that still cannot answer
+model loaded, or "set this up later" — and an install that still cannot answer
 afterwards gets the short card that names the problem and opens Settings, which is
 also where an existing install lands when its key stops being readable later. The
 flag is not a claim about readiness; `modelReady` is that claim, and it is the main
@@ -736,7 +749,7 @@ change is built on.** The obvious design, where the tool waits while the helper'
 card is answered, cannot work. ADK ends the invocation at a gate, so the helper's
 runner stops _inside_ the parent's tool call and the parent's call would sit there
 with no result — an assistant message with an unanswered call, which every
-provider refuses on the next request and not only that turn (invariant 3). So
+engine refuses on the next request and not only that turn (invariant 3). So
 `ask_agent` raises a card of its own through `requestConfirmation`, and the click
 resumes _this_ tool. That is the one place the two sides can be joined: the card
 the user answered belongs to this call, and the work that has to carry on belongs
@@ -944,7 +957,7 @@ which is how development, the tests and the smoke check keep their state out of
 yours.
 
 ```
-secrets/                one file per secret — a provider's key or a connector's,
+secrets/                one file per connector secret,
                         encrypted unless the user asked for that one to be
                         readable by the background runner; without that ask, a
                         machine with no keychain is refused rather than written
@@ -1006,7 +1019,7 @@ of anything.
 version, so every settings file in existence looks like an older format; treating
 that as "not mine" would reset everybody's connectors and preferences on upgrade.
 It names its version explicitly, and stamps one from the next write on. A file
-written by a build that had the provider catalogue still loads: the fields this
+written by a build that had a provider block still loads: the fields this
 build no longer knows are ignored, and every preference beside them survives.
 
 **Reset Marimo Bot erases this folder, and the folder is the unit.** The card at the

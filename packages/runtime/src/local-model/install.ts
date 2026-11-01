@@ -24,7 +24,7 @@
  *   downloaded rather than leaving it to be retried forever.
  */
 import {createHash} from 'node:crypto';
-import {createReadStream, createWriteStream} from 'node:fs';
+import {createReadStream, createWriteStream, statSync} from 'node:fs';
 import {
   cp,
   mkdir,
@@ -33,6 +33,7 @@ import {
   rename,
   rm,
   stat,
+  statfs,
   writeFile,
 } from 'node:fs/promises';
 import {dirname, join} from 'node:path';
@@ -40,14 +41,25 @@ import {pipeline} from 'node:stream/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
+import type {LocalModelId, LocalModelVariant} from '@marimo/protocol';
+import {LOCAL_MODELS} from '@marimo/protocol';
+
 import type {
+  ChatModelManifest,
   EmbeddingManifest,
   EmbeddingPieceName,
   EngineAsset,
   EngineManifest,
 } from './manifest.js';
-import {embeddingUrl, engineAssetFor, engineUrl} from './manifest.js';
-import {engineBinaryName, engineDir} from './files.js';
+import {
+  chatModelParts,
+  chatModelUrl,
+  embeddingUrl,
+  engineAssetFor,
+  engineUrl,
+} from './manifest.js';
+import {engineBinaryName, engineDir, localModelDir} from './files.js';
+import {writeLocalModelMarker, readLocalModelMarker} from './installed.js';
 
 const run = promisify(execFile);
 
@@ -446,7 +458,6 @@ export async function engineIsPinned(
     return false;
   }
 }
-
 async function writeEngineMarker(dir: string, asset: EngineAsset): Promise<void> {
   await writeFile(
     join(engineDir(dir), ENGINE_MARKER),
@@ -490,3 +501,176 @@ async function sizeOf(file: string): Promise<number> {
 function describe(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
+
+/* -------------------------------------------------------------------------- */
+/* The LFM3 chat models                                                        */
+/* -------------------------------------------------------------------------- */
+
+/** One model copy, and the engine it shares with the rest. */
+export interface LocalModelInstallOptions extends InstallOptions {
+  manifest: ChatModelManifest;
+  modelId: LocalModelId;
+  variant: LocalModelVariant;
+}
+
+/**
+ * Fetches the engine and one model copy, verified and resumable.
+ *
+ * The order is the one the engine's own install established: the cheap half
+ * first, so a platform with no build is refused before 1.9GB is spent. Every
+ * file goes through `downloadVerified`, which writes a `.part`, checks the
+ * digest and renames only then — a file that looks installed but is not is worse
+ * than a missing one, because the engine's failure arrives much later and says
+ * nothing about the download.
+ *
+ * The marker is written last and names the exact revision and files. That is
+ * what makes a later build's changed pin replace yesterday's weights, and what
+ * makes a size-only check sufficient on every subsequent read.
+ */
+export async function installLocalModel(
+  options: LocalModelInstallOptions,
+): Promise<{installed: boolean}> {
+  const {manifest, modelId, variant} = options;
+  const model = LOCAL_MODELS[modelId];
+  const engine = await installEngine({
+    dir: options.dir,
+    manifest,
+    ...(options.platform === undefined ? {} : {platform: options.platform}),
+    ...(options.arch === undefined ? {} : {arch: options.arch}),
+    ...(options.onProgress === undefined
+      ? {}
+      : {onProgress: options.onProgress}),
+    ...(options.fetchImpl === undefined
+      ? {}
+      : {fetchImpl: options.fetchImpl}),
+    ...(options.execFileImpl === undefined
+      ? {}
+      : {execFileImpl: options.execFileImpl}),
+    ...(options.signal === undefined ? {} : {signal: options.signal}),
+  });
+
+  const dir = localModelDir(options.dir, modelId);
+  await mkdir(dir, {recursive: true});
+
+  const parts = chatModelParts(manifest, modelId, variant);
+  const missing = parts.filter(
+    (part) => sizeOfSync(join(dir, part.pin.file)) !== part.pin.bytes,
+  );
+
+  /*
+   * Asked before the first byte, with a little room to finish rather than fill
+   * the disk exactly. A user who has to delete something should be told which
+   * number is wrong while the button can still explain itself.
+   */
+  const needed = missing.reduce((total, part) => total + part.pin.bytes, 0);
+  if (needed > 0) {
+    await assertDiskSpace(dir, needed);
+  }
+
+  for (const part of missing) {
+    await downloadVerified({
+      url: chatModelUrl(manifest, modelId, variant, part.part),
+      destination: join(dir, part.pin.file),
+      sha256: part.pin.sha256,
+      bytes: part.pin.bytes,
+      label:
+        part.part === 'weights'
+          ? model.label
+          : modelId === 'lfm3-vl-2b'
+            ? 'The vision encoder'
+            : 'The audio encoder',
+      ...(options.onProgress === undefined
+        ? {}
+        : {onProgress: options.onProgress}),
+      ...(options.fetchImpl === undefined
+        ? {}
+        : {fetchImpl: options.fetchImpl}),
+      ...(options.signal === undefined ? {} : {signal: options.signal}),
+    });
+  }
+
+  /*
+   * A variant change leaves the old quantization's file in the directory
+   * unless it is removed here. Both names end in `.gguf` and both are large;
+   * leaving one behind would double the disk cost of a choice the user made to
+   * save space.
+   */
+  const keep = new Set(parts.map((part) => part.pin.file));
+  for (const name of await readdir(dir)) {
+    if (name.endsWith('.gguf') && !keep.has(name)) {
+      await rm(join(dir, name), {force: true});
+    }
+  }
+
+  const files = parts.map((part) => ({
+    name: part.pin.file,
+    sha256: part.pin.sha256,
+    bytes: part.pin.bytes,
+  }));
+  const marker = await readLocalModelMarker(dir);
+  const markerCurrent =
+    marker !== undefined &&
+    marker.modelId === modelId &&
+    marker.variant === variant &&
+    marker.revision === manifest.models[modelId].revision &&
+    marker.files.length === files.length &&
+    marker.files.every((file) =>
+      files.some(
+        (expected) =>
+          expected.name === file.name &&
+          expected.sha256 === file.sha256 &&
+          expected.bytes === file.bytes,
+      ),
+    );
+
+  if (!markerCurrent) {
+    await writeLocalModelMarker(dir, {
+      modelId,
+      variant,
+      revision: manifest.models[modelId].revision,
+      files,
+    });
+  }
+
+  return {installed: engine.installed || missing.length > 0 || !markerCurrent};
+}
+
+/** The size of a file without awaiting it; `-1` when it is not there. */
+function sizeOfSync(file: string): number {
+  try {
+    // `statSync` is safe here: the path is one this process just constructed,
+    // and the check is a single metadata read.
+    return statSync(file).size;
+  } catch {
+    return -1;
+  }
+}
+
+/** Refuses a download that would fill the disk, in a sentence. */
+async function assertDiskSpace(dir: string, needed: number): Promise<void> {
+  const headroom = 256 * 1024 * 1024;
+  let free: number;
+  try {
+    const stats = await statfs(dir);
+    free = Number(stats.bavail) * Number(stats.bsize);
+  } catch {
+    // A filesystem that cannot answer is not evidence that it is full. The
+    // download's own failure is the honest one.
+    return;
+  }
+  if (free < needed + headroom) {
+    throw new InstallError(
+      `There is not enough room for this model. It needs about ` +
+        `${formatBytes(needed + headroom)} free, and this disk has ` +
+        `${formatBytes(free)}.`,
+    );
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  return `${Math.ceil(bytes / (1024 * 1024))} MB`;
+}
+

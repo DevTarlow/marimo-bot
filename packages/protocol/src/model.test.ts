@@ -1,109 +1,141 @@
 /**
- * The tier vocabulary, and the two rules that matter about it.
+ * The settings blocks that decide what answers, and the one that decides how.
  *
- * `auto` is a real answer rather than a placeholder: it means the app probes the
- * graphics card and picks. That distinction is the whole reason the type has three
- * members instead of two, and it is the thing a later change is most likely to
- * flatten — a `low`/`high` pair with a nullable default would lose the difference
- * between "the user chose the small one" and "the app decided the small one was all
- * this machine could take", which are different sentences to show somebody.
- *
- * The field is tested on its own rather than through a whole settings document.
- * A fixture built by hand would be a second copy of the schema, and it would fail
- * every time a field was added somewhere else — which is a test that reports the
- * wrong thing.
+ * The store that reads and writes a settings file is tested in `@marimo/runtime`;
+ * what is asserted here is the shape a window and a first run agree about: a
+ * local model assignment per task, the speech settings the companion carries, and
+ * the recall block that was already here. A fixture built by hand would be a
+ * second copy of the schema and would break every time a field was added
+ * somewhere else, so each block is tested on its own over the defaults the app
+ * ships.
  */
 import {describe, expect, it} from 'vitest';
 
 import {
-  DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
   DEFAULT_MEMORY_REVIEW_EVENTS,
+  DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
   defaultAppearance,
   defaultCompanionSettings,
   defaultDiscordSettings,
-  defaultProviders,
+  defaultLocalModelsSettings,
   defaultRecallSettings,
   defaultWindowState,
-  PROVIDER_IDS,
+  LOCAL_TASKS,
+  localModelsSettingsSchema,
   recallSettingsSchema,
   settingsPatchSchema,
   settingsSchema,
 } from './index.js';
 
 /**
- * The provider block, and the two facts about it that a settings file can get
- * wrong.
+ * The local models block, and the rule that makes a hand-edited file safe.
  *
- * Which service answers is a preference, so it lives in the settings document
- * with the other preferences — and it is a *block* rather than a field, because
- * every provider keeps its own address and model so that switching away and back
- * does not cost the user what they typed.
- *
- * Asserted here rather than through a whole settings fixture, for the reason the
- * recall block is: a fixture built by hand is a second copy of the schema, and it
- * breaks every time a field is added somewhere else.
+ * A task is a capability, not a name. The refinement is what refuses a file that
+ * names the audio model for Chat at the door, rather than producing a turn whose
+ * prompt is wrong for the weights — a failure that would otherwise arrive as a
+ * bad answer, which is much harder to explain.
  */
-describe('the providers in a settings file', () => {
+describe('the local models in a settings file', () => {
   it('is a block of the settings document, not a separate store', () => {
-    expect(settingsSchema.shape.providers).toBeDefined();
+    expect(settingsSchema.shape.localModels).toBeDefined();
   });
 
-  /*
-   * The default is a real provider rather than a placeholder: the app runs no
-   * backend of its own any more, so a fresh install has to be pointed at
-   * something, and DeepSeek is the one whose catalogue entry a first run explains
-   * in a sentence. The alternative — a default that refused the first question —
-   * would be the app asking a stranger to configure it before it said anything.
-   */
-  it('points a fresh install at one provider that can actually answer', () => {
-    const parsed = settingsSchema.safeParse(settingsShape());
-    expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.providers.active).toBe('deepseek');
-  });
-
-  it('keeps an address and a model for every provider it knows', () => {
+  it('starts a fresh install on the text, vision and audio models', () => {
     const parsed = settingsSchema.safeParse(settingsShape());
     expect(parsed.success).toBe(true);
     if (!parsed.success) {
       return;
     }
-    // Every id the enum names, so switching provider is never an unset field.
-    expect(Object.keys(parsed.data.providers.configs).sort()).toEqual(
-      [...PROVIDER_IDS].sort(),
-    );
-    for (const id of PROVIDER_IDS) {
-      expect(parsed.data.providers.configs[id].baseUrl.length).toBeGreaterThan(0);
-      expect(parsed.data.providers.configs[id].model.length).toBeGreaterThan(0);
-    }
+    expect(parsed.data.localModels).toEqual(defaultLocalModelsSettings());
+    expect(parsed.data.localModels.tasks).toEqual({
+      chat: 'lfm3-1.7b',
+      vision: 'lfm3-vl-2b',
+      voice: 'lfm3-audio-2b',
+    });
+    expect(parsed.data.localModels.idleMinutes).toBe(3);
   });
 
-  /*
-   * A block whose one entry is malformed costs the block, not the document —
-   * which is the settings store's job rather than this schema's, and is asserted
-   * where that store is tested. What this pins is the shape the store fills.
-   */
-  it('refuses a provider this build has never heard of', () => {
-    const providers = defaultProviders();
-    const parsed = settingsSchema.safeParse({
-      ...settingsShape(),
-      providers: {...providers, active: 'someones_own_server'},
+  it('refuses a model that cannot do the task it was assigned', () => {
+    const parsed = localModelsSettingsSchema.safeParse({
+      tasks: {
+        chat: 'lfm3-1.7b',
+        vision: 'lfm3-1.7b',
+        voice: 'lfm3-audio-2b',
+      },
+      idleMinutes: 3,
     });
     expect(parsed.success).toBe(false);
   });
 
-  it('accepts a patch that names one provider and leaves the rest out', () => {
-    const parsed = settingsPatchSchema.safeParse({
-      providers: {configs: {deepseek: {model: 'deepseek-v4-pro'}}},
+  it('accepts the omni model for every task it can do', () => {
+    const parsed = localModelsSettingsSchema.safeParse({
+      tasks: {
+        chat: 'lfm3-omni-2b',
+        vision: 'lfm3-omni-2b',
+        voice: 'lfm3-omni-2b',
+      },
+      idleMinutes: 10,
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.providers?.configs).toEqual({
-      deepseek: {model: 'deepseek-v4-pro'},
+  });
+
+  it('accepts a patch that moves one task and leaves the other two out', () => {
+    const parsed = settingsPatchSchema.safeParse({
+      localModels: {tasks: {chat: 'lfm3-vl-2b'}},
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.localModels).toEqual({
+      tasks: {chat: 'lfm3-vl-2b'},
     });
   });
 
-  it('refuses a patch that invents a provider', () => {
+  it('refuses a patch that names a model this build does not ship', () => {
     expect(
-      settingsPatchSchema.safeParse({providers: {active: 'someone_elses'}}).success,
+      settingsPatchSchema.safeParse({
+        localModels: {tasks: {chat: 'lfm3-9b'}},
+      }).success,
+    ).toBe(false);
+  });
+
+  it('covers every task the app can route', () => {
+    const defaults = defaultLocalModelsSettings();
+    expect(Object.keys(defaults.tasks).sort()).toEqual([...LOCAL_TASKS].sort());
+  });
+});
+
+/**
+ * Speech settings live with the companion because that is what they are about.
+ *
+ * Off by default: turning speech on is a model download and a new way for the
+ * app to answer, and a fresh install should not do either unasked.
+ */
+describe('the companion speech settings', () => {
+  it('are off, on the model defaults', () => {
+    const companion = defaultCompanionSettings();
+    expect(companion.speakReplies).toBe(false);
+    expect(companion.speechVoice).toBe('female');
+    expect(companion.speechLanguage).toBe('en');
+  });
+
+  it('accept a patch touching one of them', () => {
+    const parsed = settingsPatchSchema.safeParse({
+      companion: {speakReplies: true},
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.companion).toEqual({
+      speakReplies: true,
+    });
+  });
+
+  it('refuse a language or voice the audio model does not have', () => {
+    expect(
+      settingsPatchSchema.safeParse({
+        companion: {speechLanguage: 'xx'},
+      }).success,
+    ).toBe(false);
+    expect(
+      settingsPatchSchema.safeParse({companion: {speechVoice: 'robot'}})
+        .success,
     ).toBe(false);
   });
 });
@@ -111,10 +143,9 @@ describe('the providers in a settings file', () => {
 /**
  * The recall block, and the default that downloads nothing.
  *
- * Recall is off until somebody asks for it: turning it on fetches 310 MB and
- * starts a second engine process, and a fresh install that did that unasked would
- * be the same failure Discord's default exists to prevent. So the default is
- * asserted rather than left to a `false` in whichever file builds it first.
+ * Unchanged by the local-model change except for the settings document it lives
+ * in; the tests stay because the default is the promise that a fresh install
+ * makes no download it was not asked for.
  */
 describe('the recall settings', () => {
   it('is off, with both corpora ready for when it is on', () => {
@@ -131,16 +162,11 @@ describe('the recall settings', () => {
 
   it('is part of the settings document', () => {
     expect(settingsSchema.shape.recall).toBeDefined();
-    expect(settingsSchema.safeParse({...settingsShape(), recall: undefined}).success).toBe(
-      false,
-    );
+    expect(
+      settingsSchema.safeParse({...settingsShape(), recall: undefined}).success,
+    ).toBe(false);
   });
 
-  /*
-   * A window that moved one switch must not have to send the other two back: a
-   * stale copy of them is exactly what must not win, which is why this is a
-   * partial block merged over what is stored.
-   */
   it('accepts a patch touching one switch of the block', () => {
     const parsed = settingsPatchSchema.safeParse({recall: {enabled: true}});
 
@@ -150,16 +176,51 @@ describe('the recall settings', () => {
 
   it('refuses a block whose switches are not switches', () => {
     expect(
-      recallSettingsSchema.safeParse({enabled: 'yes', memory: true, workspace: true})
-        .success,
+      recallSettingsSchema.safeParse({
+        enabled: 'yes',
+        memory: true,
+        workspace: true,
+      }).success,
     ).toBe(false);
+  });
+});
+
+/**
+ * What a settings file from the provider build looks like after this one reads
+ * it: the provider block is gone, and the model choices have defaults.
+ *
+ * The runtime store is what actually drops the old fields on the next write; the
+ * schema test is here because the schema is the half a window sees.
+ */
+describe('a settings file from the old build', () => {
+  it('ignores a provider block and fills the local models', () => {
+    const parsed = settingsSchema.safeParse({
+      ...settingsShape(),
+      providers: {
+        active: 'deepseek',
+        configs: {
+          deepseek: {
+            baseUrl: 'https://api.deepseek.com',
+            model: 'deepseek-flash',
+            keyStorage: 'keychain',
+          },
+        },
+      },
+      availableModels: {deepseek: ['deepseek-flash']},
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) {
+      return;
+    }
+    expect('providers' in parsed.data).toBe(false);
+    expect(parsed.data.localModels).toEqual(defaultLocalModelsSettings());
   });
 });
 
 function settingsShape(): Record<string, unknown> {
   return {
     appearance: defaultAppearance(),
-    providers: defaultProviders(),
+    localModels: defaultLocalModelsSettings(),
     allowPrivateNetworkFetch: false,
     mcpServers: [],
     discord: defaultDiscordSettings(),

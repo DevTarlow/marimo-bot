@@ -18,7 +18,6 @@ import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
-import {PROVIDERS} from '@marimo/protocol';
 import type {StoredSettings} from '@marimo/protocol';
 import {defaultStoredSettings, resolveAppPaths} from '@marimo/runtime';
 import type {AppPaths} from '@marimo/runtime';
@@ -81,11 +80,11 @@ describe('the service definition', () => {
 
   it('asks the app for the settings it is actually running under', async () => {
     /*
-     * A provider whose key could never be decrypted: the status has to say so,
-     * and the only way it can know is the document it was handed.
+     * A model needs no key, so a fresh install with no connectors can run its
+     * jobs while the window is closed. The flag is still read from the document
+     * the app is actually running under rather than from a default here.
      */
     const settings = defaultStoredSettings();
-    settings.providers.configs.deepseek.keyStorage = 'plaintext';
     context.readSettings = async () => settings;
 
     expect((await statusOf(context)).keysReadable).toBe(true);
@@ -93,45 +92,10 @@ describe('the service definition', () => {
 });
 
 describe('keysReadableIn', () => {
-  /** The stored settings with one provider active and one storage choice. */
-  function withProvider(
-    active: StoredSettings['providers']['active'],
-    keyStorage: 'keychain' | 'plaintext',
-  ): StoredSettings {
-    const settings = defaultStoredSettings();
-    settings.providers.active = active;
-    settings.providers.configs[active].keyStorage = keyStorage;
-    return settings;
-  }
-
-  it('is true for a provider that needs no key at all', () => {
-    // The case the whole feature exists for: a server on the user's own machine
-    // has nothing to decrypt, and a job on it works with the app closed.
-    expect(PROVIDERS.llamacpp.requiresApiKey).toBe(false);
-    expect(keysReadableIn(withProvider('llamacpp', 'keychain'))).toBe(true);
-  });
-
-  it('is true when the user let the key be stored readable', () => {
-    expect(keysReadableIn(withProvider('deepseek', 'plaintext'))).toBe(true);
-  });
-
-  it('is false when the key is encrypted and the runner has no keychain', () => {
-    expect(keysReadableIn(withProvider('deepseek', 'keychain'))).toBe(false);
-  });
-
-  /*
-   * And the connectors, because a job needs their secrets too.
-   *
-   * The flag answers for the *whole* job — a scheduled turn answers through a
-   * provider and may use the connectors its agent was granted — so a provider
-   * that is fine is not enough on its own. A connector with no secrets needs
-   * none; one the user let the runner read is readable; one left on the keychain
-   * is a connector the job would dial without a credential.
-   */
   function withConnector(
     overrides: Partial<StoredSettings['mcpServers'][number]> = {},
   ): StoredSettings {
-    const settings = withProvider('llamacpp', 'keychain');
+    const settings = defaultStoredSettings();
     settings.mcpServers = [
       {
         id: 'mcp:notes',
@@ -147,6 +111,12 @@ describe('keysReadableIn', () => {
     ];
     return settings;
   }
+
+  it('is true when there are no connectors at all', () => {
+    // The model runs from local files and needs no key. A job on a fresh install
+    // has nothing to decrypt.
+    expect(keysReadableIn(defaultStoredSettings())).toBe(true);
+  });
 
   it('is false when an enabled connector has a secret only a keychain could read', () => {
     expect(keysReadableIn(withConnector())).toBe(false);

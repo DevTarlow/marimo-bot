@@ -140,9 +140,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     grant and three things read it — the prompt, the library behind `load_skill`,
     and the Settings switches. A grant change is not a reason to drop a host.
 24. **One model is resident at a time, and it is never stopped under a request.**
-    `LocalModelHost` starts the model a turn needs and stops it after three quiet
-    minutes. `isBusy` and `inFlight` keep the idle timer from pulling the weights
-    out between a tool call and its answer; a second model while one is in use is
+    `LocalModelHost` starts the model a turn needs and stops it after the
+    configured quiet period (three minutes by default). `isBusy` and
+    `inFlight` keep the idle timer from pulling the weights out between a tool
+    call and its answer; a second model while one is in use is
     refused rather than swapped in. A pid file under `model/local-model.pid` lets
     the next launch reap an engine whose window crashed.
 25. **A download is verified before it is used, and a marker is not a hint.**
@@ -216,13 +217,22 @@ command is unchanged, and `request_tool` still refuses the shell.
 The four models, their licences and their task capabilities are in
 `packages/protocol/src/local-models.ts`. The repository revisions, file names,
 sizes and digests are in `packages/runtime/src/local-model/chat-pins.ts`. The
-engine is a single pinned llama.cpp CPU build, the same archive on every platform;
-`localModelArgs` is the one place the flags are written.
+engine is a pinned llama.cpp CPU build with one archive per platform;
+`localModelArgs` is the one place the flags are written. The per-platform archives
+are what make the same behavior available on Linux, macOS and Windows without a
+GPU driver.
 
 Defaults: Chat → `lfm3-1.7b`, Images → `lfm3-vl-2b`, Voice → `lfm3-audio-2b`.
 Q8 is the quality choice; Q4 is the small-laptop choice, and the host suggests it
 below 8 GB of RAM. `lfm3-omni-2b` can do all three tasks, which is what the
 "one model for everything" button is for.
+
+The surfaces are split on purpose: Settings → Models assigns the three tasks and
+owns the downloads, variants, removal and sleep; the composer's badge only
+reports which model is warm and opens that card; the first run owns the one
+required text download and a "Check it loads now" button. Do not put a second
+task picker in the composer — the assignment is an app-wide fact, not a fact
+about one conversation.
 
 The speech endpoints are not the chat endpoint. Transcription is a chat
 completion with an audio part and `Perform ASR in <language>.`; synthesis is

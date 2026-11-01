@@ -78,7 +78,7 @@ The work lands in the same place as the rest of your project, so you can open th
 
 Attach a picture with the `+` beside the message box. The vision model reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed.
 
-The picture is attached to that one message. It is not copied into the conversation folder or indexed, and it is not sent anywhere: the vision model runs on this computer.
+The picture is attached to that one message. Attaching it does not copy or index it, and it is not sent anywhere: the vision model runs on this computer. (Recall indexes a Space's media only if you turned media search on.)
 
 ### Voice
 
@@ -136,7 +136,7 @@ When a chat gets long, the app replaces the earlier part with a summary so the m
 
 **Compact** in the `+` menu beside the message box does the same when you ask.
 
-A small local model has a smaller window than a hosted one. The app keeps the working context under about 24,000 tokens and treats the rest of the conversation as something to summarise or search, rather than sending a request the engine cannot fit.
+A small local model has a smaller working window than a large model. The app keeps the working context under about 24,000 tokens and treats the rest of the conversation as something to summarise or search, rather than sending a request the engine cannot fit.
 
 ### Memory
 
@@ -194,7 +194,7 @@ With **Talk to Marimo** on, the moss has a microphone of its own and speaks the 
 
 Every conversation runs on the harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
 
-The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and model as they were. It leaves the Space, the icon and memory alone.
+The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills and connectors. It deliberately leaves the model assignment, the Space, the icon and memory alone: the model is an app-wide task choice now, and undoing a choice the person did not make in that dialog would be a surprise.
 
 ## Models
 
@@ -215,6 +215,10 @@ Each model has a Q8 copy and a Q4 copy where the repository publishes one. Q8 is
 
 **Use one model for everything (Omni)** is a single button for a machine that would rather load once. It points all three tasks at the Omni model.
 
+The first run downloads only the text model. The vision, audio and omni models are opt-in downloads in Settings, so a person who only types is not charged 2 GB for a camera they never use. A download starts only when you press Download (or finish the first run's model step); the app does not fetch a model in the background.
+
+The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows each model, its installed copy and its size, and **Remove…** deletes only that model's directory. Removing the model a task is using is allowed only when nothing is running, and the next message in that task then shows the download card instead of failing with a half-loaded engine.
+
 The models are licensed by Liquid AI under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE). They are downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
 
 ### Connectors
@@ -225,7 +229,7 @@ Each bot has its own permissions, and a connector that is not ticked is not offe
 
 ## Privacy and control
 
-Your conversations, files, memory and voice recordings stay on this computer. The model, the speech recogniser and the speech synthesiser are local; a recording is turned into a WAV in memory, sent to the local engine, and never written to disk by the app.
+Your conversations, files and memory stay on this computer. The model, the speech recogniser and the speech synthesiser are local; a recording is turned into a WAV in memory, sent to the local engine, and never written to disk by the app.
 
 The app reaches the network only for things you ask for:
 
@@ -254,7 +258,7 @@ There is no public download yet. The Linux version builds to a single AppImage f
 If you have the app, the first run is short.
 
 1. Choose how much control Marimo Bot gets. **Standard** can read files in your Space, search the web, and keep its own notes; **Power user** turns on every tool the app has, including writing files, running commands, scheduling jobs and handing work to your other bots. Either way, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
-2. Download a model. The app offers **LFM3 1.7B** at Q8 (about 1.9 GB) or Q4 (about 1.1 GB). The download runs in the window and can be cancelled. **Set this up later** closes the flow; Settings → Models is where to download it afterwards.
+2. Download a model. The app offers **LFM3 1.7B** at Q8 (about 1.9 GB) or Q4 (about 1.1 GB). The download runs in the window and can be cancelled. **Set this up later** closes the flow; Settings → Models is where to download it afterwards. Once the files are in place, **Check it loads now** starts the engine once; the first message would do the same, so this is a way to watch it rather than a second requirement.
 3. Choose a Space. Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
 4. Make a bot. Start from a role, build it step by step or talk to Marimo.
 5. Make it yours. Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
@@ -278,11 +282,15 @@ No. The models run on this computer, and there is no account with us or with a m
 
 ### How big is the download?
 
-About 1.9 GB for the Q8 text model, or 1.1 GB for Q4. The vision, audio and omni models are separate downloads you choose in Settings, between about 1.3 GB and 2.4 GB each.
+About 1.9 GB for the Q8 text model, or 1.1 GB for Q4. The vision, audio and omni models are separate downloads you choose in Settings, between about 1.2 GB and 2.4 GB each.
 
 ### Can I use it without making a bot?
 
 Yes, Marimo Bot is useful on its own, and bots are for work you repeat.
+
+### Are my voice recordings saved?
+
+No. The microphone is captured in memory, turned into a WAV for the local engine and discarded; the app stores the transcript, which is the message you can edit before sending. The answer is stored as text too, not as audio.
 
 ### Does it work offline?
 

@@ -584,9 +584,10 @@ export function Settings({
 
         <SettingsSection title="Your bots" opened={opened} onToggle={fold}>
           <p className="settings-muted">
-            Each bot has its own identity, its own abilities, its own model and
-            its own conversations. Making a second one is how you keep two jobs
-            from sharing one memory.
+            Each bot has its own identity, its own abilities and its own
+            conversations. The model is chosen for the app in the Models card,
+            so every bot answers with the same local family. Making a second
+            bot is how you keep two jobs from sharing one memory.
           </p>
           {/*
             Once for the list rather than once per agent: with no spaces there is

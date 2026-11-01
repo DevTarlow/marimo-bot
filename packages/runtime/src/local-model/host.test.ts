@@ -137,6 +137,17 @@ describe('LocalModelHost', () => {
     await runtime.stop();
   });
 
+  it('does not sleep or remove the model under a request', async () => {
+    await installTextQ4();
+    const runtime = host({busy: true});
+    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(true);
+    const slept = await runtime.sleep();
+    expect(slept.models['lfm3-1.7b'].state).toBe('ready');
+    const removed = await runtime.remove('lfm3-1.7b');
+    expect(removed.models['lfm3-1.7b'].installed).toBe(true);
+    await runtime.stop();
+  });
+
   it('removes a model from disk, stopping it first', async () => {
     await installTextQ4();
     const runtime = host();

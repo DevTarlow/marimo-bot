@@ -289,7 +289,9 @@ export function ModelsSection({
         const model = LOCAL_MODELS[modelId];
         const status = settings.localModels.models[modelId];
         const chosenVariant =
-          variants[modelId] ?? status.installedVariant ?? model.defaultVariant;
+          variants[modelId] ??
+          status.installedVariant ??
+          settings.localModels.recommendedVariant;
         const progress = downloading[modelId];
         const usedFor = status.usedFor
           .map((task) => TASK_LABELS[task])

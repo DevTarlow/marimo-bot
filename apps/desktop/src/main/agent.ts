@@ -1436,6 +1436,12 @@ export class AgentService {
     patch: Parameters<AgentRuntime['updateSettings']>[0],
   ): Promise<void> {
     await this.runtime.updateSettings(patch);
+    /*
+     * The idle timeout is a live timer, not a value read on the next turn: a
+     * change to it while a model is warm has to move the timer that is already
+     * armed, or the window shows one number and the engine follows the old one.
+     */
+    await this.models.rearm();
   }
 
   async listSessions(profileId?: string): Promise<SessionSummary[]> {

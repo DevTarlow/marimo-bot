@@ -317,6 +317,21 @@ export class LocalModelHost {
 
   /** Stops the engine now rather than when the idle timer would. */
   async sleep(): Promise<LocalModelsStatus> {
+    /*
+     * A person can press this while a turn is still running. The idle timer is
+     * careful about that; the button has to be too, or the answer the model is
+     * halfway through writing dies with the process.
+     */
+    if (this.isBusy() || this.inFlight > 0) {
+      if (this.active !== undefined) {
+        this.options.onFailed?.(
+          this.active.modelId,
+          `${LOCAL_MODELS[this.active.modelId].label} is still answering. ` +
+            'Wait for the turn to finish before putting it to sleep.',
+        );
+      }
+      return await this.status();
+    }
     await this.withQueue(async () => {
       await this.stopEngine();
       await this.emitStatus();
@@ -406,6 +421,14 @@ export class LocalModelHost {
 
   /** Deletes one model's files. The shared engine stays for the others. */
   async remove(modelId: LocalModelId): Promise<LocalModelsStatus> {
+    if (this.active?.modelId === modelId && (this.isBusy() || this.inFlight > 0)) {
+      this.options.onFailed?.(
+        modelId,
+        `${LOCAL_MODELS[modelId].label} is still answering. ` +
+          'Wait for the turn to finish before removing it.',
+      );
+      return await this.status();
+    }
     return await this.withQueue(async () => {
       if (this.downloading?.modelId === modelId) {
         this.downloading.controller.abort();

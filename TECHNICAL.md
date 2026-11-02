@@ -63,9 +63,9 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 
 | State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Done        | Four Liquid AI LFM3 models — text, vision, audio and omni — with Omni the default for every task and the dedicated models optional alternatives, at Q8 or Q4, run on a pinned GPU-capable llama.cpp build that offloads every layer when a device exists and falls back to the CPU when it does not. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                         |
-| Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same Omni model (or a dedicated audio model if one is assigned), and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the Omni model, not a path the file tools would refuse                                                                                                                                                                                                                                          |
-| Done        | The first run downloads the Omni model, checks every byte against a pinned digest and only then offers the chat. It answers Chat, Images and Voice, so pictures and voice need no second download; the voice goal offers a spoken-replies switch. Task assignment and the dedicated alternatives are Settings → Models                                                                                                                                                                                                                                                        |
+| Done        | Four Liquid AI LFM3 models in the catalogue, with Omni the only model this build offers and the one every task uses, at Q8 or Q4, run on a pinned GPU-capable llama.cpp build that offloads every layer when a device exists and falls back to the CPU when it does not. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                         |
+| Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same Omni model, and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the Omni model, not a path the file tools would refuse                                                                                                                                                                                                                                          |
+| Done        | The first run downloads the Omni model, checks every byte against a pinned digest and only then offers the chat. It answers Chat, Images and Voice, so pictures and voice need no second download; the voice goal offers a spoken-replies switch. Settings → Models owns that one card and cleans up any dedicated files an older install left behind                                                                                                                                                                                                                                                        |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
 | Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                               |
 | Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                            |
@@ -137,9 +137,9 @@ digests live beside the installer in `packages/runtime/src/local-model/chat-pins
 The split is deliberate: the protocol is what the window may render and what the
 schema accepts, while a digest is a download fact that belongs with the download.
 
-**One model is resident, and the task decides which.** Chat, an image and voice
-all default to the Omni model; Settings may still point one task at a dedicated
-text, vision or audio model. A voice turn uses one model for the whole turn. The
+**One model is resident, and the task map decides which.** Chat, an image and
+voice all use the Omni model; the Settings card no longer offers a task picker.
+A voice turn uses one model for the whole turn. The
 model is the brain as well as the mouth, because the alternative — one model for
 the answer and another for the voice — is two models in memory at once, which is
 exactly what a laptop does not have. A voice turn that also carries an image is
@@ -463,9 +463,10 @@ comparing that grant against the lists, and the profile remains the one source o
 truth for what an agent may do.
 
 The Models card is not tuning: a fresh install cannot answer until the Omni
-model is on disk, and the card is where each download, its variant, its task and
-its sleep state are visible. The dedicated models are alternatives, not a
-first-run choice. The connector list is on the same screen
+model is on disk, and the card is where that model's download, variant, sleep
+state and removal are visible. Older installs may still have the dedicated
+text, vision or audio files; the card lists those leftovers for removal rather
+than offering them as a task choice. The connector list is on the same screen
 for the reason from the other end — a capability nobody can see is one nobody
 turns on. The per-bot connector grant lives with the bot, above.
 
@@ -574,9 +575,10 @@ The Omni model is the only required step: until the weights are on disk the
 window offers no message box at all, and a download that has not finished is the
 one thing a step will not walk away from. The optional voice step is a preference
 — the model already speaks, and Continue is allowed with it off. The dedicated
-text, vision and audio models are Settings choices; the first run never asks
-which model to use. The jobs step reuses `KeepRunning`, so there is one service
-switch and one set of failure messages, and it says plainly that an unattended
+text, vision and audio models are not offered; an older install can remove their
+leftover files from Settings → Models. The jobs step reuses
+`KeepRunning`, so there is one service switch and one set of failure messages,
+and it says plainly that an unattended
 approval stays unapproved and that an encrypted connector secret is one the
 background runner cannot read.
 

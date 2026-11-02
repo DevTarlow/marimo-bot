@@ -1,18 +1,15 @@
 /**
- * Models: what answers, what it costs, and what is running.
+ * Models: the Omni model, its copy, and what is running.
  *
- * This card replaces the old provider card. There is no address and no key to
- * type; the four models are the app's own, and the two decisions are which task
- * each one does and how long one stays warm between turns.
+ * The app has one model now. Omni answers Chat, Images and Voice, so there is no
+ * task assignment to make and no second download to choose. This card owns the
+ * one model's download, variant, sleep state and removal.
  *
- * The design is deliberately two levels. The **task rows** answer "what should
- * handle Chat / Images / Voice", which is the question a person actually has.
- * The **model cards** answer "what is downloaded, which copy, and is it running",
- * which is the question the disk asks. A model can be installed without being
- * used for a task, and a task can point at one that is not downloaded; both are
- * shown rather than hidden, because the fix is a button either way.
+ * Older installs may still have the dedicated text, vision or audio files on
+ * disk. They are not used by anything any more; a short cleanup list removes
+ * them without offering them as a choice.
  *
- * A download is not a modal. It starts, the row grows a progress bar, and the
+ * A download is not a modal. It starts, the card grows a progress bar, and the
  * rest of Settings stays usable — the one long operation in this app should not
  * hold the screen hostage.
  */
@@ -21,9 +18,7 @@ import {useEffect, useState} from 'react';
 import {
   LOCAL_MODELS,
   LOCAL_MODEL_IDS,
-  LOCAL_TASKS,
   LOCAL_MODEL_VARIANTS,
-  modelsForTask,
   TASK_LABELS,
   variantBytes,
 } from '@marimo/protocol';
@@ -38,6 +33,15 @@ import {describe} from '../describe.js';
 import {SettingsSection} from './SettingsSection.js';
 
 export const MODELS_SECTION = 'Models';
+
+/**
+ * The one model this build runs.
+ *
+ * The catalogue still has the dedicated text, vision and audio models for the
+ * pins and for an old install's cleanup, but the app answers with Omni for every
+ * task.
+ */
+const PRIMARY_MODEL: LocalModelId = 'lfm3-omni-2b';
 
 type Downloading = {
   label: string;
@@ -177,6 +181,11 @@ export function ModelsSection({
   // The default engine is Vulkan on Linux and Windows, and Metal on macOS.
   const defaultEngine =
     settings.hardware.platform === 'darwin' ? 'Metal' : 'Vulkan';
+  const unused = LOCAL_MODEL_IDS.filter(
+    (modelId) =>
+      modelId !== PRIMARY_MODEL &&
+      settings.localModels.models[modelId].installed,
+  );
 
   return (
     <SettingsSection
@@ -185,10 +194,9 @@ export function ModelsSection({
       onToggle={onToggle}
     >
       <p className="settings-muted">
-        The Omni model handles Chat, Images and Voice by default. It runs on
-        this computer; nothing you type is sent to a model service. The
-        dedicated text, vision and audio models are optional alternatives. One
-        model is in memory at a time, and after a quiet spell it stops.
+        The Omni model handles Chat, Images and Voice. It runs on this
+        computer; nothing you type is sent to a model service. One model is in
+        memory at a time, and after a quiet spell it stops.
       </p>
       {!supported && (
         <p className="settings-problem">
@@ -242,51 +250,6 @@ export function ModelsSection({
         </p>
       )}
 
-      <div className="model-tasks">
-        {LOCAL_TASKS.map((task) => {
-          const chosen = settings.localModels.tasks[task];
-          const status = settings.localModels.models[chosen];
-          return (
-            <label className="settings-field" key={task}>
-              <span>{TASK_LABELS[task]}</span>
-              <div className="settings-row">
-                <select
-                  className="settings-input"
-                  value={chosen}
-                  disabled={saving}
-                  onChange={(event) => {
-                    const modelId = event.target.value as LocalModelId;
-                    void save({
-                      localModels: {tasks: {[task]: modelId}},
-                    });
-                  }}
-                >
-                  {modelsForTask(task).map((id) => (
-                    <option key={id} value={id}>
-                      {LOCAL_MODELS[id].label}
-                      {settings.localModels.models[id].installed
-                        ? ''
-                        : ' — needs download'}
-                    </option>
-                  ))}
-                </select>
-                <span className="settings-muted">
-                  {status?.installed
-                    ? `${status.installedVariant === 'q4' ? '4-bit' : '8-bit'} · ${
-                        status.state === 'ready'
-                          ? 'awake'
-                          : status.state === 'starting'
-                            ? 'waking'
-                            : 'resting'
-                      }`
-                    : 'Not downloaded'}
-                </span>
-              </div>
-            </label>
-          );
-        })}
-      </div>
-
       <div className="settings-field">
         <span>Let the model rest after</span>
         <select
@@ -321,7 +284,7 @@ export function ModelsSection({
         </div>
       )}
 
-      {LOCAL_MODEL_IDS.map((modelId) => {
+      {[PRIMARY_MODEL].map((modelId) => {
         const model = LOCAL_MODELS[modelId];
         const status = settings.localModels.models[modelId];
         const chosenVariant =
@@ -486,6 +449,58 @@ export function ModelsSection({
           </div>
         );
       })}
+
+      {unused.length > 0 && (
+        <div className="settings-field">
+          <span>Other downloaded models</span>
+          <p className="settings-muted">
+            Omni handles Chat, Images and Voice. These files are left over from
+            an older install and are not used any more.
+          </p>
+          <div className="settings-row">
+            {unused.map((modelId) => {
+              const model = LOCAL_MODELS[modelId];
+              return (
+                <span className="settings-row" key={modelId}>
+                  {confirmRemove === modelId ? (
+                    <>
+                      <button
+                        type="button"
+                        className="button button-primary button-small"
+                        disabled={saving}
+                        onClick={() => {
+                          void remove(modelId);
+                        }}
+                      >
+                        Remove {model.label}
+                      </button>
+                      <button
+                        type="button"
+                        className="button button-quiet button-small"
+                        onClick={() => {
+                          setConfirmRemove(null);
+                        }}
+                      >
+                        Keep it
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button button-quiet button-small"
+                      onClick={() => {
+                        setConfirmRemove(modelId);
+                      }}
+                    >
+                      Remove {model.label}…
+                    </button>
+                  )}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {active?.detail !== undefined && (
         <p className="settings-problem">{active.detail}</p>

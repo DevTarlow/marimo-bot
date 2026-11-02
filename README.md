@@ -11,7 +11,7 @@
 
 I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-Marimo Bot runs small Liquid AI models on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads the Omni model, which answers text, sees pictures and speaks, and the dedicated models are optional alternatives in Settings. After that the app answers on this computer, using the graphics card when it has one. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
+Marimo Bot runs one small Liquid AI model on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads the Omni model, which answers text, sees pictures and speaks, and the older dedicated models are no longer offered. After that the app answers on this computer, using the graphics card when it has one. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
 
 Marimo Bot keeps a conversation's full history and the instructions it was running under, so reopening a chat does not start it over.
 
@@ -32,7 +32,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 ## The short version
 
 - Work in a folder, not a chat that forgets where it is.
-- One local Omni model for text, pictures and voice, with three smaller alternatives.
+- One local Omni model for text, pictures and voice.
 - Attach a picture and the Omni model looks at it.
 - Talk instead of typing, and let the answer be spoken.
 - Make bots for writing, research, code or whatever you repeat.
@@ -200,22 +200,17 @@ The **Harness** card in Settings shows what the current bot has recorded: conver
 
 No model comes inside the app. The first run downloads **LFM3 Omni 2B** from Liquid AI: one set of weights that answers text, sees pictures and speaks. After that every turn runs it on this computer with llama.cpp.
 
-**Omni is the default for Chat, Images and Voice**, so there is no model choice before the app can reply. Settings → Models still lets a machine with a smaller budget point a task at one of the dedicated models:
+**Omni is the model for Chat, Images and Voice.** There is no task picker: one download answers, sees and speaks. Settings → Models owns that one model — its Q8/Q4 copy, the download, the sleep state and removal.
 
-- **LFM3 Omni 2B** — the one the first run downloads. About 1.4 GB at Q4 (1.1 GB of weights plus a 291 MB projector), or about 2.4 GB at Q8.
-- **LFM3 1.7B** — the everyday text alternative. About 1.9 GB at Q8, or 1.1 GB at Q4. Not downloaded by the first run.
-- **LFM3 VL 2B** — the vision alternative, for pictures. Q8 uses the same 1.9 GB of weights plus a 203 MB projector; Q4 is about 1.1 GB plus that projector.
-- **LFM3 Audio 2B** — listens and speaks, in 18 languages. About 1.1 GB at Q4 plus a 172 MB projector.
+An install from before this change may still have the dedicated **LFM3 1.7B**, **LFM3 VL 2B** or **LFM3 Audio 2B** files on disk. The same card lists them under **Other downloaded models** so they can be removed; nothing uses them any more, and this build does not offer them as a choice.
 
-The dedicated models are an alternative, not a requirement. A smaller text model can be a good trade on a laptop, and the vision or audio model can be a smaller download for one job; the Omni model is the one that loads once and does all three.
+One model is in memory at a time. The app starts it for the turn and after three quiet minutes lets it go, so a chat you finished does not keep a fan running. **Sleep now** does it immediately; the next message wakes the model again. The composer's badge shows whether it is awake, waking or resting. Clicking it opens the Models card.
 
-One model is in memory at a time. The app starts the one the turn needs, and after three quiet minutes it lets it go, so a chat you finished does not keep a fan running. **Sleep now** does it immediately; the next message wakes the model again. The composer's badge shows which family is warm: a dot for awake, waking or resting. Clicking it opens the Models card.
-
-Each model has a Q8 copy and a Q4 copy where the repository publishes one. Q8 is the better answer and the larger download; Q4 is for a machine with less memory. The app measures the machine's RAM and suggests the smaller copy below 8 GB. A 4-bit projector is not published for the vision model, so its Q4 copy uses the Q8 projector; the download card says so.
+The Omni model has a Q8 copy and a Q4 copy. Q8 is the better answer and the larger download; Q4 is for a machine with less memory. The app measures the machine's RAM and suggests the smaller copy below 8 GB.
 
 The first run downloads only Omni. A model download starts when you press Download, and the app does not fetch a model in the background.
 
-The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows each model, its installed copy and its size, and **Remove…** deletes only that model's directory. Removing the model a task is using is allowed only when nothing is running, and the next message in that task then shows the download card instead of failing with a half-loaded engine.
+The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows the Omni model, its installed copy and its size, and **Remove…** deletes it. Removing the model is allowed only when nothing is running, and the next message then shows the download card instead of failing with a half-loaded engine.
 
 The models are licensed by Liquid AI under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE). They are downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
 
@@ -284,7 +279,7 @@ No. The models run on this computer, and there is no account with us or with a m
 
 ### How big is the download?
 
-About 2.4 GB for the Q8 Omni model, or 1.4 GB for Q4. That is the one the first run downloads, and it covers Chat, Images and Voice. The dedicated text, vision and audio models are optional alternatives in Settings; they are not downloaded by the first run.
+About 2.4 GB for the Q8 Omni model, or 1.4 GB for Q4. That is the one the first run downloads, and it covers Chat, Images and Voice. The dedicated text, vision and audio models are no longer offered; an older install can remove their files from Settings → Models.
 
 ### Can I use it without making a bot?
 
@@ -300,7 +295,7 @@ Yes, once the model you want is downloaded. The first download, a web search, a 
 
 ### Do I need a graphics card?
 
-No, but it uses one when it can. The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. With a card it offloads every layer — a 12 GB card such as a GeForce RTX 3060 holds the Omni model, its projector and the 32K context together, and the dedicated alternatives fit too. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
+No, but it uses one when it can. The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. With a card it offloads every layer — a 12 GB card such as a GeForce RTX 3060 holds the Omni model, its projector and the 32K context together. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
 
 On an NVIDIA card, **Settings → Models** also offers a CUDA engine. It is usually faster than Vulkan, and it is opt-in because the engine and the CUDA runtime are about 776 MB on Linux or 671 MB on Windows, against 35 MB for Vulkan. It needs NVIDIA driver 570.65 or newer on Linux, or 550.54 or newer on Windows; the switch is only shown when `nvidia-smi` reports a driver that can run it. Switching back to Vulkan downloads the smaller engine again.
 
@@ -344,11 +339,11 @@ See the next section for the short answer: Windows and macOS installers, automat
 Will it run on my machine? These are the things it needs.
 
 - A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
-- About 1.4 GB of free disk for the Q4 Omni model, or 2.4 GB for Q8. The dedicated text, vision and audio alternatives add 1.1–2.4 GB each if you choose them. Recall adds about 310 MB, or 865 MB with media. The default engine adds about 35 MB; choosing CUDA adds about 776 MB of downloads on Linux (671 MB on Windows), or about 1 GB once unpacked.
+- About 1.4 GB of free disk for the Q4 Omni model, or 2.4 GB for Q8. Recall adds about 310 MB, or 865 MB with media. The default engine adds about 35 MB; choosing CUDA adds about 776 MB of downloads on Linux (671 MB on Windows), or about 1 GB once unpacked.
 - About 3 GB of free graphics or system memory while a Q8 model is loaded. Less for Q4.
 - No account and no key. A graphics card is not required; the engine falls back to the processor without one, and CUDA is an option only where NVIDIA reports a compatible driver.
 
-The app carries no hosted service. Everything it needs to answer is the Omni model (or one of the dedicated alternatives), downloaded once and checked against a pinned digest.
+The app carries no hosted service. Everything it needs to answer is the Omni model, downloaded once and checked against a pinned digest.
 
 Go build your next thing with it.
 

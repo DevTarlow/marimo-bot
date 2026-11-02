@@ -2142,10 +2142,10 @@ async function main() {
        * The Models card, which is where the app gets an answer from now.
        *
        * A window with no model of its own has three facts to get right and no way
-       * for a unit test to see them together: three task selects, four model
-       * cards, and a downloaded model that says which copy is installed. There
-       * is no key field here any more, and looking for one is the check that the
-       * provider screen is gone rather than merely renamed.
+       * for a unit test to see them together: one model card, one rest select,
+       * and a downloaded model that says which copy is installed. There is no
+       * task picker and no key field any more, and looking for their absence is
+       * the check that the provider/model-choice screens are gone.
        */
       await openSection('Models');
       const modelsCard = await until('the Models card to answer', async () => {
@@ -2171,12 +2171,12 @@ async function main() {
 
       if (modelsCard.passwordFields !== 0) {
         fail('the Models card still has an API-key field');
-      } else if (modelsCard.selects < 3) {
+      } else if (modelsCard.selects !== 1) {
         fail(
-          `the Models card offers ${String(modelsCard.selects)} task selects, not three`,
+          `the Models card offers ${String(modelsCard.selects)} selects, not just the rest select`,
         );
-      } else if (modelsCard.cards !== 4) {
-        fail(`the Models card draws ${String(modelsCard.cards)} models, not four`);
+      } else if (modelsCard.cards !== 1) {
+        fail(`the Models card draws ${String(modelsCard.cards)} models, not one`);
       } else if (
         !modelsCard.installed.some((text) => text.includes('4-bit')) ||
         !modelsCard.installed.some((text) => text.includes('LFM3 Omni 2B'))
@@ -2185,7 +2185,7 @@ async function main() {
           `the installed model is not named in the Models card: ${JSON.stringify(modelsCard.installed)}`,
         );
       } else {
-        ok('the Models card offers three tasks and four models, with no key');
+        ok('the Models card offers Omni, with no task picker or key');
       }
 
       /*

@@ -141,6 +141,20 @@ memory at once, which is exactly what a laptop does not have. A voice turn that
 also carries an image is refused unless the voice model can see, rather than
 silently answered by one that cannot.
 
+**A spoken reply is played in pieces, not one file.** The window cleans the
+answer with `toSpeech`, then `speechChunks` splits it at sentence boundaries into
+pieces of at most 160 characters. The first `/tts` request starts immediately;
+each later piece is requested while the one before it plays, so a long answer
+begins speaking before the whole WAV exists. The total is still bounded by
+`SPEECH_MAX_CHARS` (1200), which lives in the protocol because the renderer's
+chunker and the host's one-request trim must agree about how much of a too-long
+answer is spoken. A failed piece is quiet: the text is already on screen.
+
+A microphone press also warms the voice model before the recording is
+transcribed. The load is what the first press would otherwise pay after the
+person stopped talking; starting it while they speak is the one part of that
+wait that can overlap.
+
 **The address exists only in the process that started the engine.** `LocalModelHost`
 picks a free loopback port, starts `llama-server` there, and hands the base URL to
 the turn. Nothing stores it; a stored port is an address pointing at a process

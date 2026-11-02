@@ -44,6 +44,15 @@ export function useRecorder(options: {
   language?: SpeechLanguage;
   onText: (text: string) => void;
   onError: (message: string) => void;
+  /**
+   * Starts the voice model while the person is still speaking.
+   *
+   * Loading the audio model is the slowest part of the first microphone press;
+   * the turn needs it anyway, and the recording gives it something to overlap
+   * with. A failure is the caller's to ignore — `speech.transcribe` reports the
+   * real one.
+   */
+  onWarm?: () => void;
 }): VoiceRecorder {
   const [recording, setRecording] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -63,6 +72,8 @@ export function useRecorder(options: {
   onTextRef.current = options.onText;
   const onErrorRef = useRef(options.onError);
   onErrorRef.current = options.onError;
+  const onWarmRef = useRef(options.onWarm);
+  onWarmRef.current = options.onWarm;
 
   const cleanup = useCallback((): number => {
     if (timerRef.current !== undefined) {
@@ -116,6 +127,9 @@ export function useRecorder(options: {
       onErrorRef.current('This window has no microphone access.');
       return;
     }
+    // The engine loads while the person speaks; transcribe waits for it either
+    // way, and this is the only part of the wait that can overlap with them.
+    onWarmRef.current?.();
     try {
       const stream = await media.getUserMedia({
         audio: {

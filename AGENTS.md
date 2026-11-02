@@ -252,6 +252,14 @@ completion with an audio part and `Perform ASR in <language>.`; synthesis is
 header and fixes the seed so the companion's voice does not change between
 answers.
 
+The window does not send the whole answer to `/tts` at once. `speechChunks`
+splits the cleaned reply at sentence boundaries (160 characters a piece), plays
+the first while the next is being synthesized, and bounds the total with the
+protocol's `SPEECH_MAX_CHARS`; the host still caps one request with the same
+number. A prefetched piece the user stops before is allowed to finish in the
+background and is never played. A microphone press warms the voice model first,
+so the load overlaps with the recording rather than landing after it.
+
 **A live run needs weights.** `MARIMO_MODEL_DIR` points at a directory laid out
 the way the app uses it:
 

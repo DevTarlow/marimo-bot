@@ -119,6 +119,7 @@ export {
   modelsForTask,
   SPEECH_LANGUAGE_CODES,
   SPEECH_LANGUAGES,
+  SPEECH_MAX_CHARS,
   SPEECH_VOICES,
   speechLanguage,
   speechLanguageSchema,

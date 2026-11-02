@@ -26,7 +26,11 @@
 import {useEffect, useRef, useState} from 'react';
 
 import {defaultCompanionSettings} from '@marimo/protocol';
-import type {CompanionSettings, TranscriptMessage} from '@marimo/protocol';
+import type {
+  CompanionSettings,
+  LocalModelId,
+  TranscriptMessage,
+} from '@marimo/protocol';
 
 import {Copy, Markdown} from './components/Markdown.js';
 import {gateCopy} from './gate-copy.js';
@@ -57,6 +61,15 @@ export function Pet(): React.JSX.Element {
   const [settings, setSettings] = useState<CompanionSettings>(
     defaultCompanionSettings,
   );
+  /*
+   * The model a microphone press should start. Read with the companion
+   * settings because the press is the only moment it is useful: the audio model
+   * is the slow part of the first one, and the recording gives the load
+   * something to overlap with. Absent before the read lands.
+   */
+  const [voiceModel, setVoiceModel] = useState<LocalModelId | undefined>(
+    undefined,
+  );
   const column = useRef<HTMLDivElement>(null);
   /*
    * Read inside the mouse listener, which is registered once. Without this the
@@ -77,6 +90,14 @@ export function Pet(): React.JSX.Element {
   });
   const recorder = useRecorder({
     language: settings.speechLanguage,
+    onWarm: () => {
+      if (voiceModel === undefined) {
+        return;
+      }
+      void window.marimo
+        .call('models.warm', {modelId: voiceModel})
+        .catch(() => undefined);
+    },
     onText: (transcript) => {
       setDraft((current) =>
         current.trim().length === 0
@@ -97,6 +118,7 @@ export function Pet(): React.JSX.Element {
         const {settings: loaded} = await window.marimo.call('settings.get', {});
         if (!cancelled) {
           setSettings(loaded.companion);
+          setVoiceModel(loaded.localModels.tasks.voice);
           /*
            * The one thing this window does about the app being unable to
            * answer: its ask bar goes quiet. The moss has no room for a setup

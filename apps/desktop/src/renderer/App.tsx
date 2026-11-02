@@ -171,6 +171,22 @@ export function App(): React.JSX.Element {
     loadSettings();
   }, [loadSettings]);
 
+  /**
+   * Starts the voice model while the microphone is open.
+   *
+   * A press is the clearest sign the next turn will be spoken, and loading the
+   * audio model is the slow part of the first one. The transcription needs the
+   * model anyway; this only makes the load overlap with the speaking. A failure
+   * is silent: `speech.transcribe` reports the real reason when it runs.
+   */
+  const warmVoice = useCallback((): void => {
+    const modelId = settings?.localModels.tasks.voice;
+    if (modelId === undefined) {
+      return;
+    }
+    void window.marimo.call('models.warm', {modelId}).catch(() => undefined);
+  }, [settings?.localModels.tasks.voice]);
+
   /*
    * The model badge is a live fact, not a copy of the last settings read. A
    * turn can wake a model without changing any preference, and a download can
@@ -1084,6 +1100,7 @@ export function App(): React.JSX.Element {
             {...(settings === null
               ? {}
               : {speechLanguage: settings.companion.speechLanguage})}
+            onVoiceWarm={warmVoice}
             speaking={spoken.speaking}
             onStopSpeaking={spoken.stop}
             /*

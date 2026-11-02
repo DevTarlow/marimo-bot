@@ -35,6 +35,7 @@ import type {AgentUiEvent, ThemeMode, WindowState} from '@marimo/protocol';
 import {defaultStoredSettings, resetInstall} from '@marimo/runtime';
 
 import {adoptFormerUserDataDir, PRODUCT_NAME} from '../shared/product.js';
+import {withDisabledFeature} from '../shared/chromium-flags.js';
 
 import {registerIpcHandler} from './ipc.js';
 import {Companion} from './companion.js';
@@ -86,6 +87,27 @@ applyUserDataPath();
  * relaxed once rather than asking the renderer to hit play and catch a refusal.
  */
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+/*
+ * Electron's Wayland backend and Vulkan do not agree: with the Wayland ozone
+ * backend alone, the GPU process prints
+ * "'--ozone-platform=wayland' is not compatible with Vulkan" and can restart.
+ * This app has no WebGPU or Vulkan feature — the models run on the CPU through
+ * llama.cpp — so the Vulkan feature is disabled on Linux. The other repair the
+ * warning offers is forcing X11, which would give up native Wayland for no gain
+ * here.
+ *
+ * `disable-features` is merged rather than replaced: a launcher or a future
+ * default can already have entries there, and overwriting them would quietly
+ * turn something else back on.
+ */
+if (process.platform === 'linux') {
+  const disabled = app.commandLine.getSwitchValue('disable-features');
+  const merged = withDisabledFeature(disabled, 'Vulkan');
+  if (merged !== disabled) {
+    app.commandLine.appendSwitch('disable-features', merged);
+  }
+}
 
 /**
  * `MARIMO_OFFSCREEN=1` renders into CPU frames instead of a compositor surface.

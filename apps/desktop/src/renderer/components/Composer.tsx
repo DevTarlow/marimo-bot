@@ -77,6 +77,7 @@ export function Composer({
   onOpenModels,
   voiceEnabled,
   speechLanguage,
+  onVoiceWarm,
   speaking,
   onStopSpeaking,
   onPickFiles,
@@ -115,6 +116,13 @@ export function Composer({
   voiceEnabled?: boolean;
   /** The language the voice model listens and speaks. */
   speechLanguage?: SpeechLanguage;
+  /**
+   * Starts the voice model while the person is recording.
+   *
+   * The audio model is the slow part of the first press, and the turn needs it
+   * anyway; warming here is what overlaps that load with the speaking.
+   */
+  onVoiceWarm?: () => void;
   /** A spoken reply is playing; the stop button is shown. */
   speaking?: boolean;
   onStopSpeaking?: () => void;
@@ -167,6 +175,7 @@ export function Composer({
    */
   const recorder = useRecorder({
     ...(speechLanguage === undefined ? {} : {language: speechLanguage}),
+    onWarm: onVoiceWarm,
     onText: (transcript) => {
       setText((current) =>
         current.trim().length === 0 ? transcript : `${current.trim()} ${transcript}`,

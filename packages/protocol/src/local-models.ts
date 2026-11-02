@@ -452,3 +452,14 @@ export function speechLanguage(code: SpeechLanguage): (typeof SPEECH_LANGUAGES)[
 export const SPEECH_VOICES = ['female', 'male'] as const;
 export const speechVoiceSchema = z.enum(SPEECH_VOICES);
 export type SpeechVoice = z.infer<typeof speechVoiceSchema>;
+
+/**
+ * The most characters one spoken reply may carry.
+ *
+ * Shared rather than owned by the synthesizer because the window now splits a
+ * reply into sentence-sized pieces so playback can start before the whole
+ * answer has been generated. The pieces are bounded by the same total the host
+ * would have used for one request, so a reply that was too long to speak before
+ * is still too long — it just starts sooner.
+ */
+export const SPEECH_MAX_CHARS = 1200;

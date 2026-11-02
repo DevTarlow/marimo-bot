@@ -22,6 +22,7 @@
  *   travels back so the window can say the end was not read.
  */
 import type {SpeechLanguage, SpeechVoice} from '@marimo/protocol';
+import {SPEECH_MAX_CHARS} from '@marimo/protocol';
 import {speechLanguage as languageFor} from '@marimo/protocol';
 
 /**
@@ -33,8 +34,14 @@ const SPEECH_SEED = 42;
 /** How long one request may take before it is abandoned. */
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-/** The most characters one spoken reply may carry. */
-export const MAX_SPEECH_CHARS = 1200;
+/**
+ * The most characters one spoken reply may carry.
+ *
+ * The number itself lives in the protocol because the window splits a reply
+ * into pieces against the same total; this name is kept because the runtime's
+ * own callers and tests have used it since the first audio model.
+ */
+export const MAX_SPEECH_CHARS = SPEECH_MAX_CHARS;
 
 /** Raised with a sentence meant for a person. */
 export class SpeechError extends Error {

@@ -48,6 +48,7 @@ export {
   EMBEDDING_POOLINGS,
   embeddingUrl,
   engineAssetFor,
+  engineFilesFor,
   engineUrl,
   ManifestError,
   parseChatModelManifest,
@@ -75,6 +76,7 @@ export {
   installLocalModel,
   InstallError,
   unpackEngine,
+  unpackEngineBundle,
 } from './install.js';
 export type {
   DownloadProgress,

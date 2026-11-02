@@ -154,9 +154,9 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `local-model.json` only when all of them are in place. `localModelOnDisk`
     compares the marker's revision and file list against the pins; a size match
     under the wrong name is not installed. The shared engine carries its own
-    `.pinned` marker, so a build that moves from the CPU archive to the GPU one
-    replaces the binary instead of running the old engine. A half-written file is
-    never loaded.
+    `.pinned` marker, so a build that moves from the CPU archive to the GPU one,
+    or from Vulkan to CUDA, replaces the binary instead of running the old
+    engine. A half-written file is never loaded.
 26. **A spoken answer belongs to the surface that asked.** `turn.completed`
     carries an origin that is not in the stored log; the window's speaking hook
     and the pet's each filter on it, so two voices never read one answer. The
@@ -232,13 +232,20 @@ silently changing the grant.
 The four models, their licences and their task capabilities are in
 `packages/protocol/src/local-models.ts`. The repository revisions, file names,
 sizes and digests are in `packages/runtime/src/local-model/chat-pins.ts`. The
-engine is a pinned llama.cpp build with one archive per platform — Vulkan on
-Linux and Windows, Metal on macOS — and each archive contains the CPU backend.
-`localModelArgs` asks for every layer, so a machine with a card offloads the
-model and one without a usable device falls back to the processor. `localModelArgs`
-is the one place the flags are written. The recall engine keeps its own zero:
-that model's card warns about float16 NaN, and the CPU backend accumulates in
-f32.
+default engine is a pinned llama.cpp build with one archive per platform —
+Vulkan on Linux and Windows, Metal on macOS — and each archive contains the CPU
+backend. `localModelArgs` asks for every layer, so a machine with a card offloads
+the model and one without a usable device falls back to the processor.
+`localModelArgs` is the one place the flags are written. The recall engine keeps
+its own zero: that model's card warns about float16 NaN, and the CPU backend
+accumulates in f32.
+
+CUDA is an opt-in variant, not the default: the engine and its runtime are about
+776 MB on Linux and 671 MB on Windows, and the pinned builds require a new enough
+NVIDIA driver. `cuda.ts` owns the `nvidia-smi` probe and the driver floor;
+`engineFilesFor` returns the two-archive bundle when the settings ask for CUDA,
+and the host falls back to Vulkan when the probe says no. The switch lives in
+Settings → Models, and switching back to Vulkan replaces the engine again.
 
 Defaults: Chat → `lfm3-1.7b`, Images → `lfm3-vl-2b`, Voice → `lfm3-audio-2b`.
 Q8 is the quality choice; Q4 is the small-laptop choice, and the host suggests it

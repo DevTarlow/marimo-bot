@@ -168,6 +168,15 @@ export function ModelsSection({
   const anyDownloading = Object.keys(downloading).length > 0;
   const supported = settings.localModels.engine.platformSupported;
   const active = settings.localModels.active;
+  const cuda = settings.localModels.engine.cuda;
+  const backend = settings.localModels.engine.backend;
+  const cudaSize =
+    cuda.bytes > 0
+      ? `${String(Math.round(cuda.bytes / 1_000_000))} MB`
+      : 'the CUDA engine and runtime';
+  // The default engine is Vulkan on Linux and Windows, and Metal on macOS.
+  const defaultEngine =
+    settings.hardware.platform === 'darwin' ? 'Metal' : 'Vulkan';
 
   return (
     <SettingsSection
@@ -185,6 +194,50 @@ export function ModelsSection({
           This build has no model engine for this computer, so a download here
           would fail. The engine ships for 64-bit Linux, macOS and Windows; this
           looks like a platform the pinned engine does not publish a build for.
+        </p>
+      )}
+
+      <div className="settings-field">
+        <span>Graphics engine</span>
+        <div className="settings-row">
+          {cuda.available ? (
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={settings.localModels.engineBackend === 'cuda'}
+                disabled={saving || anyDownloading || active !== undefined}
+                onChange={(event) => {
+                  void save({
+                    localModels: {
+                      engineBackend: event.target.checked ? 'cuda' : 'vulkan',
+                    },
+                  });
+                }}
+              />
+              <span>
+                Use CUDA on {cuda.device ?? 'the NVIDIA card'}
+                <em className="settings-why">
+                  Faster than Vulkan, and downloads about {cudaSize} of engine
+                  and runtime. Vulkan is the smaller default. After switching,
+                  press Download on a model to fetch the chosen engine.
+                  {active === undefined
+                    ? ''
+                    : ' Put the running model to sleep before switching.'}
+                </em>
+              </span>
+            </label>
+          ) : (
+            <span className="settings-muted">
+              {cuda.reason ??
+                'CUDA is not available on this machine; Vulkan is being used.'}
+            </span>
+          )}
+        </div>
+      </div>
+      {!settings.localModels.engine.present && (
+        <p className="settings-muted">
+          The {backend === 'cuda' ? 'CUDA' : defaultEngine} engine is not
+          downloaded. Press Download on a model to fetch it.
         </p>
       )}
 
@@ -314,7 +367,10 @@ export function ModelsSection({
               {usedFor.length > 0 ? `Used for ${usedFor}.` : 'Not used by a task.'}{' '}
               {status.installed
                 ? `Installed: ${status.installedVariant === 'q4' ? '4-bit' : '8-bit'}.`
-                : `Not downloaded.`}
+                : status.missing.includes('engine') &&
+                    !status.missing.includes('weights')
+                  ? `The ${backend === 'cuda' ? 'CUDA' : defaultEngine} engine needs downloading.`
+                  : `Not downloaded.`}
             </p>
 
             {progress !== undefined ? (

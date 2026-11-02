@@ -267,6 +267,17 @@ export function workContextTokens(modelId: LocalModelId): number {
 }
 
 /**
+ * Which GPU engine build the app is asked to run.
+ *
+ * `vulkan` is the default name for the archive the app pins on Linux and
+ * Windows; on macOS the same choice is the Metal build. `cuda` is the opt-in
+ * NVIDIA build and is only offered where the driver can run it.
+ */
+export const ENGINE_BACKENDS = ['vulkan', 'cuda'] as const;
+export const engineBackendSchema = z.enum(ENGINE_BACKENDS);
+export type EngineBackend = z.infer<typeof engineBackendSchema>;
+
+/**
  * The task a turn runs on, when nobody overrides it.
  *
  * Kept here rather than in the runtime because the settings schema and the
@@ -281,6 +292,7 @@ export function defaultLocalModelsSettings(): LocalModelsSettings {
       voice: 'lfm3-audio-2b',
     },
     idleMinutes: 3,
+    engineBackend: 'vulkan',
   };
 }
 
@@ -306,6 +318,15 @@ export const localModelsSettingsSchema = z
      * longer gap pays the load time rather than the battery.
      */
     idleMinutes: z.number().int().min(1).max(30),
+    /**
+     * The engine archive to run.
+     *
+     * Vulkan is the default because it is one 35 MB archive and works on NVIDIA,
+     * AMD and Intel; CUDA is the opt-in NVIDIA build and is much larger. The
+     * setting records the request, not a guarantee: a machine with no usable
+     * NVIDIA driver falls back to Vulkan rather than refusing to answer.
+     */
+    engineBackend: engineBackendSchema.default('vulkan'),
   })
   .superRefine((value, context) => {
     for (const task of LOCAL_TASKS) {
@@ -340,6 +361,7 @@ export const localModelsPatchSchema = z.object({
     })
     .optional(),
   idleMinutes: z.number().int().min(1).max(30).optional(),
+  engineBackend: engineBackendSchema.optional(),
 });
 
 export type LocalModelsPatch = z.infer<typeof localModelsPatchSchema>;
@@ -380,10 +402,35 @@ export interface LocalModelStatus {
   usedFor: LocalTask[];
 }
 
+/** What the machine offers for the opt-in NVIDIA engine. */
+export interface CudaEngineStatus {
+  available: boolean;
+  /** The card `nvidia-smi` named, when it answered. */
+  device?: string;
+  /** The installed NVIDIA driver, when it answered. */
+  driver?: string;
+  /** Why CUDA is not being offered, when it is not. */
+  reason?: string;
+  /** Bytes the CUDA engine and its runtime add to the download. */
+  bytes: number;
+}
+
 /** The whole model situation, in one payload. */
 export interface LocalModelsStatus {
-  /** The shared engine, and whether this platform has one at all. */
-  engine: {present: boolean; platformSupported: boolean; tag: string};
+  /**
+   * The shared engine, and whether this platform has one at all.
+   *
+   * `backend` is what is actually being run, not what the settings asked for: a
+   * requested CUDA build on a machine without a usable NVIDIA driver falls back
+   * to Vulkan, and `cuda.reason` says why.
+   */
+  engine: {
+    present: boolean;
+    platformSupported: boolean;
+    tag: string;
+    backend: EngineBackend;
+    cuda: CudaEngineStatus;
+  };
   models: Record<LocalModelId, LocalModelStatus>;
   /** The model the process has loaded, when there is one. */
   active?: {
@@ -394,6 +441,8 @@ export interface LocalModelsStatus {
   };
   tasks: Record<LocalTask, LocalModelId>;
   idleMinutes: number;
+  /** The engine the settings ask for, before the availability fallback. */
+  engineBackend: EngineBackend;
   /** Q8 on a machine with room; Q4 where the first run should not spend 1.9GB. */
   recommendedVariant: LocalModelVariant;
 }

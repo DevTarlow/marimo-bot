@@ -302,7 +302,9 @@ Yes, once the model you want is downloaded. The first download, a web search, a 
 
 ### Do I need a graphics card?
 
-No, but it uses one when it can. The pinned engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. With a card it offloads every layer — a 12 GB card such as a GeForce RTX 3060 holds any of the four models, their projectors and the 32K context together. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
+No, but it uses one when it can. The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. With a card it offloads every layer — a 12 GB card such as a GeForce RTX 3060 holds any of the four models, their projectors and the 32K context together. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
+
+On an NVIDIA card, **Settings → Models** also offers a CUDA engine. It is usually faster than Vulkan, and it is opt-in because the engine and the CUDA runtime are about 776 MB on Linux or 671 MB on Windows, against 35 MB for Vulkan. It needs NVIDIA driver 570.65 or newer on Linux, or 550.54 or newer on Windows; the switch is only shown when `nvidia-smi` reports a driver that can run it. Switching back to Vulkan downloads the smaller engine again.
 
 Recall's embedding model is the one exception: it stays on the processor because its model card warns that the activations can overflow float16 on a GPU.
 
@@ -328,13 +330,13 @@ Only where you ask it to: a web search receives the query, and a connector recei
 
 ### What is not finished?
 
-See the next section for the short answer: Windows and macOS installers, automatic updating, CUDA, and Discord and the notes and to-do tools.
+See the next section for the short answer: Windows and macOS installers, automatic updating, and Discord and the notes and to-do tools.
 
 ## What is not finished
 
 - The Windows and macOS installers are written but not built. The model downloads and the engine run on all three, but only the Linux AppImage has been run end to end.
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
-- The engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. It offloads every layer when it finds a device and falls back to the processor when it does not. A CUDA build would be faster on an NVIDIA card, but it brings hundreds of megabytes of runtime for a gain this model family does not need on a 12 GB card.
+- The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. It offloads every layer when it finds a device and falls back to the processor when it does not. NVIDIA users can switch to the CUDA build in Settings → Models; it is faster, but it adds about 776 MB on Linux or 671 MB on Windows and is tied to the driver versions above. The switch is opt-in rather than automatic so a laptop does not spend that download by default.
 - Voice mode is one microphone press and one spoken answer, not a hands-free conversation. There is no wake word and no barge-in.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
 - The app checks every model download against a fingerprint, but there is no signature to prove where it came from.
@@ -344,9 +346,9 @@ See the next section for the short answer: Windows and macOS installers, automat
 Will it run on my machine? These are the things it needs.
 
 - A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
-- About 2 GB of free disk for the text model, and up to 2.4 GB more for each of the others you choose. Recall adds about 310 MB, or 865 MB with media.
+- About 2 GB of free disk for the text model, and up to 2.4 GB more for each of the others you choose. Recall adds about 310 MB, or 865 MB with media. The default engine adds about 35 MB; choosing CUDA adds about 776 MB of downloads on Linux (671 MB on Windows), or about 1 GB once unpacked.
 - About 3 GB of free graphics or system memory while a Q8 model is loaded. Less for Q4.
-- No account and no key. A graphics card is not required; the engine falls back to the processor without one.
+- No account and no key. A graphics card is not required; the engine falls back to the processor without one, and CUDA is an option only where NVIDIA reports a compatible driver.
 
 The app carries no hosted service. Everything it needs to answer is one of the four local models, downloaded once and checked against a pinned digest.
 

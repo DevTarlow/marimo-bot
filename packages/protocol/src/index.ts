@@ -99,6 +99,8 @@ export {
   attachmentKindSchema,
   attachmentSchema,
   defaultLocalModelsSettings,
+  ENGINE_BACKENDS,
+  engineBackendSchema,
   LOCAL_MODEL_CAPABILITIES,
   LOCAL_MODEL_IDS,
   LOCAL_MODEL_PARTS,
@@ -132,6 +134,8 @@ export {
 export type {
   Attachment,
   AttachmentKind,
+  CudaEngineStatus,
+  EngineBackend,
   HostHardware,
   LocalModelCapability,
   LocalModelDescriptor,

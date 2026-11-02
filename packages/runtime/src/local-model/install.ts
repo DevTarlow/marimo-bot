@@ -39,7 +39,11 @@ import {pipeline} from 'node:stream/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
-import type {LocalModelId, LocalModelVariant} from '@marimo/protocol';
+import type {
+  EngineBackend,
+  LocalModelId,
+  LocalModelVariant,
+} from '@marimo/protocol';
 import {LOCAL_MODELS} from '@marimo/protocol';
 
 import type {
@@ -52,7 +56,7 @@ import {
   chatModelParts,
   chatModelUrl,
   embeddingUrl,
-  engineAssetFor,
+  engineFilesFor,
   engineUrl,
 } from './manifest.js';
 import {engineBinaryName, engineDir, localModelDir} from './files.js';
@@ -107,6 +111,8 @@ export interface InstallOptions {
 /** Anything with an engine block: either model manifest will do. */
 export interface EngineInstallOptions extends InstallOptions {
   manifest: {engine: EngineManifest};
+  /** The archive to fetch; the default is the platform's Vulkan/Metal build. */
+  backend?: EngineBackend;
 }
 
 /** One piece of the recall model. */
@@ -126,48 +132,59 @@ export class InstallError extends Error {
 /**
  * Fetches the engine unless the pinned one is already unpacked.
  *
- * The engine goes first and on its own: it is the cheap half — 32 MB against
- * 310 MB for the backbone and 555 MB for the projector — and a platform this
- * build has no engine for should be refused before either is fetched.
+ * The engine goes first and on its own, so a platform this build has no engine
+ * for is refused before the weights are fetched. A default build is one archive;
+ * CUDA is the engine archive plus the runtime it links against, and both are
+ * unpacked into the same directory before the marker is written.
  */
 export async function installEngine(
   options: EngineInstallOptions,
 ): Promise<{installed: boolean}> {
-  const found = engineAssetFor(options.manifest, {
+  const files = engineFilesFor(options.manifest, {
+    ...(options.backend === undefined ? {} : {backend: options.backend}),
     ...(options.platform === undefined ? {} : {platform: options.platform}),
     ...(options.arch === undefined ? {} : {arch: options.arch}),
   });
-  if (found === undefined) {
+  if (files === undefined) {
     throw new InstallError(
-      'There is no engine build for this platform, so the model cannot run here.',
+      options.backend === 'cuda'
+        ? 'There is no CUDA engine build for this platform, so the model cannot run here with CUDA. Vulkan is still available.'
+        : 'There is no engine build for this platform, so the model cannot run here.',
     );
   }
 
-  if (await engineIsPinned(options.dir, found.asset, options.platform)) {
+  if (await engineIsPinned(options.dir, files, options.platform)) {
     return {installed: false};
   }
 
-  const archive = join(options.dir, `.engine-${found.asset.file}.part`);
-  await downloadVerified({
-    url: engineUrl(options.manifest, found.asset),
-    destination: archive,
-    sha256: found.asset.sha256,
-    label: 'The model engine',
-    ...(options.onProgress === undefined
-      ? {}
-      : {onProgress: options.onProgress}),
-    ...(options.fetchImpl === undefined ? {} : {fetchImpl: options.fetchImpl}),
-    ...(options.signal === undefined ? {} : {signal: options.signal}),
-  });
+  const archives: string[] = [];
+  for (const [index, asset] of files.entries()) {
+    const archive = join(options.dir, `.engine-${asset.file}.part`);
+    archives.push(archive);
+    await downloadVerified({
+      url: engineUrl(options.manifest, asset),
+      destination: archive,
+      sha256: asset.sha256,
+      ...(asset.bytes === undefined ? {} : {bytes: asset.bytes}),
+      label: index === 0 ? 'The model engine' : 'The CUDA runtime',
+      ...(options.onProgress === undefined
+        ? {}
+        : {onProgress: options.onProgress}),
+      ...(options.fetchImpl === undefined ? {} : {fetchImpl: options.fetchImpl}),
+      ...(options.signal === undefined ? {} : {signal: options.signal}),
+    });
+  }
 
-  await unpackEngine(archive, options.dir, {
+  await unpackEngineBundle(archives, options.dir, {
     ...(options.platform === undefined ? {} : {platform: options.platform}),
     ...(options.execFileImpl === undefined
       ? {}
       : {execFileImpl: options.execFileImpl}),
   });
-  await rm(archive, {force: true});
-  await writeEngineMarker(options.dir, found.asset);
+  for (const archive of archives) {
+    await rm(archive, {force: true});
+  }
+  await writeEngineMarker(options.dir, files);
 
   return {installed: true};
 }
@@ -394,32 +411,59 @@ export async function unpackEngine(
     ) => Promise<{stdout: string; stderr: string}>;
   } = {},
 ): Promise<void> {
+  await unpackEngineBundle([archive], dir, options);
+}
+
+/**
+ * Unpacks one engine archive, or the CUDA engine and its runtime together.
+ *
+ * The default build is one archive. CUDA is two, and the runtime is not beside
+ * the binary in the release — it is a second download whose libraries have to
+ * land in the same directory before `llama-server` can start. The archive that
+ * contains the binary is copied whole; every other archive contributes the
+ * directory that holds its CUDA runtime library.
+ */
+export async function unpackEngineBundle(
+  archives: readonly string[],
+  dir: string,
+  options: {
+    platform?: NodeJS.Platform;
+    execFileImpl?: (
+      file: string,
+      args: string[],
+    ) => Promise<{stdout: string; stderr: string}>;
+  } = {},
+): Promise<void> {
   const exec = options.execFileImpl ?? run;
   const scratch = join(dir, '.unpack');
   await rm(scratch, {recursive: true, force: true});
   await mkdir(scratch, {recursive: true});
 
+  const what = archives.length === 1 ? 'archive' : 'bundle';
+
   try {
-    try {
-      await exec('tar', ['-xf', archive, '-C', scratch]);
-    } catch (failure) {
-      // GNU tar does not read zip, and the Windows archive is one. `unzip` may not
-      // be installed at all, in which case the failure above is the useful one.
-      try {
-        await exec('unzip', ['-o', '-q', archive, '-d', scratch]);
-      } catch {
-        throw new InstallError(
-          `The engine archive could not be unpacked: ${describe(failure)}. ` +
-            'This machine needs `tar` or `unzip` on its PATH.',
-        );
-      }
+    const extracted: string[] = [];
+    for (const [index, archive] of archives.entries()) {
+      const target = join(scratch, String(index));
+      await mkdir(target, {recursive: true});
+      await extractArchive(archive, target, exec, what);
+      extracted.push(target);
     }
 
     const binary = engineBinaryName(options.platform);
-    const found = await findFile(scratch, binary);
-    if (found === undefined) {
+    let engineIndex = -1;
+    let engineRoot = '';
+    for (const [index, root] of extracted.entries()) {
+      const found = await findFile(root, binary);
+      if (found !== undefined) {
+        engineIndex = index;
+        engineRoot = dirname(found);
+        break;
+      }
+    }
+    if (engineIndex < 0) {
       throw new InstallError(
-        `The engine archive does not contain ${binary}, so it is not the build ` +
+        `The engine ${what} does not contain ${binary}, so it is not the build ` +
           'this app pinned.',
       );
     }
@@ -427,12 +471,100 @@ export async function unpackEngine(
     const target = engineDir(dir);
     await rm(target, {recursive: true, force: true});
     await mkdir(target, {recursive: true});
-    await cp(dirname(found), target, {
+    await cp(engineRoot, target, {
       recursive: true,
       verbatimSymlinks: true,
     });
+
+    for (const [index, root] of extracted.entries()) {
+      if (index === engineIndex) {
+        continue;
+      }
+      const library = await findRuntimeLibrary(root, options.platform);
+      if (library === undefined) {
+        throw new InstallError(
+          'The CUDA bundle contains an archive without the CUDA runtime, so ' +
+            'the engine could not start.',
+        );
+      }
+      await copyDirectoryContents(library, target);
+    }
   } finally {
     await rm(scratch, {recursive: true, force: true});
+  }
+}
+
+async function extractArchive(
+  archive: string,
+  target: string,
+  exec: (
+    file: string,
+    args: string[],
+  ) => Promise<{stdout: string; stderr: string}>,
+  what: string,
+): Promise<void> {
+  try {
+    await exec('tar', ['-xf', archive, '-C', target]);
+  } catch (failure) {
+    // GNU tar does not read zip, and the Windows archive is one. `unzip` may not
+    // be installed at all, in which case the failure above is the useful one.
+    try {
+      await exec('unzip', ['-o', '-q', archive, '-d', target]);
+    } catch {
+      throw new InstallError(
+        `The engine ${what} could not be unpacked: ${describe(failure)}. ` +
+          'This machine needs `tar` or `unzip` on its PATH.',
+      );
+    }
+  }
+}
+
+/**
+ * The directory holding the CUDA runtime in an extracted archive.
+ *
+ * CUDA's archive is its own download and is not laid out like the engine's, so
+ * the library is found rather than assumed to sit at a fixed depth. A build
+ * without it is refused before the binary is put in place, because a missing
+ * `libcudart` is the engine failing at start with a message about a shared
+ * library rather than about the download.
+ */
+async function findRuntimeLibrary(
+  root: string,
+  platform: NodeJS.Platform | undefined,
+): Promise<string | undefined> {
+  const entries = await readdir(root, {withFileTypes: true});
+  for (const entry of entries) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      const found = await findRuntimeLibrary(path, platform);
+      if (found !== undefined) {
+        return found;
+      }
+    } else if (entry.isFile() && isCudaRuntime(entry.name, platform)) {
+      return root;
+    }
+  }
+  return undefined;
+}
+
+function isCudaRuntime(
+  name: string,
+  platform: NodeJS.Platform | undefined,
+): boolean {
+  return platform === 'win32'
+    ? /^cudart64_.*\.dll$/iu.test(name)
+    : /^libcudart\.so/u.test(name);
+}
+
+async function copyDirectoryContents(
+  from: string,
+  to: string,
+): Promise<void> {
+  for (const entry of await readdir(from, {withFileTypes: true})) {
+    await cp(join(from, entry.name), join(to, entry.name), {
+      recursive: true,
+      verbatimSymlinks: true,
+    });
   }
 }
 
@@ -481,6 +613,8 @@ export interface LocalModelInstallOptions extends InstallOptions {
   manifest: ChatModelManifest;
   modelId: LocalModelId;
   variant: LocalModelVariant;
+  /** The engine archive to install beside the weights. */
+  backend?: EngineBackend;
 }
 
 /**
@@ -505,6 +639,7 @@ export async function installLocalModel(
   const engine = await installEngine({
     dir: options.dir,
     manifest,
+    ...(options.backend === undefined ? {} : {backend: options.backend}),
     ...(options.platform === undefined ? {} : {platform: options.platform}),
     ...(options.arch === undefined ? {} : {arch: options.arch}),
     ...(options.onProgress === undefined

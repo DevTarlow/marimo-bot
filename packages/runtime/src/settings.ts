@@ -413,9 +413,10 @@ function fillBlock<T extends object>(
  *
  * The three task assignments are merged one at a time, so moving Chat leaves
  * Vision and Voice exactly as another window last wrote them. `idleMinutes` is a
- * single number and is simply replaced when present. The capability validation
- * happens on the merged block in `settingsSchema.parse`, not here: a patch naming
- * one task is not asked to prove the other two.
+ * single number and is simply replaced when present, and `engineBackend` is the
+ * same kind of single choice. The capability validation happens on the merged
+ * block in `settingsSchema.parse`, not here: a patch naming one task is not
+ * asked to prove the other two.
  */
 export function mergeLocalModels(
   current: LocalModelsSettings,
@@ -427,5 +428,6 @@ export function mergeLocalModels(
       ...(patch.tasks === undefined ? {} : definedOnly(patch.tasks)),
     },
     idleMinutes: patch.idleMinutes ?? current.idleMinutes,
+    engineBackend: patch.engineBackend ?? current.engineBackend,
   };
 }

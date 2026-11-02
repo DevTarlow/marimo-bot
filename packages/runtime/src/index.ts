@@ -111,6 +111,7 @@ export {
   engineAssetFor,
   engineBinaryName,
   engineDir,
+  engineFilesFor,
   engineIsPinned,
   engineUrl,
   freePort,
@@ -146,6 +147,7 @@ export {
   transcribeAudio,
   trimForSpeech,
   unpackEngine,
+  unpackEngineBundle,
   writeLocalModelMarker,
 } from './local-model/index.js';
 export type {

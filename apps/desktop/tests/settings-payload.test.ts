@@ -81,7 +81,13 @@ function modelStatus(id: LocalModelId): LocalModelStatus {
 
 function localModels(): LocalModelsStatus {
   return {
-    engine: {present: true, platformSupported: true, tag: 'b11960'},
+    engine: {
+      present: true,
+      platformSupported: true,
+      tag: 'b11960',
+      backend: 'vulkan',
+      cuda: {available: false, reason: 'No NVIDIA GPU in this test.', bytes: 0},
+    },
     models: Object.fromEntries(
       LOCAL_MODEL_IDS.map((id) => [id, modelStatus(id)]),
     ) as Record<LocalModelId, LocalModelStatus>,
@@ -91,6 +97,7 @@ function localModels(): LocalModelsStatus {
       voice: 'lfm3-audio-2b',
     },
     idleMinutes: 3,
+    engineBackend: 'vulkan',
     recommendedVariant: 'q8',
   };
 }

@@ -15,8 +15,10 @@ import {PassThrough} from 'node:stream';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
 import {defaultLocalModelsSettings} from '@marimo/protocol';
+import type {EngineBackend} from '@marimo/protocol';
 
 import {CHAT_PINS} from './chat-pins.js';
+import type {CudaSupport} from './cuda.js';
 import {LocalModelHost} from './host.js';
 import {writeEngineMarker, writeLocalModelMarker} from './installed.js';
 import {engineAssetFor} from './manifest.js';
@@ -75,12 +77,27 @@ describe('LocalModelHost', () => {
     });
   }
 
-  function host(overrides: {idleMs?: number; busy?: boolean} = {}): LocalModelHost {
+  function host(
+    overrides: {
+      idleMs?: number;
+      busy?: boolean;
+      backend?: EngineBackend;
+      cudaProbe?: () => Promise<CudaSupport>;
+    } = {},
+  ): LocalModelHost {
     return new LocalModelHost({
       userData: dir,
       env: {MARIMO_MODEL_DIR: modelRoot},
-      readSettings: async () => ({localModels: defaultLocalModelsSettings()}),
+      readSettings: async () => ({
+        localModels: {
+          ...defaultLocalModelsSettings(),
+          engineBackend: overrides.backend ?? 'vulkan',
+        },
+      }),
       isBusy: () => overrides.busy ?? false,
+      cudaProbe:
+        overrides.cudaProbe ??
+        (async () => ({available: false, reason: 'No NVIDIA GPU in this test.'})),
       ...(overrides.idleMs === undefined ? {} : {idleMs: overrides.idleMs}),
       onStatus: () => {
         statuses += 1;
@@ -150,7 +167,59 @@ describe('LocalModelHost', () => {
     const status = await runtime.status();
     expect(status.models['lfm3-1.7b'].installed).toBe(false);
     expect(status.models['lfm3-1.7b'].missing).toContain('engine');
+    // The weights are still the Q4 copy; only the engine is stale.
+    expect(status.models['lfm3-1.7b'].installedVariant).toBe('q4');
     expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(false);
+  });
+
+  it('offers CUDA from an NVIDIA probe without selecting it', async () => {
+    const runtime = host({
+      cudaProbe: async () => ({
+        available: true,
+        device: 'NVIDIA GeForce RTX 3060',
+        driver: '580.82.09',
+      }),
+    });
+    const status = await runtime.status();
+    expect(status.engine.backend).toBe('vulkan');
+    expect(status.engine.cuda).toMatchObject({
+      available: true,
+      device: 'NVIDIA GeForce RTX 3060',
+      driver: '580.82.09',
+    });
+    expect(status.engine.cuda.bytes).toBeGreaterThan(700_000_000);
+  });
+
+  it('selects CUDA when the settings ask and the driver is new enough', async () => {
+    await installTextQ4();
+    const runtime = host({
+      backend: 'cuda',
+      cudaProbe: async () => ({
+        available: true,
+        device: 'NVIDIA GeForce RTX 3060',
+        driver: '580.82.09',
+      }),
+    });
+    const status = await runtime.status();
+    expect(status.engine.backend).toBe('cuda');
+    // The fixture has the default one-archive engine marker, not the CUDA pair.
+    expect(status.models['lfm3-1.7b'].installed).toBe(false);
+    expect(status.models['lfm3-1.7b'].missing).toContain('engine');
+    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(false);
+  });
+
+  it('falls back to Vulkan when CUDA was asked for but is not available', async () => {
+    const runtime = host({
+      backend: 'cuda',
+      cudaProbe: async () => ({
+        available: false,
+        reason: 'The NVIDIA driver is too old.',
+      }),
+    });
+    const status = await runtime.status();
+    expect(status.engine.backend).toBe('vulkan');
+    expect(status.engine.cuda.available).toBe(false);
+    expect(status.engine.cuda.reason).toMatch(/too old/u);
   });
 
   it('does not stop under a request while the caller says it is busy', async () => {

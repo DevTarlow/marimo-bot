@@ -16,11 +16,16 @@
 import {readFile, rename, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
-import type {LocalModelId, LocalModelPart, LocalModelVariant} from '@marimo/protocol';
+import type {
+  EngineBackend,
+  LocalModelId,
+  LocalModelPart,
+  LocalModelVariant,
+} from '@marimo/protocol';
 
 import {engineBinaryName, engineDir, localModelMarkerFile} from './files.js';
 import {defaultVariantFor} from './chat-pins.js';
-import {engineAssetFor} from './manifest.js';
+import {engineFilesFor} from './manifest.js';
 import type {
   ChatModelFilePin,
   ChatModelManifest,
@@ -129,22 +134,25 @@ export async function localModelOnDisk(options: {
   modelId: LocalModelId;
   platform?: NodeJS.Platform;
   arch?: string;
+  backend?: EngineBackend;
 }): Promise<LocalModelDiskState> {
   const {root, manifest, modelId} = options;
   /*
-   * The pinned engine, not just a file called llama-server. An app update that
-   * moves from the CPU archive to the Vulkan one leaves the old binary at the
-   * same path; without the marker, the model would look installed and go on
-   * running the engine this build no longer pins. A missing marker is the same
-   * answer as a stale one: the download button has work to do.
+   * The pinned engine for the selected backend, not just a file called
+   * llama-server. An app update that moves from the CPU archive to the Vulkan
+   * one, or from Vulkan to CUDA, leaves the old binary at the same path; without
+   * the marker, the model would look installed and go on running the engine this
+   * build no longer pins. A missing marker is the same answer as a stale one:
+   * the download button has work to do.
    */
-  const engine = engineAssetFor(manifest, {
+  const engine = engineFilesFor(manifest, {
+    ...(options.backend === undefined ? {} : {backend: options.backend}),
     ...(options.platform === undefined ? {} : {platform: options.platform}),
     ...(options.arch === undefined ? {} : {arch: options.arch}),
   });
   const enginePresent =
     engine !== undefined &&
-    (await engineIsPinned(root, engine.asset, options.platform));
+    (await engineIsPinned(root, engine, options.platform));
   const dir = join(root, modelId);
   const marker = await readLocalModelMarker(dir);
   const variant =
@@ -199,36 +207,81 @@ const ENGINE_MARKER = '.pinned';
  *
  * A marker rather than a size check, because the engine binary has no pinned
  * size: without this, an app update that moved to a new llama.cpp tag — or from
- * the CPU archive to the GPU one — would go on running the old engine, and
- * nothing would say so. The installer writes it only after a verified unpack.
+ * the CPU archive to the GPU one, or from Vulkan to CUDA — would go on running
+ * the old engine, and nothing would say so. The installer writes it only after a
+ * verified unpack.
+ *
+ * CUDA is two archives, so the marker names a list. A marker written before that
+ * shape existed has one `file`/`sha256` pair and still matches a one-archive
+ * default build.
  */
 export async function engineIsPinned(
   root: string,
-  asset: EngineAsset,
+  asset: EngineAsset | readonly EngineAsset[],
   platform?: NodeJS.Platform,
 ): Promise<boolean> {
   if ((await sizeOf(join(engineDir(root), engineBinaryName(platform)))) < 0) {
     return false;
   }
+  const expected = assetsOf(asset);
   try {
     const raw = await readFile(join(engineDir(root), ENGINE_MARKER), 'utf8');
-    const parsed = JSON.parse(raw) as {file?: unknown; sha256?: unknown};
-    return parsed.file === asset.file && parsed.sha256 === asset.sha256;
+    const parsed = JSON.parse(raw) as {
+      files?: unknown;
+      file?: unknown;
+      sha256?: unknown;
+    };
+    const actual: EngineAsset[] = [];
+    if (Array.isArray(parsed.files)) {
+      for (const entry of parsed.files) {
+        if (
+          entry !== null &&
+          typeof entry === 'object' &&
+          typeof (entry as {file?: unknown}).file === 'string' &&
+          typeof (entry as {sha256?: unknown}).sha256 === 'string'
+        ) {
+          actual.push({
+            file: (entry as {file: string}).file,
+            sha256: (entry as {sha256: string}).sha256,
+          });
+        }
+      }
+    } else if (
+      typeof parsed.file === 'string' &&
+      typeof parsed.sha256 === 'string'
+    ) {
+      actual.push({file: parsed.file, sha256: parsed.sha256});
+    }
+    return (
+      actual.length === expected.length &&
+      expected.every((want) =>
+        actual.some(
+          (have) => have.file === want.file && have.sha256 === want.sha256,
+        ),
+      )
+    );
   } catch {
     return false;
   }
 }
 
-/** Records the asset an unpacked engine came from, after a verified unpack. */
+/** Records the archives an unpacked engine came from, after a verified unpack. */
 export async function writeEngineMarker(
   root: string,
-  asset: EngineAsset,
+  asset: EngineAsset | readonly EngineAsset[],
 ): Promise<void> {
+  const files = assetsOf(asset).map(({file, sha256}) => ({file, sha256}));
   await writeFile(
     join(engineDir(root), ENGINE_MARKER),
-    `${JSON.stringify({file: asset.file, sha256: asset.sha256}, null, 2)}\n`,
+    `${JSON.stringify({files}, null, 2)}\n`,
     'utf8',
   );
+}
+
+function assetsOf(
+  asset: EngineAsset | readonly EngineAsset[],
+): readonly EngineAsset[] {
+  return Array.isArray(asset) ? asset : [asset as EngineAsset];
 }
 
 async function sizeOf(file: string): Promise<number> {

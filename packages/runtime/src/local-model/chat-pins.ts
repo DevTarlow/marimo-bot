@@ -13,11 +13,13 @@
  * pin. The sha256 values are the LFS object ids the repositories hold at those
  * commits.
  *
- * **The engine is a GPU-capable build.** The archives are Vulkan on Linux and
- * Windows and Metal on macOS, and each one contains the CPU backend. Asking for
- * every layer therefore puts the model on a card when there is one and on the
- * processor when there is not. A CUDA archive would add hundreds of megabytes of
- * runtime for a gain these small models do not need on a 12 GB card.
+ * **The engine is a GPU-capable build.** The default archives are Vulkan on
+ * Linux and Windows and Metal on macOS, and each one contains the CPU backend.
+ * Asking for every layer therefore puts the model on a card when there is one and
+ * on the processor when there is not. The CUDA variant is opt-in: it is faster on
+ * NVIDIA, but the engine and the runtime the release publishes beside it are
+ * about 776 MB on Linux, and it only runs on an NVIDIA driver new enough for the
+ * pinned CUDA version.
  *
  * The eight-byte counts below are the same numbers the protocol's catalogue
  * shows on a download button. A runtime test holds the two equal: a card that
@@ -42,10 +44,12 @@ import type {ChatModelManifest} from './manifest.js';
  * model, and one without a usable device falls back to the processor rather than
  * refusing to start.
  *
- * CUDA is not pinned. Its archive and the CUDA runtime together are hundreds of
- * megabytes against 35 MB for Vulkan, and this model family fits a 12 GB card
- * without it. The release tag is the nightly name, which is what the URL uses;
- * it is pinned rather than "latest" so a model/engine pair that worked on one
+ * The CUDA bundle is the opt-in NVIDIA path. It is two archives — the engine and
+ * the CUDA runtime it links against — and the installer unpacks both into the
+ * same directory. The Linux build is CUDA 12.8 and the Windows build is 12.4, so
+ * each pins the oldest NVIDIA driver it can run on. The release tag is the
+ * nightly name, which is what the URL uses; it is pinned rather than "latest" so
+ * a model/engine pair that worked on one
  * machine keeps working on the next.
  */
 const CHAT_ENGINE = {
@@ -76,6 +80,38 @@ const CHAT_ENGINE = {
       file: 'llama-b11960-bin-win-vulkan-arm64.zip',
       sha256: 'cd375e330452496aadf8a872cde6d48c92e51d598088e5575a32a0d43bc0c9f0',
     },
+  },
+  /**
+   * The opt-in NVIDIA bundle: the engine first, then the runtime it links
+   * against. Both are unpacked into the same directory. The Linux runtime is
+   * CUDA 12.8 and the Windows runtime is 12.4; the host only offers the variant
+   * when `nvidia-smi` reports a driver new enough for the pinned version.
+   */
+  cuda: {
+    'linux-x64': [
+      {
+        file: 'llama-b11960-bin-ubuntu-cuda-12.8-x64.tar.gz',
+        sha256: '64d57beb9abb637c177c6afb313760a0c0782224cac71e74869eed5b8f9a1ea4',
+        bytes: 182_524_002,
+      },
+      {
+        file: 'cudart-llama-b11960-bin-ubuntu-cuda-12.8-x64.tar.gz',
+        sha256: '7c4d5974bd39649df649649e5d71950688a70e37aaae00bf11afbb656ea2cc56',
+        bytes: 594_371_478,
+      },
+    ],
+    'win32-x64': [
+      {
+        file: 'llama-b11960-bin-win-cuda-12.4-x64.zip',
+        sha256: '8d9d819261de10cc2f03921b8b79c779c5c458e21edb60c170ee30a7d462d684',
+        bytes: 279_763_224,
+      },
+      {
+        file: 'cudart-llama-bin-win-cuda-12.4-x64.zip',
+        sha256: '8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6',
+        bytes: 391_443_627,
+      },
+    ],
   },
 } as const;
 

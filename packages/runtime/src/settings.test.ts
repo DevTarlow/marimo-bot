@@ -226,6 +226,17 @@ describe('mergeLocalModels', () => {
         voice: 'lfm3-omni-2b',
       },
       idleMinutes: 3,
+      engineBackend: 'vulkan',
     });
+  });
+
+  it('moves the engine backend without touching the tasks', () => {
+    const current = defaultLocalModelsSettings();
+    const patched = mergeLocalModels(current, {engineBackend: 'cuda'});
+    expect(patched.engineBackend).toBe('cuda');
+    expect(patched.tasks).toEqual(current.tasks);
+
+    const kept = mergeLocalModels({...current, engineBackend: 'cuda'}, {});
+    expect(kept.engineBackend).toBe('cuda');
   });
 });

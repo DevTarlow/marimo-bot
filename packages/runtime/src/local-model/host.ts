@@ -33,6 +33,8 @@ import {totalmem} from 'node:os';
 import {join} from 'node:path';
 
 import type {
+  CudaEngineStatus,
+  EngineBackend,
   LocalModelId,
   LocalModelPart,
   LocalModelStatus,
@@ -51,6 +53,8 @@ import {
 
 import {localModelArgs} from './args.js';
 import {CHAT_PINS} from './chat-pins.js';
+import {probeCuda} from './cuda.js';
+import type {CudaSupport} from './cuda.js';
 import {
   localModelDir,
   localModelSpec,
@@ -60,7 +64,7 @@ import type {LocalModelFiles, LocalModelSpec} from './files.js';
 import {installLocalModel} from './install.js';
 import type {DownloadProgress} from './install.js';
 import {localModelOnDisk} from './installed.js';
-import {engineAssetFor} from './manifest.js';
+import {engineAssetFor, engineFilesFor} from './manifest.js';
 import {LocalModelService} from './service.js';
 import {
   SpeechError,
@@ -99,6 +103,8 @@ export interface LocalModelHostOptions {
   arch?: string;
   /** Injected for tests; absent reads the machine. */
   totalMemoryMb?: number;
+  /** Injected for tests; absent probes `nvidia-smi`. */
+  cudaProbe?: () => Promise<CudaSupport>;
   /** Injected for tests; absent reads the settings' idle minutes. */
   idleMs?: number;
   log?: (line: string) => void;
@@ -125,6 +131,8 @@ export class LocalModelHost {
     | undefined;
   /** Requests the host itself is making (speech), so an idle stop waits. */
   private inFlight = 0;
+  /** The NVIDIA probe, run once; the driver does not change under a launch. */
+  private cudaSupport: Promise<CudaSupport> | undefined;
 
   constructor(private readonly options: LocalModelHostOptions) {
     this.root = modelDir({
@@ -183,12 +191,15 @@ export class LocalModelHost {
       };
     }
 
+    const settings = await this.options.readSettings();
+    const {backend} = await this.selectedBackend(settings);
     const disk = await localModelOnDisk({
       root: this.root,
       manifest: CHAT_PINS,
       modelId,
       ...(this.platform === undefined ? {} : {platform: this.platform}),
       arch: this.arch,
+      backend,
     });
     if (!disk.installed) {
       return {ok: false, problem: missingProblem(modelId, disk.missing)};
@@ -245,6 +256,7 @@ export class LocalModelHost {
   /** The whole model situation, as a payload the window can draw. */
   async status(): Promise<LocalModelsStatus> {
     const settings = await this.options.readSettings();
+    const {backend, cuda} = await this.selectedBackend(settings);
     const models = {} as Record<LocalModelId, LocalModelStatus>;
     for (const modelId of LOCAL_MODEL_IDS) {
       const disk = await localModelOnDisk({
@@ -253,6 +265,7 @@ export class LocalModelHost {
         modelId,
         ...(this.platform === undefined ? {} : {platform: this.platform}),
         arch: this.arch,
+        backend,
       });
       const active =
         this.active?.modelId === modelId ? this.state : undefined;
@@ -264,7 +277,11 @@ export class LocalModelHost {
       models[modelId] = {
         id: modelId,
         installed: disk.installed,
-        ...(disk.installed ? {installedVariant: disk.variant} : {}),
+        // The weights can be installed while the shared engine is not: a
+        // backend switch is exactly that. Keeping the variant here is what lets
+        // the Download button fetch the new engine without also downloading the
+        // other quantization.
+        ...(disk.weightsPresent ? {installedVariant: disk.variant} : {}),
         missing: disk.missing,
         state,
         ...(detail === undefined ? {} : {detail}),
@@ -291,14 +308,17 @@ export class LocalModelHost {
 
     return {
       engine: {
-        present: (await this.engineStatus()).present,
+        present: (await this.engineStatus(backend)).present,
         platformSupported: this.engineSupported,
         tag: CHAT_PINS.engine.tag,
+        backend,
+        cuda,
       },
       models,
       ...(active === undefined ? {} : {active}),
       tasks: settings.localModels.tasks,
       idleMinutes: settings.localModels.idleMinutes,
+      engineBackend: settings.localModels.engineBackend,
       recommendedVariant: this.recommendedVariant(),
     };
   }
@@ -389,11 +409,14 @@ export class LocalModelHost {
           await this.emitStatus();
         });
       }
+      const settings = await this.options.readSettings();
+      const {backend} = await this.selectedBackend(settings);
       await installLocalModel({
         dir: this.root,
         manifest: CHAT_PINS,
         modelId,
         variant,
+        backend,
         ...(this.platform === undefined ? {} : {platform: this.platform}),
         ...(this.arch === undefined ? {} : {arch: this.arch}),
         signal: controller.signal,
@@ -611,7 +634,61 @@ export class LocalModelHost {
     return memory < 8 * 1024 ? 'q4' : 'q8';
   }
 
-  private async engineStatus(): Promise<{present: boolean}> {
+  /**
+   * What the machine offers for CUDA, and how much the pinned bundle costs.
+   *
+   * The probe is cached: `nvidia-smi` is a process, and the card is not swapped
+   * during a launch. The byte count comes from the pins, so the Models card can
+   * say what the switch will download before it is pressed.
+   */
+  private async cudaInfo(): Promise<CudaEngineStatus> {
+    const files = engineFilesFor(CHAT_PINS, {
+      backend: 'cuda',
+      platform: this.platform,
+      arch: this.arch,
+    });
+    const bytes =
+      files?.reduce((total, asset) => total + (asset.bytes ?? 0), 0) ?? 0;
+    const support = await (this.cudaSupport ??= (
+      this.options.cudaProbe ??
+      (() => probeCuda({platform: this.platform, arch: this.arch}))
+    )());
+    if (files === undefined) {
+      return {
+        ...support,
+        available: false,
+        bytes,
+        ...(support.available
+          ? {reason: 'No CUDA engine is pinned for this platform.'}
+          : {}),
+      };
+    }
+    return {...support, bytes};
+  }
+
+  /**
+   * The engine the settings ask for, and what is actually available.
+   *
+   * A CUDA request on a machine with no usable NVIDIA driver runs Vulkan. That
+   * is a fallback rather than a refusal: the app's promise is that it answers,
+   * and the Models card says why the faster build was not used.
+   */
+  private async selectedBackend(
+    settings: Pick<StoredSettings, 'localModels'>,
+  ): Promise<{backend: EngineBackend; cuda: CudaEngineStatus}> {
+    const cuda = await this.cudaInfo();
+    return {
+      backend:
+        settings.localModels.engineBackend === 'cuda' && cuda.available
+          ? 'cuda'
+          : 'vulkan',
+      cuda,
+    };
+  }
+
+  private async engineStatus(
+    backend: EngineBackend,
+  ): Promise<{present: boolean}> {
     const service = this.service;
     if (service !== undefined) {
       const status = await service.status();
@@ -620,17 +697,20 @@ export class LocalModelHost {
     // No service has been created yet, and creating one just to ask would read
     // the spec for a model this host may not have been asked about. The answer
     // is one stat of the shared engine binary.
-    const status = await this.statuslessEngine();
+    const status = await this.statuslessEngine(backend);
     return status;
   }
 
-  private async statuslessEngine(): Promise<{present: boolean}> {
+  private async statuslessEngine(
+    backend: EngineBackend,
+  ): Promise<{present: boolean}> {
     const {enginePresent} = await localModelOnDisk({
       root: this.root,
       manifest: CHAT_PINS,
       modelId: 'lfm3-1.7b',
       ...(this.platform === undefined ? {} : {platform: this.platform}),
       arch: this.arch,
+      backend,
     });
     return {present: enginePresent};
   }

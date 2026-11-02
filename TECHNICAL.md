@@ -123,11 +123,12 @@ install useless until somebody typed an API key.
 The LFM3 build takes the third position: four small Liquid AI models, a pinned
 GPU-capable build of llama.cpp, and no account. The models are downloaded rather
 than bundled, so a checkout and a packaged app are the same thing and a release
-does not carry gigabytes. The pinned archives are Vulkan on Linux and Windows
+does not carry gigabytes. The default archives are Vulkan on Linux and Windows
 and Metal on macOS, and every one of them contains the CPU backend: a card gets
 every layer, a machine without a usable device gets the processor, and the same
-archive serves both. The 1.7B text model answers a short question in a few
-seconds on an ordinary laptop and faster on a card such as a 12 GB RTX 3060.
+archive serves both. NVIDIA users can opt into the larger CUDA build in Models.
+The 1.7B text model answers a short question in a few seconds on an ordinary
+laptop and faster on a card such as a 12 GB RTX 3060.
 
 **The catalogue is one file and it is data.** `packages/protocol/src/local-models.ts`
 holds the four ids, what each can do, the licence, the context length, and the
@@ -1116,14 +1117,14 @@ Known gaps, stated plainly:
   the schemas are there and the settings schema still carries the fields, but
   nothing in the window configures them, so they are unreachable. They are
   scheduled for nothing — somebody should either wire them or remove them.
-- **Vulkan is the only GPU backend pinned, and the recall engine deliberately does
-  not use it.** macOS's Metal needs no choice. CUDA and ROCm exist upstream and
-  are not pinned: Vulkan is about 35 MB and covers NVIDIA, AMD and Intel from one
-  asset per platform, while the Windows CUDA build is hundreds of megabytes and
-  needs a further CUDA runtime. Adding one later is an asset in
-  `chat-pins.ts`/`pins.ts` and nothing else. The chat engine asks for every layer;
-  the recall engine starts with zero because its model card warns about float16
-  NaN — see `args.ts`.
+- **CUDA is opt-in, and the recall engine deliberately does not use a GPU.**
+  macOS's Metal needs no choice. The default Vulkan archive is about 35 MB and
+  covers NVIDIA, AMD and Intel from one asset per platform; the CUDA engine and
+  the runtime the release publishes beside it are about 776 MB on Linux and
+  671 MB on Windows, so the Models card offers CUDA only when `nvidia-smi`
+  reports a driver new enough for the pinned build. ROCm is not pinned. The chat
+  engine asks for every layer; the recall engine starts with zero because its
+  model card warns about float16 NaN — see `args.ts`.
 - **The recall download is verified but not signed.** Each file is checked against
   a sha256 pinned in the app, which catches a corrupted or substituted download
   over a hostile network only as far as the pin itself is trusted — there is no

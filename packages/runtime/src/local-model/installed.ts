@@ -20,7 +20,12 @@ import type {LocalModelId, LocalModelPart, LocalModelVariant} from '@marimo/prot
 
 import {engineBinaryName, engineDir, localModelMarkerFile} from './files.js';
 import {defaultVariantFor} from './chat-pins.js';
-import type {ChatModelFilePin, ChatModelManifest} from './manifest.js';
+import {engineAssetFor} from './manifest.js';
+import type {
+  ChatModelFilePin,
+  ChatModelManifest,
+  EngineAsset,
+} from './manifest.js';
 
 export interface LocalModelMarkerFile {
   name: string;
@@ -123,11 +128,23 @@ export async function localModelOnDisk(options: {
   manifest: ChatModelManifest;
   modelId: LocalModelId;
   platform?: NodeJS.Platform;
+  arch?: string;
 }): Promise<LocalModelDiskState> {
   const {root, manifest, modelId} = options;
-  const enginePresent = await isFile(
-    join(engineDir(root), engineBinaryName(options.platform)),
-  );
+  /*
+   * The pinned engine, not just a file called llama-server. An app update that
+   * moves from the CPU archive to the Vulkan one leaves the old binary at the
+   * same path; without the marker, the model would look installed and go on
+   * running the engine this build no longer pins. A missing marker is the same
+   * answer as a stale one: the download button has work to do.
+   */
+  const engine = engineAssetFor(manifest, {
+    ...(options.platform === undefined ? {} : {platform: options.platform}),
+    ...(options.arch === undefined ? {} : {arch: options.arch}),
+  });
+  const enginePresent =
+    engine !== undefined &&
+    (await engineIsPinned(root, engine.asset, options.platform));
   const dir = join(root, modelId);
   const marker = await readLocalModelMarker(dir);
   const variant =
@@ -174,6 +191,54 @@ export async function localModelOnDisk(options: {
   };
 }
 
+/** The file that records which asset the unpacked engine came from. */
+const ENGINE_MARKER = '.pinned';
+
+/**
+ * Whether the unpacked engine is the one this build pinned.
+ *
+ * A marker rather than a size check, because the engine binary has no pinned
+ * size: without this, an app update that moved to a new llama.cpp tag — or from
+ * the CPU archive to the GPU one — would go on running the old engine, and
+ * nothing would say so. The installer writes it only after a verified unpack.
+ */
+export async function engineIsPinned(
+  root: string,
+  asset: EngineAsset,
+  platform?: NodeJS.Platform,
+): Promise<boolean> {
+  if ((await sizeOf(join(engineDir(root), engineBinaryName(platform)))) < 0) {
+    return false;
+  }
+  try {
+    const raw = await readFile(join(engineDir(root), ENGINE_MARKER), 'utf8');
+    const parsed = JSON.parse(raw) as {file?: unknown; sha256?: unknown};
+    return parsed.file === asset.file && parsed.sha256 === asset.sha256;
+  } catch {
+    return false;
+  }
+}
+
+/** Records the asset an unpacked engine came from, after a verified unpack. */
+export async function writeEngineMarker(
+  root: string,
+  asset: EngineAsset,
+): Promise<void> {
+  await writeFile(
+    join(engineDir(root), ENGINE_MARKER),
+    `${JSON.stringify({file: asset.file, sha256: asset.sha256}, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+async function sizeOf(file: string): Promise<number> {
+  try {
+    return (await stat(file)).size;
+  } catch {
+    return -1;
+  }
+}
+
 function markerFilesMatch(
   files: readonly LocalModelMarkerFile[],
   weights: ChatModelFilePin,
@@ -199,14 +264,6 @@ async function sizeMatches(
 ): Promise<boolean> {
   try {
     return (await stat(file)).size === pin.bytes;
-  } catch {
-    return false;
-  }
-}
-
-async function isFile(file: string): Promise<boolean> {
-  try {
-    return (await stat(file)).isFile();
   } catch {
     return false;
   }

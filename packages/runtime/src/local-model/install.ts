@@ -28,13 +28,11 @@ import {createReadStream, createWriteStream, statSync} from 'node:fs';
 import {
   cp,
   mkdir,
-  readFile,
   readdir,
   rename,
   rm,
   stat,
   statfs,
-  writeFile,
 } from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {pipeline} from 'node:stream/promises';
@@ -48,7 +46,6 @@ import type {
   ChatModelManifest,
   EmbeddingManifest,
   EmbeddingPieceName,
-  EngineAsset,
   EngineManifest,
 } from './manifest.js';
 import {
@@ -59,7 +56,14 @@ import {
   engineUrl,
 } from './manifest.js';
 import {engineBinaryName, engineDir, localModelDir} from './files.js';
-import {writeLocalModelMarker, readLocalModelMarker} from './installed.js';
+import {
+  engineIsPinned,
+  readLocalModelMarker,
+  writeEngineMarker,
+  writeLocalModelMarker,
+} from './installed.js';
+
+export {engineIsPinned};
 
 const run = promisify(execFile);
 
@@ -430,40 +434,6 @@ export async function unpackEngine(
   } finally {
     await rm(scratch, {recursive: true, force: true});
   }
-}
-
-/** The file that records which asset the unpacked engine came from. */
-const ENGINE_MARKER = '.pinned';
-
-/**
- * Whether the unpacked engine is the one this build pinned.
- *
- * A marker rather than a size check, because the engine binary has no pinned
- * size: without this, an app update that moved to a new llama.cpp tag would go on
- * running the old engine, and nothing would say so.
- */
-export async function engineIsPinned(
-  dir: string,
-  asset: EngineAsset,
-  platform?: NodeJS.Platform,
-): Promise<boolean> {
-  if ((await sizeOf(join(engineDir(dir), engineBinaryName(platform)))) < 0) {
-    return false;
-  }
-  try {
-    const raw = await readFile(join(engineDir(dir), ENGINE_MARKER), 'utf8');
-    const parsed = JSON.parse(raw) as {file?: unknown; sha256?: unknown};
-    return parsed.file === asset.file && parsed.sha256 === asset.sha256;
-  } catch {
-    return false;
-  }
-}
-async function writeEngineMarker(dir: string, asset: EngineAsset): Promise<void> {
-  await writeFile(
-    join(engineDir(dir), ENGINE_MARKER),
-    `${JSON.stringify({file: asset.file, sha256: asset.sha256}, null, 2)}\n`,
-    'utf8',
-  );
 }
 
 async function findFile(root: string, name: string): Promise<string | undefined> {

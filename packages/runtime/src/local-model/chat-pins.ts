@@ -13,11 +13,11 @@
  * pin. The sha256 values are the LFS object ids the repositories hold at those
  * commits.
  *
- * **The engine is a CPU build.** The model is small enough to run on a laptop
- * processor, and a CPU archive runs on every laptop; a Vulkan or CUDA archive
- * either needs a driver or downloads hundreds of megabytes of runtime the user
- * may not have. The macOS archive is Metal-capable but is started with
- * `--n-gpu-layers 0`, so the same code path runs everywhere.
+ * **The engine is a GPU-capable build.** The archives are Vulkan on Linux and
+ * Windows and Metal on macOS, and each one contains the CPU backend. Asking for
+ * every layer therefore puts the model on a card when there is one and on the
+ * processor when there is not. A CUDA archive would add hundreds of megabytes of
+ * runtime for a gain these small models do not need on a 12 GB card.
  *
  * The eight-byte counts below are the same numbers the protocol's catalogue
  * shows on a download button. A runtime test holds the two equal: a card that
@@ -36,22 +36,29 @@ import type {ChatModelManifest} from './manifest.js';
 /**
  * llama.cpp b11960, the build the LFM3 GGUF cards require.
  *
- * The release's own name is `v0.8.0`, but the assets are published under the
- * nightly tag, which is what the URL uses. The tag is pinned rather than a
- * "latest" because a model/engine pair that worked on one machine has to keep
- * working on the next.
+ * These are the graphics builds where the platform has one: Vulkan on Linux and
+ * Windows, Metal in the macOS archives. Each also contains the CPU backend, so
+ * `localModelArgs` can ask for every layer: a machine with a card offloads the
+ * model, and one without a usable device falls back to the processor rather than
+ * refusing to start.
+ *
+ * CUDA is not pinned. Its archive and the CUDA runtime together are hundreds of
+ * megabytes against 35 MB for Vulkan, and this model family fits a 12 GB card
+ * without it. The release tag is the nightly name, which is what the URL uses;
+ * it is pinned rather than "latest" so a model/engine pair that worked on one
+ * machine keeps working on the next.
  */
 const CHAT_ENGINE = {
   tag: 'b11960',
   baseUrl: 'https://github.com/ggml-org/llama.cpp/releases/download',
   assets: {
     'linux-x64': {
-      file: 'llama-b11960-bin-ubuntu-x64.tar.gz',
-      sha256: '31cc3a6bc638ac6c48dc4b1b74888f1eaadf3d14227c1e5f67daf9a49541d97a',
+      file: 'llama-b11960-bin-ubuntu-vulkan-x64.tar.gz',
+      sha256: '164199e978304bb32a8a6c24b8efa015528ddf286821596eab676c90b375feac',
     },
     'linux-arm64': {
-      file: 'llama-b11960-bin-ubuntu-arm64.tar.gz',
-      sha256: '0065ecfbffe8a790bb0d28059a3320cdc8f723b7f3f248cdc8bfc04790927715',
+      file: 'llama-b11960-bin-ubuntu-vulkan-arm64.tar.gz',
+      sha256: '22d1f852055a95a5c969b90326a2b68b4618eca6c54638bae27b4ee603031d53',
     },
     'darwin-arm64': {
       file: 'llama-b11960-bin-macos-arm64.tar.gz',
@@ -62,12 +69,12 @@ const CHAT_ENGINE = {
       sha256: 'd1e6c9ddcaed9a3b1bb8f3d946bdb3481c7b919357a4029dcb747762397f1da5',
     },
     'win32-x64': {
-      file: 'llama-b11960-bin-win-cpu-x64.zip',
-      sha256: '73f962f82850d244db47eaacb9d913637027b82399124324298576d58c5f4287',
+      file: 'llama-b11960-bin-win-vulkan-x64.zip',
+      sha256: 'bac6914b5e83523eb008c6789eaa12669f93fbc196c3b9e8237b6672323b33e9',
     },
     'win32-arm64': {
-      file: 'llama-b11960-bin-win-cpu-arm64.zip',
-      sha256: '77349357c38da235bb0eed37bcc5ecf3efef21bb5dc42c2269589c0e71cfa00f',
+      file: 'llama-b11960-bin-win-vulkan-arm64.zip',
+      sha256: 'cd375e330452496aadf8a872cde6d48c92e51d598088e5575a32a0d43bc0c9f0',
     },
   },
 } as const;

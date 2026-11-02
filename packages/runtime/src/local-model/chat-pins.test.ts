@@ -87,9 +87,9 @@ describe('the chat command line', () => {
     const args = localModelArgs(spec, 8123);
     expect(args).toContain('--jinja');
     expect(args[args.indexOf('--reasoning') + 1]).toBe('off');
-    // The engine is CPU-served; a GPU layer count here would make the archive
-    // depend on a driver this build did not ship.
-    expect(args[args.indexOf('--n-gpu-layers') + 1]).toBe('0');
+    // The pinned archive is a Vulkan or Metal build; 999 asks for every layer,
+    // and llama.cpp falls back to the CPU backend when there is no device.
+    expect(args[args.indexOf('--n-gpu-layers') + 1]).toBe('999');
     expect(args).toContain('--no-ui');
   });
 

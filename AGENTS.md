@@ -11,7 +11,8 @@ A standalone, always-on desktop agent. A chat window and a floating companion,
 an agent harness whose capabilities are opt-in, and a headless runner that keeps
 scheduled jobs going while the app is closed. It answers with **four small Liquid
 AI models** — text, vision, audio and omni — run by a pinned llama.cpp on the
-user's own processor. There is no hosted provider, no account and no API key for
+user's own computer, with the graphics card when there is one. There is no hosted
+provider, no account and no API key for
 the model. The first run downloads the text model, and offers the vision or audio
 model as an optional step only when the person's goals ask for pictures or voice;
 everything else is a download a person chooses in Settings. The folder it works
@@ -152,7 +153,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `installLocalModel` checks every file against a pinned SHA-256 and writes
     `local-model.json` only when all of them are in place. `localModelOnDisk`
     compares the marker's revision and file list against the pins; a size match
-    under the wrong name is not installed. A half-written file is never loaded.
+    under the wrong name is not installed. The shared engine carries its own
+    `.pinned` marker, so a build that moves from the CPU archive to the GPU one
+    replaces the binary instead of running the old engine. A half-written file is
+    never loaded.
 26. **A spoken answer belongs to the surface that asked.** `turn.completed`
     carries an origin that is not in the stored log; the window's speaking hook
     and the pet's each filter on it, so two voices never read one answer. The
@@ -228,10 +232,13 @@ silently changing the grant.
 The four models, their licences and their task capabilities are in
 `packages/protocol/src/local-models.ts`. The repository revisions, file names,
 sizes and digests are in `packages/runtime/src/local-model/chat-pins.ts`. The
-engine is a pinned llama.cpp CPU build with one archive per platform;
-`localModelArgs` is the one place the flags are written. The per-platform archives
-are what make the same behavior available on Linux, macOS and Windows without a
-GPU driver.
+engine is a pinned llama.cpp build with one archive per platform — Vulkan on
+Linux and Windows, Metal on macOS — and each archive contains the CPU backend.
+`localModelArgs` asks for every layer, so a machine with a card offloads the
+model and one without a usable device falls back to the processor. `localModelArgs`
+is the one place the flags are written. The recall engine keeps its own zero:
+that model's card warns about float16 NaN, and the CPU backend accumulates in
+f32.
 
 Defaults: Chat → `lfm3-1.7b`, Images → `lfm3-vl-2b`, Voice → `lfm3-audio-2b`.
 Q8 is the quality choice; Q4 is the small-laptop choice, and the host suggests it

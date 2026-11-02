@@ -92,8 +92,10 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
  * Electron's Wayland backend and Vulkan do not agree: with the Wayland ozone
  * backend alone, the GPU process prints
  * "'--ozone-platform=wayland' is not compatible with Vulkan" and can restart.
- * This app has no WebGPU or Vulkan feature — the models run on the CPU through
- * llama.cpp — so the Vulkan feature is disabled on Linux. The other repair the
+ * Chromium's own Vulkan feature is not something this window uses: the models
+ * are a separate llama.cpp process, and that process opens Vulkan itself when
+ * the pinned engine has a device. Disabling only Chromium's feature keeps
+ * native Wayland and leaves the model engine on the card. The other repair the
  * warning offers is forcing X11, which would give up native Wayland for no gain
  * here.
  *

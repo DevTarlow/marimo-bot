@@ -63,7 +63,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 
 | State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Done        | Four Liquid AI LFM3 models — text, vision, audio and omni — downloaded per task, at Q8 or Q4, and run on a pinned llama.cpp CPU build. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                                                                                                                                                 |
+| Done        | Four Liquid AI LFM3 models — text, vision, audio and omni — downloaded per task, at Q8 or Q4, and run on a pinned GPU-capable llama.cpp build that offloads every layer when a device exists and falls back to the CPU when it does not. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                         |
 | Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same audio model, and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the vision model, not a path the file tools would refuse                                                                                                                                                                                                                                          |
 | Done        | The first run downloads the text model, checks every byte against a pinned digest and only then offers the chat. Pictures and voice are optional downloads in the same flow when the goals ask for them; the omni model, task assignment and later downloads are Settings → Models                                                                                                                                                                                                                                                        |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
@@ -121,10 +121,13 @@ machine it ran on. The provider build removed all of that and made a fresh
 install useless until somebody typed an API key.
 
 The LFM3 build takes the third position: four small Liquid AI models, a pinned
-CPU build of llama.cpp, and no account. The models are downloaded rather than
-bundled, so a checkout and a packaged app are the same thing and a release does
-not carry gigabytes. They are small enough that the CPU build is usable on an
-ordinary laptop: the 1.7B text model answers a short question in a few seconds.
+GPU-capable build of llama.cpp, and no account. The models are downloaded rather
+than bundled, so a checkout and a packaged app are the same thing and a release
+does not carry gigabytes. The pinned archives are Vulkan on Linux and Windows
+and Metal on macOS, and every one of them contains the CPU backend: a card gets
+every layer, a machine without a usable device gets the processor, and the same
+archive serves both. The 1.7B text model answers a short question in a few
+seconds on an ordinary laptop and faster on a card such as a 12 GB RTX 3060.
 
 **The catalogue is one file and it is data.** `packages/protocol/src/local-models.ts`
 holds the four ids, what each can do, the licence, the context length, and the
@@ -1113,14 +1116,14 @@ Known gaps, stated plainly:
   the schemas are there and the settings schema still carries the fields, but
   nothing in the window configures them, so they are unreachable. They are
   scheduled for nothing — somebody should either wire them or remove them.
-- **Vulkan is the only GPU backend pinned, and the recall engine barely uses it.**
-  macOS's Metal needs no choice. CUDA and ROCm exist upstream and are not pinned:
-  Vulkan is 32 MB and covers NVIDIA, AMD and Intel from one asset per platform,
-  while the Windows CUDA build is 264 MB and needs a further 391 MB of cudart
-  DLLs. Adding one later is an asset in `pins.ts` and nothing else. The engine is
-  started with no GPU offload anyway — see `args.ts` for why this model wants the
-  f32 CPU path — so the graphics backend in the archive is mostly there because
-  that is how llama.cpp publishes a build with a CPU backend in it.
+- **Vulkan is the only GPU backend pinned, and the recall engine deliberately does
+  not use it.** macOS's Metal needs no choice. CUDA and ROCm exist upstream and
+  are not pinned: Vulkan is about 35 MB and covers NVIDIA, AMD and Intel from one
+  asset per platform, while the Windows CUDA build is hundreds of megabytes and
+  needs a further CUDA runtime. Adding one later is an asset in
+  `chat-pins.ts`/`pins.ts` and nothing else. The chat engine asks for every layer;
+  the recall engine starts with zero because its model card warns about float16
+  NaN — see `args.ts`.
 - **The recall download is verified but not signed.** Each file is checked against
   a sha256 pinned in the app, which catches a corrupted or substituted download
   over a hostile network only as far as the pin itself is trusted — there is no

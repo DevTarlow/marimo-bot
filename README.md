@@ -11,7 +11,7 @@
 
 I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-Marimo Bot runs small Liquid AI models on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads the text model, and offers pictures or voice only when you say you want them. After that the app answers with the processor you already have. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
+Marimo Bot runs small Liquid AI models on your own machine. There is no account, no API key, and no model service in the middle: the first run downloads the text model, and offers pictures or voice only when you say you want them. After that the app answers on this computer, using the graphics card when it has one. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
 
 Marimo Bot keeps a conversation's full history and the instructions it was running under, so reopening a chat does not start it over.
 
@@ -302,11 +302,13 @@ Yes, once the model you want is downloaded. The first download, a web search, a 
 
 ### Do I need a graphics card?
 
-No. The models run on the processor. A graphics card would make them faster, but this build deliberately offloads zero layers so it can run on the widest range of laptops. The trade is speed: the 1.7B model answers a short question in a few seconds on a recent laptop processor, and a longer answer takes longer.
+No, but it uses one when it can. The pinned engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. With a card it offloads every layer — a 12 GB card such as a GeForce RTX 3060 holds any of the four models, their projectors and the 32K context together. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
+
+Recall's embedding model is the one exception: it stays on the processor because its model card warns that the activations can overflow float16 on a GPU.
 
 ### How much memory does it need?
 
-About 2.5 GB free while a Q8 text model is loaded, or 1.6 GB for Q4. The vision and audio models have projectors on top. The app lets the model go after three quiet minutes, so the memory comes back.
+About 2.5 GB of graphics memory while a Q8 text model is loaded and offloaded, or 1.6 GB for Q4; on a machine with no GPU the same amount comes from system memory. The vision and audio models have projectors on top. The app lets the model go after three quiet minutes, so the memory comes back.
 
 ### Where are my files?
 
@@ -326,13 +328,13 @@ Only where you ask it to: a web search receives the query, and a connector recei
 
 ### What is not finished?
 
-See the next section for the short answer: Windows and macOS installers, automatic updating, a GPU build, and Discord and the notes and to-do tools.
+See the next section for the short answer: Windows and macOS installers, automatic updating, CUDA, and Discord and the notes and to-do tools.
 
 ## What is not finished
 
 - The Windows and macOS installers are written but not built. The model downloads and the engine run on all three, but only the Linux AppImage has been run end to end.
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
-- The engine is a CPU build. It is deliberately the same archive on every machine, which keeps the install small and the behaviour predictable, but it does not use a graphics card.
+- The engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. It offloads every layer when it finds a device and falls back to the processor when it does not. A CUDA build would be faster on an NVIDIA card, but it brings hundreds of megabytes of runtime for a gain this model family does not need on a 12 GB card.
 - Voice mode is one microphone press and one spoken answer, not a hands-free conversation. There is no wake word and no barge-in.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
 - The app checks every model download against a fingerprint, but there is no signature to prove where it came from.
@@ -343,8 +345,8 @@ Will it run on my machine? These are the things it needs.
 
 - A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
 - About 2 GB of free disk for the text model, and up to 2.4 GB more for each of the others you choose. Recall adds about 310 MB, or 865 MB with media.
-- About 3 GB of free memory while a Q8 model is loaded. Less for Q4.
-- No account, no key and no graphics card.
+- About 3 GB of free graphics or system memory while a Q8 model is loaded. Less for Q4.
+- No account and no key. A graphics card is not required; the engine falls back to the processor without one.
 
 The app carries no hosted service. Everything it needs to answer is one of the four local models, downloaded once and checked against a pinned digest.
 

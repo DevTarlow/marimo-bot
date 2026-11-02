@@ -18,7 +18,8 @@ import {defaultLocalModelsSettings} from '@marimo/protocol';
 
 import {CHAT_PINS} from './chat-pins.js';
 import {LocalModelHost} from './host.js';
-import {writeLocalModelMarker} from './installed.js';
+import {writeEngineMarker, writeLocalModelMarker} from './installed.js';
+import {engineAssetFor} from './manifest.js';
 
 class FakeChild extends EventEmitter {
   readonly pid = process.pid + 1;
@@ -48,6 +49,11 @@ describe('LocalModelHost', () => {
     failures = [];
     await mkdir(join(modelRoot, 'engine'), {recursive: true});
     await writeFile(join(modelRoot, 'engine', 'llama-server'), 'engine\n');
+    const asset = engineAssetFor(CHAT_PINS);
+    if (asset === undefined) {
+      throw new Error('this test platform has no pinned engine');
+    }
+    await writeEngineMarker(modelRoot, asset.asset);
   });
 
   afterEach(async () => {
@@ -123,6 +129,28 @@ describe('LocalModelHost', () => {
     expect(child.signals.length).toBe(1);
     expect(statuses).toBeGreaterThan(0);
     expect(failures).toEqual([]);
+  });
+
+  it('does not believe an engine from a different pin', async () => {
+    await installTextQ4();
+    // The marker the CPU archive wrote, before this build moved to the GPU one.
+    await writeFile(
+      join(modelRoot, 'engine', '.pinned'),
+      `${JSON.stringify(
+        {
+          file: 'llama-b11960-bin-ubuntu-x64.tar.gz',
+          sha256: '0'.repeat(64),
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+    const runtime = host();
+    const status = await runtime.status();
+    expect(status.models['lfm3-1.7b'].installed).toBe(false);
+    expect(status.models['lfm3-1.7b'].missing).toContain('engine');
+    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(false);
   });
 
   it('does not stop under a request while the caller says it is busy', async () => {

@@ -188,6 +188,7 @@ export class LocalModelHost {
       manifest: CHAT_PINS,
       modelId,
       ...(this.platform === undefined ? {} : {platform: this.platform}),
+      arch: this.arch,
     });
     if (!disk.installed) {
       return {ok: false, problem: missingProblem(modelId, disk.missing)};
@@ -251,6 +252,7 @@ export class LocalModelHost {
         manifest: CHAT_PINS,
         modelId,
         ...(this.platform === undefined ? {} : {platform: this.platform}),
+        arch: this.arch,
       });
       const active =
         this.active?.modelId === modelId ? this.state : undefined;
@@ -628,6 +630,7 @@ export class LocalModelHost {
       manifest: CHAT_PINS,
       modelId: 'lfm3-1.7b',
       ...(this.platform === undefined ? {} : {platform: this.platform}),
+      arch: this.arch,
     });
     return {present: enginePresent};
   }

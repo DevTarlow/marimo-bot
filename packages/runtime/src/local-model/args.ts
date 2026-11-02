@@ -130,9 +130,12 @@ export interface EmbeddingSpec {
  *   model's default thinking produced 271 hidden tokens for a greeting on a
  *   laptop processor. The answer is still the answer; only the rehearsal is
  *   gone.
- * - `--n-gpu-layers 0` is the CPU path the archive is pinned for. A machine with
- *   a graphics card can be made faster later; a build that needs one cannot run
- *   at all on the machines this app is for.
+ * - `--n-gpu-layers 999` asks the Vulkan or Metal build to put every layer on
+ *   the card. The number is above any model family's layer count, so llama.cpp
+ *   clamps it to all of them. The archive also contains the CPU backend: a
+ *   machine with no usable device still runs, because the request is not a
+ *   dependency. `embeddingArgs` keeps its own zero, for the reason documented
+ *   there.
  * - `--ctx-size` is the descriptor's working window, not the model's maximum.
  *   The 256K window a 1.7B model supports would cost more KV cache than the
  *   weights; the harness compacts inside the smaller one.
@@ -157,7 +160,7 @@ export function localModelArgs(spec: LocalModelSpec, port: number | string): str
     '--ctx-size',
     String(spec.contextSize),
     '--n-gpu-layers',
-    '0',
+    '999',
     '--parallel',
     '1',
     '--no-ui',

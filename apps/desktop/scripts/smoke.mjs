@@ -52,7 +52,7 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {CHAT_PINS} from '@marimo/runtime';
+import {CHAT_PINS, engineAssetFor} from '@marimo/runtime';
 
 import {appIsRunning, startApp, stopApp} from './app-process.mjs';
 
@@ -105,6 +105,19 @@ async function prepareModelFixture(userData) {
     join(root, 'engine', 'llama-server'),
   );
   await chmod(join(root, 'engine', 'llama-server'), 0o755);
+  const asset = engineAssetFor(CHAT_PINS);
+  if (asset === undefined) {
+    throw new Error('this platform has no pinned engine to stand in for');
+  }
+  await writeFile(
+    join(root, 'engine', '.pinned'),
+    `${JSON.stringify(
+      {file: asset.asset.file, sha256: asset.asset.sha256},
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
 
   const pin = CHAT_PINS.models['lfm3-1.7b'];
   const weights = pin.variants.q4.weights;

@@ -2,10 +2,13 @@
  * The review at the end of the first run.
  *
  * The summary deliberately reads the settings and the disk, not the goals. A
- * person who asked for pictures and then skipped the download should see "not
- * downloaded", not a tick because they once said they wanted it; the goals only
- * decide which rows are worth showing. That is the same rule the Settings cards
- * follow — a claim about what is installed is a claim about a file.
+ * person who asked for pictures and then skipped the model download should see
+ * "not downloaded", not a tick because they once said they wanted it; the goals
+ * only decide which rows are worth showing. That is the same rule the Settings
+ * cards follow — a claim about what is installed is a claim about a file.
+ *
+ * Omni is the one model the flow installs, so the Pictures and Voice rows say
+ * what it covers rather than naming a second download.
  *
  * Starting the app is the flow's existing close: App marks the first run as
  * seen, opens a new chat in the Space the person picked, and reloads. This
@@ -70,7 +73,6 @@ export function SetupFinish({
 
   const chatModel = LOCAL_MODELS[settings.localModels.tasks.chat];
   const visionModelId = settings.localModels.tasks.vision;
-  const visionModel = LOCAL_MODELS[visionModelId];
   const visionInstalled = settings.localModels.models[visionModelId].installed;
   const voiceModelId = settings.localModels.tasks.voice;
   const voiceModel = LOCAL_MODELS[voiceModelId];
@@ -105,7 +107,7 @@ export function SetupFinish({
           <dd>
             {chatModel.label}
             {settings.modelReady
-              ? ' — ready'
+              ? ' — ready for Chat, Images and Voice'
               : ` — not ready${settings.modelProblem === undefined ? '' : `: ${settings.modelProblem}`}`}
           </dd>
         </div>
@@ -125,10 +127,9 @@ export function SetupFinish({
           <div className="setup-summary-row">
             <dt>Pictures</dt>
             <dd>
-              {visionModel.label}
               {visionInstalled
-                ? ' — downloaded'
-                : ' — not downloaded. Settings → Models has the download.'}
+                ? `Included in ${chatModel.label}.`
+                : 'Not downloaded — the model row above has the download.'}
             </dd>
           </div>
         )}
@@ -136,12 +137,9 @@ export function SetupFinish({
           <div className="setup-summary-row">
             <dt>Voice</dt>
             <dd>
-              {voiceModel.label}
               {voiceInstalled
-                ? settings.companion.speakReplies
-                  ? ' — downloaded, voice mode on'
-                  : ' — downloaded, voice mode off'
-                : ' — not downloaded. Settings → Models has the download.'}
+                ? `${settings.companion.speakReplies ? 'On' : 'Off'} — ${voiceModel.label} handles it.`
+                : 'Not downloaded — the model row above has the download.'}
             </dd>
           </div>
         )}

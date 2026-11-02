@@ -19,6 +19,10 @@ import {
   DocumentTooNewError,
   readVersionedDocument,
 } from '@marimo/agent';
+import type {
+  DocumentMigration,
+  ReadVersionedOptions,
+} from '@marimo/agent';
 
 import {
   appearanceSchema,
@@ -49,10 +53,10 @@ export function defaultStoredSettings(): StoredSettings {
   return {
     /*
      * Which local model does Chat, Images and Voice, and how long it stays
-     * warm. The defaults are the dedicated models rather than the all-in-one:
-     * a first run should get the best text answer this family offers, and the
-     * "one model for everything" preset is a choice somebody makes once they
-     * know the machine.
+     * warm. Every task starts on Omni: one download that can answer, see and
+     * speak, so a first run does not make somebody choose a model before it can
+     * reply. The dedicated text, vision and audio models are still in Settings
+     * for a machine that wants a smaller copy or a different trade-off.
      */
     localModels: defaultLocalModelsSettings(),
     appearance: defaultAppearance(),
@@ -116,6 +120,61 @@ export function defaultStoredSettings(): StoredSettings {
 }
 
 /**
+ * The settings document version.
+ *
+ * Settings were version-less until this upgrade. The first written stamp, 1,
+ * is the one every existing file carries; version 2 is the Omni default. A
+ * settings file is still read leniently, but a newer version is refused so a
+ * future build's file is not overwritten by this one.
+ */
+const SETTINGS_VERSION = 2;
+
+/**
+ * Version 1 -> 2: every task moves to the Omni model.
+ *
+ * The first run used to install three dedicated models and ask which one did
+ * what. Omni can see, hear and speak, so one download is enough and the person
+ * no longer has to choose. Existing installs are moved once; after that the
+ * task rows in Settings are the user's again.
+ */
+const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
+  {
+    from: 1,
+    to: 2,
+    summary: 'made the Omni model the default for Chat, Images and Voice',
+    migrate(document) {
+      const localModels = document['localModels'];
+      if (
+        localModels === null ||
+        typeof localModels !== 'object' ||
+        Array.isArray(localModels)
+      ) {
+        return document;
+      }
+      return {
+        ...document,
+        localModels: {
+          ...localModels,
+          tasks: {
+            chat: 'lfm3-omni-2b',
+            vision: 'lfm3-omni-2b',
+            voice: 'lfm3-omni-2b',
+          },
+        },
+      };
+    },
+  },
+];
+
+/** One place for how the settings document is read and checked for writing. */
+const SETTINGS_READ: ReadVersionedOptions = {
+  label: 'The settings file',
+  current: SETTINGS_VERSION,
+  missingVersion: 1,
+  migrations: SETTINGS_MIGRATIONS,
+};
+
+/**
  * Values a pre-profile settings file may still hold.
  *
  * `workspaceRoot` and `systemPrompt` moved into the agent profile, so they are
@@ -168,19 +227,7 @@ export class SettingsStore {
      * the case where the read has to guess. Throwing here stops the guess from
      * becoming a write.
      */
-    const read = await readVersionedDocument(this.file, {
-      label: 'The settings file',
-      /*
-       * This document has never carried a version — `settingsSchema` has no such
-       * field — so every settings file in existence is version-less, and treating
-       * that as "not mine" would reset every user's connectors and preferences the
-       * first time they upgraded. Naming the version they are is the migration.
-       *
-       * A *newer* file is still refused, which is the half that matters: a future
-       * build that adds a version number will have its settings left alone.
-       */
-      missingVersion: 1,
-    });
+    const read = await readVersionedDocument(this.file, SETTINGS_READ);
     if (read.state === 'too-new') {
       throw new DocumentTooNewError(
         'The settings file',
@@ -359,7 +406,7 @@ export class SettingsStore {
   private async write(settings: StoredSettings): Promise<void> {
     // Refused before anything is written: a lenient read plus a write is how a
     // user's settings disappear.
-    await assertWritable(this.file, {label: 'The settings file'});
+    await assertWritable(this.file, SETTINGS_READ);
     await mkdir(dirname(this.file), {recursive: true});
     const temporary = `${this.file}.tmp`;
     await writeFile(
@@ -367,7 +414,7 @@ export class SettingsStore {
       // Stamped from here on, so the next build can tell an old file from one
       // written before versioning existed — which is what `missingVersion` was
       // for, and what stops it being needed twice.
-      `${JSON.stringify({version: 1, ...settings}, null, 2)}\n`,
+      `${JSON.stringify({version: SETTINGS_VERSION, ...settings}, null, 2)}\n`,
       'utf8',
     );
     await rename(temporary, this.file);

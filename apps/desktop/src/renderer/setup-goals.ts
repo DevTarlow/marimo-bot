@@ -9,10 +9,10 @@
  *
  * The goals are a *plan for this run*, not a preference. Nothing here grants a
  * tool, and nothing is written down: the goals choose which steps appear, which
- * starter role is suggested, and whether the optional pictures/voice downloads
- * are offered. What they produce — a grant, a download, a bot, a service — is
- * written when it happens and visible in Settings afterwards. Storing the goals
- * would be a second, quieter place where a capability decision lived.
+ * starter role is suggested, and whether the voice preference is offered. What
+ * they produce — a grant, a download, a bot, a service — is written when it
+ * happens and visible in Settings afterwards. Storing the goals would be a
+ * second, quieter place where a capability decision lived.
  *
  * `automation` is the only goal a Regular setup cannot take. The others either
  * use tools Standard already has, ask for a model rather than a tool, or are
@@ -25,7 +25,7 @@
  * place that says what a Writer is and what it may do.
  */
 import {LOCAL_TASKS} from '@marimo/protocol';
-import type {LocalModelId, LocalTask} from '@marimo/protocol';
+import type {LocalTask} from '@marimo/protocol';
 
 /** The two answers to "how do you want to set this up". */
 export type SetupDirection = 'regular' | 'power';
@@ -106,7 +106,7 @@ export interface SetupGoal {
   needsBot: boolean;
   /** The starter role to suggest, when one fits. */
   templateId?: string;
-  /** The model tasks this goal asks to have installed. */
+  /** The model task this goal cares about, for the review. */
   models?: readonly LocalTask[];
 }
 
@@ -162,8 +162,8 @@ export const SETUP_GOALS: readonly SetupGoal[] = [
     id: 'pictures',
     label: 'Look at pictures',
     blurb:
-      'Answer questions about screenshots, charts and photographs. Downloads ' +
-      'the vision model.',
+      'Answer questions about screenshots, charts and photographs. The Omni ' +
+      'model already sees them; just attach one to a message.',
     needsPower: false,
     needsBot: false,
     models: ['vision'],
@@ -172,8 +172,8 @@ export const SETUP_GOALS: readonly SetupGoal[] = [
     id: 'voice',
     label: 'Talk out loud',
     blurb:
-      'Ask by microphone and hear the answer. Downloads the audio model and ' +
-      'turns voice mode on when it is ready.',
+      'Ask by microphone and hear the answer. The Omni model already speaks; ' +
+      'the next step turns spoken replies on.',
     needsPower: false,
     needsBot: false,
     models: ['voice'],
@@ -244,41 +244,6 @@ export function goalEffects(goals: readonly SetupGoalId[]): GoalEffects {
     tasks: LOCAL_TASKS.filter((task) => tasks.has(task)),
     jobs,
   };
-}
-
-/** One download card: a model, and the task(s) that use it. */
-export interface TaskModelGroup {
-  modelId: LocalModelId;
-  tasks: LocalTask[];
-}
-
-/**
- * The extras step's cards, one per assigned model.
- *
- * Settings owns the task assignment, so two tasks can point at one model — Omni
- * is exactly that — and a step that drew one card per task would offer the same
- * download twice. Grouping by the assignment is also why this is not a property
- * of the goals: the same goals produce a different card list after somebody
- * changes the assignment in Settings.
- */
-export function groupTasksByModel(
-  tasks: readonly LocalTask[],
-  assignments: Record<LocalTask, LocalModelId>,
-): TaskModelGroup[] {
-  const byModel = new Map<LocalModelId, LocalTask[]>();
-  for (const task of tasks) {
-    const modelId = assignments[task];
-    const list = byModel.get(modelId);
-    if (list === undefined) {
-      byModel.set(modelId, [task]);
-    } else {
-      list.push(task);
-    }
-  }
-  return [...byModel.entries()].map(([modelId, modelTasks]) => ({
-    modelId,
-    tasks: modelTasks,
-  }));
 }
 
 /**

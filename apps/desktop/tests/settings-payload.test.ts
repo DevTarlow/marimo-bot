@@ -92,9 +92,9 @@ function localModels(): LocalModelsStatus {
       LOCAL_MODEL_IDS.map((id) => [id, modelStatus(id)]),
     ) as Record<LocalModelId, LocalModelStatus>,
     tasks: {
-      chat: 'lfm3-1.7b',
-      vision: 'lfm3-vl-2b',
-      voice: 'lfm3-audio-2b',
+      chat: 'lfm3-omni-2b',
+      vision: 'lfm3-omni-2b',
+      voice: 'lfm3-omni-2b',
     },
     idleMinutes: 3,
     engineBackend: 'vulkan',
@@ -119,7 +119,7 @@ describe('a settings payload', () => {
   it('carries the model situation and the hardware facts', () => {
     const settings = payload();
     expect(settings.localModels.engine.present).toBe(true);
-    expect(settings.localModels.tasks.chat).toBe('lfm3-1.7b');
+    expect(settings.localModels.tasks.chat).toBe('lfm3-omni-2b');
     expect(settings.hardware.totalMemoryMb).toBe(16_384);
     expect(settings.modelReady).toBe(true);
     // Every task is in the catalogue and every model has a label the window can

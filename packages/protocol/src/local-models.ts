@@ -283,13 +283,18 @@ export type EngineBackend = z.infer<typeof engineBackendSchema>;
  * Kept here rather than in the runtime because the settings schema and the
  * window's task rows have to agree about which model is the default for a new
  * install, and a default written twice is a default that can disagree.
+ *
+ * Every task starts on Omni. It is one download that can see, hear and speak,
+ * so a person does not have to choose a model before the app can answer; the
+ * dedicated text, vision and audio models remain available in Settings for a
+ * machine that wants a smaller copy or a different trade-off.
  */
 export function defaultLocalModelsSettings(): LocalModelsSettings {
   return {
     tasks: {
-      chat: 'lfm3-1.7b',
-      vision: 'lfm3-vl-2b',
-      voice: 'lfm3-audio-2b',
+      chat: 'lfm3-omni-2b',
+      vision: 'lfm3-omni-2b',
+      voice: 'lfm3-omni-2b',
     },
     idleMinutes: 3,
     engineBackend: 'vulkan',

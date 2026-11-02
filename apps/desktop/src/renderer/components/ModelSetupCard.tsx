@@ -1,32 +1,21 @@
 /**
- * One local model as a card: what it is, which copy, the download and its
+ * The required model, as a card: what it is, which copy, the download and its
  * progress.
  *
- * Shared by the required model step and the optional pictures/voice step. The
- * two differ in what the card is *for* — the first is the only step that can
- * block the flow, and the second is a download the person asked for and can
- * skip — so the differences are props rather than a second copy of the card:
- * `ready`, `downloadLabel`, `installedNote`, the task line, and whether the
- * "Check it loads now" button is offered.
- *
- * The card owns the installer hook because it is the thing drawing progress.
- * It reports `installing` up rather than exposing the hook, which lets a step
- * disable its own actions while this card is busy; the extras step has its own
- * listener for the same reason, because it has to keep a second Download from
- * starting under the first.
+ * This is the one model the first run downloads. The card owns the installer
+ * hook because it is the thing drawing progress; it reports `installing` up so
+ * the step can disable its own buttons while a download runs.
  */
 import {useEffect, useState} from 'react';
 
 import {
   LOCAL_MODELS,
-  TASK_LABELS,
   localModelVariantSchema,
   variantBytes,
 } from '@marimo/protocol';
 import type {
   LocalModelId,
   LocalModelVariant,
-  LocalTask,
   PublicSettings,
 } from '@marimo/protocol';
 
@@ -37,14 +26,10 @@ export function ModelSetupCard({
   settings,
   onSettings,
   ready,
-  tasks,
   downloadLabel = 'Download',
-  installedNote = 'Downloaded and checked. The first message loads it.',
   check = false,
-  disabled = false,
   extraProblem,
   onInstallingChange,
-  onCancelled,
 }: {
   modelId: LocalModelId;
   settings: PublicSettings;
@@ -58,20 +43,13 @@ export function ModelSetupCard({
    * the card should offer the download again rather than claim otherwise.
    */
   ready?: boolean;
-  /** The tasks this model is assigned to, for the optional-extras card. */
-  tasks?: readonly LocalTask[];
   downloadLabel?: string;
-  installedNote?: string;
   /** Whether to offer the one-off engine check the required step uses. */
   check?: boolean;
-  /** Whether a different model's download is running. */
-  disabled?: boolean;
   /** The process's own reason the app cannot answer, shown with this card. */
   extraProblem?: string;
   /** Reports installing/warming so a step can disable its own actions. */
   onInstallingChange?: (busy: boolean) => void;
-  /** Called after this card's own download is cancelled. */
-  onCancelled?: () => void;
 }): React.JSX.Element {
   const model = LOCAL_MODELS[modelId];
   const status = settings.localModels.models[modelId];
@@ -92,10 +70,6 @@ export function ModelSetupCard({
     size >= 1024 * 1024 * 1024
       ? `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
       : `${Math.ceil(size / (1024 * 1024))} MB`;
-  const usedFor =
-    tasks === undefined || tasks.length === 0
-      ? undefined
-      : tasks.map((task) => TASK_LABELS[task]).join(' and ');
 
   return (
     <div className="model-setup-card">
@@ -104,9 +78,6 @@ export function ModelSetupCard({
         <span className="model-setup-size">{sizeLabel}</span>
       </div>
       <p className="settings-muted">{model.blurb}</p>
-      {usedFor !== undefined && (
-        <p className="settings-muted">Used for {usedFor}.</p>
-      )}
 
       {!usable && (
         <div className="settings-field">
@@ -118,7 +89,7 @@ export function ModelSetupCard({
                   type="radio"
                   name={`setup-model-variant-${modelId}`}
                   checked={variant === option}
-                  disabled={installing || warming || disabled}
+                  disabled={installing || warming}
                   onChange={() => {
                     setVariant(option);
                   }}
@@ -154,9 +125,7 @@ export function ModelSetupCard({
             type="button"
             className="button button-quiet button-small"
             onClick={() => {
-              void cancel().then(() => {
-                onCancelled?.();
-              });
+              void cancel();
             }}
           >
             Cancel
@@ -176,7 +145,7 @@ export function ModelSetupCard({
         <button
           type="button"
           className="button button-primary"
-          disabled={!supported || disabled}
+          disabled={!supported}
           onClick={() => {
             void install(variant);
           }}
@@ -187,13 +156,13 @@ export function ModelSetupCard({
 
       {usable && (
         <div className="settings-field">
-          <span>{installedNote}</span>
+          <span>Downloaded and checked. The first message loads it.</span>
           {check && (
             <div className="settings-row">
               <button
                 type="button"
                 className="button button-primary"
-                disabled={warming || installing || disabled}
+                disabled={warming || installing}
                 onClick={() => {
                   void warm();
                 }}

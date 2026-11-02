@@ -13,9 +13,9 @@ scheduled jobs going while the app is closed. It answers with **four small Liqui
 AI models** — text, vision, audio and omni — run by a pinned llama.cpp on the
 user's own computer, with the graphics card when there is one. There is no hosted
 provider, no account and no API key for
-the model. The first run downloads the text model, and offers the vision or audio
-model as an optional step only when the person's goals ask for pictures or voice;
-everything else is a download a person chooses in Settings. The folder it works
+the model. The first run downloads the Omni model, which answers text, sees
+pictures and speaks; the dedicated text, vision and audio models are optional
+alternatives in Settings. The folder it works
 in is what the user calls a **Space**. Marimo Bot is the agent the person talks
 to; they also make **bots**, each with its own name, instructions, tools and
 permissions. A chat can hold more than one of them, and Marimo Bot can hand work
@@ -107,10 +107,11 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     for every enabled connector together. There is no provider key and no
     provider address in this build.
 17. **A model is a pair, and the task chooses it.** `{provider: 'local',
-    model: '<lfm3 id>'}` is the only shape stored or sent. Chat uses the text
-    model, an image uses the vision model, and voice uses the audio model for the
-    **whole turn** — not a text model with an audio model beside it. A resume uses
-    the pair the turn started with, even if the task assignment has moved since.
+    model: '<lfm3 id>'}` is the only shape stored or sent. Chat, an image and
+    voice all default to Omni; Settings may still point one task at a dedicated
+    model. A voice turn uses one model for the **whole turn** — not a text model
+    with an audio model beside it. A resume uses the pair the turn started with,
+    even if the task assignment has moved since.
 18. **A delegation is a tool call in the same conversation.** `ask_agent` builds
     the helper over the parent's session service and session id — never
     `this.host(childProfileId)`. Depth is one by construction. A helper's gate is
@@ -221,8 +222,8 @@ unchanged, and `request_tool` still refuses the shell.
 
 **The goals after the direction are a plan, not a grant.** They are held in the
 renderer and never written; they choose which steps appear (a bot step, the
-optional pictures/voice downloads, the jobs step), the suggested starter role,
-and nothing about tools. Writing and coding are available on Regular because the
+voice preference, the jobs step), the suggested starter role, and nothing about
+tools. Writing and coding are available on Regular because the
 Writer or Coder bot carries `write_file` on its own profile; only scheduling is
 Power-only, and a disabled goal is drawn with a switch to Power rather than
 silently changing the grant.
@@ -247,17 +248,18 @@ NVIDIA driver. `cuda.ts` owns the `nvidia-smi` probe and the driver floor;
 and the host falls back to Vulkan when the probe says no. The switch lives in
 Settings → Models, and switching back to Vulkan replaces the engine again.
 
-Defaults: Chat → `lfm3-1.7b`, Images → `lfm3-vl-2b`, Voice → `lfm3-audio-2b`.
-Q8 is the quality choice; Q4 is the small-laptop choice, and the host suggests it
-below 8 GB of RAM. `lfm3-omni-2b` can do all three tasks, which is what the
-"one model for everything" button is for.
+Defaults: Chat, Images and Voice → `lfm3-omni-2b`. One download answers, sees
+and speaks, so a first run never asks which model to use. Q8 is the quality
+choice; Q4 is the small-laptop choice, and the host suggests it below 8 GB of
+RAM. The dedicated `lfm3-1.7b`, `lfm3-vl-2b` and `lfm3-audio-2b` remain in
+Settings for a machine that wants a smaller copy or a different trade-off.
 
 The surfaces are split on purpose: Settings → Models assigns the three tasks and
 owns the downloads, variants, removal and sleep; the composer's badge only
 reports which model is warm and opens that card; the first run owns the required
-text download and an optional pictures/voice step that appears only when the
-goals ask for it. That optional step uses the same installer and pins but never
-assigns a task. Do not put a second task picker in the composer — the assignment
+Omni download and a voice-preference step that appears only when the voice goal
+is chosen. The dedicated models are an alternative, never a first-run
+requirement. Do not put a second task picker in the composer — the assignment
 is an app-wide fact, not a fact about one conversation.
 
 The speech endpoints are not the chat endpoint. Transcription is a chat
@@ -280,8 +282,9 @@ the way the app uses it:
 ```
 model/
   engine/llama-server
-  lfm3-1.7b/LFM3-1.7B-QAD-Q4_0.gguf
-  lfm3-1.7b/local-model.json
+  lfm3-omni-2b/LFM3-Omni-2B-Q4_K_M.gguf
+  lfm3-omni-2b/mmproj-LFM3-Omni-2B-Q4_K_M.gguf
+  lfm3-omni-2b/local-model.json
 ```
 
 The marker is written by the installer, not by hand in normal use; a fixture for

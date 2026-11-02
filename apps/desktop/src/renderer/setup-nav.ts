@@ -3,12 +3,11 @@
  * screen.
  *
  * The flow is a graph now, not a list. The direction and the goals decide which
- * steps exist: an optional pictures/voice download, a bot step only when a goal
- * calls for a bot, the Persona and "more bots" steps only after one was made,
- * and a jobs step only for Power setup with the automation goal. Drawing the
- * progress bar and choosing Back both read this one answer, so a step cannot be
- * on screen without being in the list, and a conditional step cannot leave a
- * dead end behind it.
+ * steps exist: a voice preference, a bot step only when a goal calls for a bot,
+ * the Persona and "more bots" steps only after one was made, and a jobs step
+ * only for Power setup with the automation goal. Drawing the progress bar and
+ * choosing Back both read this one answer, so a step cannot be on screen without
+ * being in the list, and a conditional step cannot leave a dead end behind it.
  *
  * Labels rather than "step 2 of 5": what is being decided is the useful half,
  * and a count is only how much is left.
@@ -45,7 +44,7 @@ const STEP_LABELS: Record<SetupStep['id'], string> = {
   direction: 'Control',
   goals: 'Goals',
   model: 'Model',
-  extras: 'Pictures & voice',
+  extras: 'Voice',
   space: 'Space',
   bot: 'A bot',
   persona: 'Persona',
@@ -66,7 +65,9 @@ export interface SetupRead {
  *
  * The order is the flow's, and every conditional is decided here:
  *
- * - Extras is for a model the goals asked to have installed.
+ * - Voice is the one preference after the model. The Omni model is the required
+ *   download and already sees and speaks, so there is no extra model to fetch;
+ *   the step is only where spoken replies can be turned on.
  * - The bot step is for a goal that wants one. Persona and more-bots follow a
  *   bot that actually exists, so they cannot appear before the step that makes
  *   one.
@@ -83,7 +84,7 @@ export function setupSteps(read: SetupRead): SetupStep[] {
   add('direction');
   add('goals');
   add('model');
-  if (effects.tasks.length > 0) {
+  if (read.goals.includes('voice')) {
     add('extras');
   }
   add('space');

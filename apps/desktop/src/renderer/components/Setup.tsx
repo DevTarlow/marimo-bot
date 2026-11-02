@@ -16,12 +16,12 @@
  *   how much of the flow exists, but it is not a mode: there is no settings
  *   field for it, and every switch stays on the one Settings screen.
  * - **The goals grant nothing.** They choose the suggested starter role, the
- *   optional model downloads and the jobs step. A goal that needs a tool the
+ *   optional voice preference and the jobs step. A goal that needs a tool the
  *   current direction does not have is drawn and disabled rather than silently
  *   writing a grant.
- * - **The model is the only required step.** Until the text model is on disk
+ * - **The model is the only required step.** Until the Omni model is on disk
  *   and the engine can load it, the window offers no message box at all.
- *   Pictures and voice are optional even when a goal asked for them; the jobs
+ *   Spoken replies are optional even when a goal asked for them; the jobs
  *   service is optional even when automation asked for it.
  * - **The bot step is conditional.** A person who only wants chat, files,
  *   pictures or voice is not asked to make a bot. The finish step says where
@@ -68,7 +68,6 @@ import type {AgentController} from '../hooks/useAgent.js';
 import {
   directionForPresetId,
   goalAvailableIn,
-  goalEffects,
   recommendedTemplateId,
   setupGoalById,
 } from '../setup-goals.js';
@@ -213,7 +212,6 @@ export function Setup({
   const activeDirection =
     direction ?? directionForPresetId(chosenControl?.id) ?? 'regular';
   const templates = catalog?.botTemplates ?? [];
-  const effects = goalEffects(goals);
   const steps = setupSteps({
     direction: activeDirection,
     goals,
@@ -719,7 +717,6 @@ export function Setup({
           <SetupExtras
             settings={settings}
             onSettings={onSettings}
-            tasks={effects.tasks}
             onBack={back}
             onNext={advance}
           />

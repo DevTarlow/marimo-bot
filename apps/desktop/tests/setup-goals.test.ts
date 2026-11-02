@@ -13,7 +13,6 @@ import {
   directionForPresetId,
   goalAvailableIn,
   goalEffects,
-  groupTasksByModel,
   presetIdForDirection,
   recommendedTemplateId,
   setupGoalById,
@@ -105,38 +104,6 @@ describe('what the chosen goals add', () => {
     expect(goalEffects(['writing']).templateId).toBe('writer');
     expect(goalEffects(['research', 'writing']).templateId).toBe('researcher');
     expect(goalEffects(['bots'])).not.toHaveProperty('templateId');
-  });
-});
-
-describe('grouping tasks by assigned model', () => {
-  const dedicated = {
-    chat: 'lfm3-1.7b',
-    vision: 'lfm3-vl-2b',
-    voice: 'lfm3-audio-2b',
-  } as const;
-  const omni = {
-    chat: 'lfm3-1.7b',
-    vision: 'lfm3-omni-2b',
-    voice: 'lfm3-omni-2b',
-  } as const;
-
-  it('draws one card per assigned model', () => {
-    expect(groupTasksByModel(['vision', 'voice'], dedicated)).toEqual([
-      {modelId: 'lfm3-vl-2b', tasks: ['vision']},
-      {modelId: 'lfm3-audio-2b', tasks: ['voice']},
-    ]);
-  });
-
-  it('collapses two tasks that share one model, as Omni does', () => {
-    expect(groupTasksByModel(['vision', 'voice'], omni)).toEqual([
-      {modelId: 'lfm3-omni-2b', tasks: ['vision', 'voice']},
-    ]);
-  });
-
-  it('keeps the order the tasks were given in inside a group', () => {
-    expect(groupTasksByModel(['voice', 'vision'], omni)).toEqual([
-      {modelId: 'lfm3-omni-2b', tasks: ['voice', 'vision']},
-    ]);
   });
 });
 

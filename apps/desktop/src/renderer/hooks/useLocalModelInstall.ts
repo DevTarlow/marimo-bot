@@ -1,10 +1,9 @@
 /**
  * One local model's download, as a hook.
  *
- * The required model step and the optional pictures/voice step are the same
- * operation with different consequences, so the event subscription, progress,
- * cancel and refresh live here rather than in two components that would drift
- * the first time the installer's events changed.
+ * The required model step is the first run's one model download; this hook owns
+ * the event subscription, progress, cancel and refresh so the card stays a
+ * view rather than a second copy of the installer's event handling.
  *
  * The subscription exists only while this model is installing, exactly as the
  * first-run step always did: a download started in Settings is Settings' to

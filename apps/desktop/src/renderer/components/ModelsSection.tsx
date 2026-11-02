@@ -185,9 +185,10 @@ export function ModelsSection({
       onToggle={onToggle}
     >
       <p className="settings-muted">
-        Four small models from Liquid AI run on this computer. Nothing you type
-        is sent to a model service. One model is in memory at a time; switching
-        task switches the model, and after a quiet spell it stops.
+        The Omni model handles Chat, Images and Voice by default. It runs on
+        this computer; nothing you type is sent to a model service. The
+        dedicated text, vision and audio models are optional alternatives. One
+        model is in memory at a time, and after a quiet spell it stops.
       </p>
       {!supported && (
         <p className="settings-problem">
@@ -306,26 +307,8 @@ export function ModelsSection({
         </select>
       </div>
 
-      <div className="settings-row">
-        <button
-          type="button"
-          className="button button-quiet"
-          disabled={saving}
-          onClick={() => {
-            void save({
-              localModels: {
-                tasks: {
-                  chat: 'lfm3-omni-2b',
-                  vision: 'lfm3-omni-2b',
-                  voice: 'lfm3-omni-2b',
-                },
-              },
-            });
-          }}
-        >
-          Use one model for everything (Omni)
-        </button>
-        {active !== undefined && (
+      {active !== undefined && (
+        <div className="settings-row">
           <button
             type="button"
             className="button button-quiet"
@@ -335,8 +318,8 @@ export function ModelsSection({
           >
             Put {LOCAL_MODELS[active.id].shortLabel} to sleep
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {LOCAL_MODEL_IDS.map((modelId) => {
         const model = LOCAL_MODELS[modelId];

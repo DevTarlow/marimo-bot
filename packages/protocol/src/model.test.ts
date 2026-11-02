@@ -40,7 +40,7 @@ describe('the local models in a settings file', () => {
     expect(settingsSchema.shape.localModels).toBeDefined();
   });
 
-  it('starts a fresh install on the text, vision and audio models', () => {
+  it('starts a fresh install on the Omni model for every task', () => {
     const parsed = settingsSchema.safeParse(settingsShape());
     expect(parsed.success).toBe(true);
     if (!parsed.success) {
@@ -48,9 +48,9 @@ describe('the local models in a settings file', () => {
     }
     expect(parsed.data.localModels).toEqual(defaultLocalModelsSettings());
     expect(parsed.data.localModels.tasks).toEqual({
-      chat: 'lfm3-1.7b',
-      vision: 'lfm3-vl-2b',
-      voice: 'lfm3-audio-2b',
+      chat: 'lfm3-omni-2b',
+      vision: 'lfm3-omni-2b',
+      voice: 'lfm3-omni-2b',
     });
     expect(parsed.data.localModels.idleMinutes).toBe(3);
   });

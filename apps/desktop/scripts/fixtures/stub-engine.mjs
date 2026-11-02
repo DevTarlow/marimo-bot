@@ -59,7 +59,7 @@ const server = createServer((request, response) => {
         object: 'list',
         data: [
           {
-            id: 'lfm3-1.7b',
+            id: 'lfm3-omni-2b',
             object: 'model',
             created: 0,
             owned_by: 'local',
@@ -124,7 +124,7 @@ const server = createServer((request, response) => {
         id: 'smoke-1',
         object: 'chat.completion',
         created: 0,
-        model: 'lfm3-1.7b',
+        model: 'lfm3-omni-2b',
         choices: [
           {
             index: 0,

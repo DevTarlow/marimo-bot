@@ -119,23 +119,29 @@ async function prepareModelFixture(userData) {
     'utf8',
   );
 
-  const pin = CHAT_PINS.models['lfm3-1.7b'];
-  const weights = pin.variants.q4.weights;
-  const dir = join(root, 'lfm3-1.7b');
+  const pin = CHAT_PINS.models['lfm3-omni-2b'];
+  const variant = pin.variants.q4;
+  const weights = variant.weights;
+  const projector = variant.projector;
+  const dir = join(root, 'lfm3-omni-2b');
   await mkdir(dir, {recursive: true});
-  const handle = await open(join(dir, weights.file), 'w');
-  await handle.truncate(weights.bytes);
-  await handle.close();
+  for (const file of [weights, projector]) {
+    const handle = await open(join(dir, file.file), 'w');
+    await handle.truncate(file.bytes);
+    await handle.close();
+  }
   await writeFile(
     join(dir, 'local-model.json'),
     `${JSON.stringify(
       {
-        modelId: 'lfm3-1.7b',
+        modelId: 'lfm3-omni-2b',
         variant: 'q4',
         revision: pin.revision,
-        files: [
-          {name: weights.file, sha256: weights.sha256, bytes: weights.bytes},
-        ],
+        files: [weights, projector].map((file) => ({
+          name: file.file,
+          sha256: file.sha256,
+          bytes: file.bytes,
+        })),
       },
       null,
       2,
@@ -695,7 +701,7 @@ async function main() {
       })()`);
       return value === undefined ? undefined : JSON.parse(value);
     });
-    if (!finishStep.text.includes('LFM3 1.7B')) {
+    if (!finishStep.text.includes('LFM3 Omni 2B')) {
       fail(
         `the setup summary does not name the model: ${JSON.stringify(finishStep)}`,
       );
@@ -2173,15 +2179,11 @@ async function main() {
         fail(`the Models card draws ${String(modelsCard.cards)} models, not four`);
       } else if (
         !modelsCard.installed.some((text) => text.includes('4-bit')) ||
-        !modelsCard.installed.some((text) => text.includes('LFM3 1.7B'))
+        !modelsCard.installed.some((text) => text.includes('LFM3 Omni 2B'))
       ) {
         fail(
           `the installed model is not named in the Models card: ${JSON.stringify(modelsCard.installed)}`,
         );
-      } else if (
-        !modelsCard.buttons.some((label) => label.includes('Omni'))
-      ) {
-        fail('the Models card offers no one-model preset');
       } else {
         ok('the Models card offers three tasks and four models, with no key');
       }

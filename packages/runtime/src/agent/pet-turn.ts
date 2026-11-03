@@ -74,7 +74,8 @@ const SPOKEN = [
   '- No markdown, bullet lists, tables, code fences or URLs. Say the answer, not',
   '  its formatting.',
   '- Say numbers, dates and units the way a person says them.',
-  '- Do not narrate tool use or describe what you are about to do. Just answer.',
+  '- You may call tools; do not narrate the call or describe what you are about',
+  '  to do. Just do it, then answer.',
 ].join('\n');
 
 /**

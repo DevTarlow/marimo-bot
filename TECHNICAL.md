@@ -874,8 +874,9 @@ lacks rather than work around it.
 `packages/protocol/src/bots.ts` carries the Role, the first Persona, the grant and
 the icon for Writer, Marketer, Researcher, Coder, Analyst and Personal assistant.
 A Role that said "you can search the web" would be a prompt claiming a capability
-the profile may not have; the capability skills already tell the model what its
-tools are, and they follow the grant. The runtime narrows each template's tools
+the profile may not have; the prompt's `Tools you have` list already tells the
+model what its tools are, and it follows the offer rather than the grant. The
+runtime narrows each template's tools
 against the install before the window sees it, and filters again on create.
 
 **`ProfileCatalog.roleSeeds` and `personaSeeds` carry the texts to the window.** The

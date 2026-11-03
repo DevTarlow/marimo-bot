@@ -154,15 +154,19 @@ The prompt is assembled in one place, in this order:
 4. Space context (folder, documents index)
 5. memory: rules whole, facts selected by relevance when the file is large
 6. the skills index (name and one line, never the body)
-7. capability guidance, filtered to the tools actually granted
-8. the turn's own instruction
+7. the tools this turn can actually call, by name and one line, from the same
+   definitions the adapter wraps
+8. capabilities the profile lacks, when `request_tool` is granted
+9. the turn's own instruction
 
 Each layer records a hash and an estimated token count. The turn stores the
 combined hash. A prompt that changes without a harness version changing is a
 bug the trace will show.
 
-Role, Persona and starter-role text name no tool. Capability guidance follows the
-grant, so a prompt cannot advertise something the profile does not have.
+Role, Persona and starter-role text name no tool. The tool list follows the
+_offer_, not the grant: a capability with no Space, store or connection behind it
+is absent from the definitions, so it is absent from the prompt too. That is what
+keeps a small model from being told about a tool the turn cannot call.
 
 ## The turn
 
@@ -197,6 +201,11 @@ Rules the engine owns:
   refused by the engine on that turn and every later one.
 - **Gating happens before the tool list is built.** A tool the profile does not
   have is absent, not refused.
+- **A false file-tool denial is corrected in the prompt, never in the log.** When
+  a replayed assistant message says it cannot edit files and the turn offers
+  `write_file`, the replay becomes a user-role correction; the stored message
+  keeps the model's original words. The turn also carries an ephemeral tool note
+  beside the question, because a small model copies the answer it just saw.
 - **Budgets stop a turn with a sentence**, not a stack trace: steps, tool calls,
   delegations, tokens, wall clock.
 

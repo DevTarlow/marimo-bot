@@ -12,6 +12,7 @@ import type {
   HarnessProfile,
   HarnessSpec,
 } from '../harness/spec.js';
+import {systemInstructionToText} from '../models/openai-mapping.js';
 import {AdkDriver, type HelperTarget} from './adk-driver.js';
 import type {DriverEvent} from './driver.js';
 import type {SessionEvent} from './events.js';
@@ -214,6 +215,204 @@ describe('AdkDriver', () => {
   });
 
   /*
+   * The failure this guards is the one a 2B model actually made: it had
+   * `write_file` granted, called `read_file`, and then told the person it had no
+   * tool to edit a file. The tool JSON was in the request and the prose was not,
+   * so the list now comes from the same definitions the agent is given.
+   */
+  it('lists the tools it offers in the instruction, and only those', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Hello.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Remove the line.',
+        harness: harness(dir),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const system = systemInstructionToText(
+      model.requests[0]?.config?.systemInstruction,
+    );
+    expect(system).toContain('# Tools you have');
+    expect(system).toContain('- read_file — Read a UTF-8 text file');
+    expect(system).toContain('- write_file — Create, edit or replace');
+    expect(system).toContain(
+      'A request to change a file is a `write_file` call: read it first',
+    );
+    expect(system).not.toContain('- web_search');
+    expect(system).not.toContain('- load_skill');
+    expect(system).not.toContain('- ask_agent');
+
+    /*
+     * The correction sits beside the question as well. A conversation can
+     * already hold the model's own denial; the note is what breaks the belief
+     * without rewriting the stored user message.
+     */
+    const sent = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .join('\n');
+    expect(sent).toContain('Correction: you do have these tools');
+    expect(sent).toContain('write_file');
+    expect(sent).toContain('do not mention this note');
+  });
+
+  it('does not remind the model of tools the turn does not have', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Hello.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Hello.',
+        harness: harness(dir, []),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const sent = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .join('\n');
+    expect(sent).not.toContain('Tools available: ');
+  });
+
+  /*
+   * The session that prompted this had already heard the model say it could only
+   * read files, twice. A fresh instruction does not break that pattern; the
+   * replayed denial has to be replaced, or it is the sentence the model copies.
+   * The stored log keeps the model's words, and only the prompt is corrected.
+   */
+  it('corrects a replayed denial when the turn does offer write_file', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Done.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const denial: SessionEvent = {
+      id: 'a-t0',
+      sessionId: 's1',
+      at: '2026-01-01T00:00:00.000Z',
+      turnId: 't0',
+      type: 'assistant.message',
+      author: 'Writer',
+      agentId: 'writer',
+      text:
+        "I don't have a tool to edit files directly. I can only read files " +
+        'using `read_file`.',
+    };
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Just edit the current file.',
+        harness: harness(dir),
+        history: [denial],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const sent = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .join('\n');
+    expect(sent).toContain('[App correction: the earlier answer was wrong.');
+    expect(sent).toContain('`write_file` is available in this conversation');
+    // The false sentence is not replayed, so there is nothing to copy.
+    expect(sent).not.toContain('I can only read files');
+    /*
+     * And the correction is the person's note, not the model's own words: a
+     * small model copies the last assistant message, which is how the denial
+     * survived the first attempt at this.
+     */
+    const corrected = (model.requests[0]?.contents ?? []).find((content) =>
+      (content.parts ?? []).some((part) =>
+        (part.text ?? '').includes('[App correction:'),
+      ),
+    );
+    expect(corrected?.role).toBe('user');
+  });
+
+  it('leaves a denial alone when the profile cannot write files', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Understood.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const denial: SessionEvent = {
+      id: 'a-t0',
+      sessionId: 's1',
+      at: '2026-01-01T00:00:00.000Z',
+      turnId: 't0',
+      type: 'assistant.message',
+      author: 'Writer',
+      agentId: 'writer',
+      text: "I don't have a tool to edit files directly.",
+    };
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Just edit the current file.',
+        harness: harness(dir, ['read_file']),
+        history: [denial],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const sent = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .join('\n');
+    expect(sent).not.toContain('[App correction: the earlier answer was wrong.');
+  });
+
+  it('bounds a long connector description in the prompt', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Hello.')]]);
+    const driver = new AdkDriver({
+      resolveModel: () => model,
+      mcpTools: () => [
+        {
+          name: 'mcp_notes_search',
+          description: `Search ${'the notes '.repeat(40)}`,
+          parameters: {} as never,
+          gate: 'never',
+          execute: async () => ({ok: true, result: 'a note'}),
+        },
+      ],
+    });
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Search the notes.',
+        harness: harness(dir),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const system = systemInstructionToText(
+      model.requests[0]?.config?.systemInstruction,
+    );
+    const line = system
+      .split('\n')
+      .find((entry) => entry.startsWith('- mcp_notes_search'));
+    expect(line).toBeDefined();
+    expect(line).toContain('...');
+    expect(line?.length).toBeLessThanOrEqual(141);
+  });
+
+  /*
    * A connector's tools are part of the same offer, not a second menu. The
    * caller that owns the connection supplies them, and the driver's only job is
    * to put them beside the built-ins and answer a call to one.
@@ -252,6 +451,11 @@ describe('AdkDriver', () => {
     );
 
     expect(model.requests[0]?.toolsDict).toHaveProperty('mcp_notes_search');
+    expect(
+      systemInstructionToText(
+        model.requests[0]?.config?.systemInstruction,
+      ),
+    ).toContain('- mcp_notes_search — Search the notes connector.');
     expect(calls).toEqual([{q: 'x'}]);
     expect(
       updates.find((update) => update.type === 'tool.result'),
@@ -505,6 +709,16 @@ describe('AdkDriver', () => {
     expect(
       eventList.find((event) => event.type === 'message'),
     ).toMatchObject({text: 'The helper answered.'});
+    /*
+     * The helper is a real agent with tools, except the one that asked for it.
+     * Both halves of the offer come from the same filtered definitions, so its
+     * prompt must not advertise `ask_agent` back at it.
+     */
+    const helperSystem = systemInstructionToText(
+      helper.requests[0]?.config?.systemInstruction,
+    );
+    expect(helperSystem).toContain('- read_file —');
+    expect(helperSystem).not.toContain('- ask_agent');
   });
 
   it('raises a parent card for a helper gate, then wakes the helper', async () => {

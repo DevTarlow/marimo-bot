@@ -417,7 +417,7 @@ const TOOL_BLURBS: Record<string, string> = {
   search_knowledge_base:
     'Search your space for a word or phrase and show the lines it appears on.',
   write_file:
-    'Create a file, or overwrite one. It asks before replacing a file that already exists.',
+    'Create, edit or overwrite a file. It asks before replacing a file that already exists.',
   run_shell:
     'Run a command on your computer. This is the broadest thing on this list — ' +
     'it asks every time, and it is worth leaving off unless you want it.',

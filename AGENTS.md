@@ -136,9 +136,12 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     when they stopped rather than answering as if the folder ended there.
 22. **A prompt must not advertise a capability the profile does not have.** The
     tool list and the prompt agree, or the model narrates a capability it was
-    never given. `DEFAULT_AGENT_ROLE` / `DEFAULT_AGENT_PERSONA` are the agent the
-    person talks to; `botRoleFor(name, template)` / `botPersonaFor(template)` are a
-    bot. The starter roles name no tool; the capability skills follow the grant.
+    never given. The `# Tools you have` block is built from the definitions the
+    driver actually wraps, not from `tools.grants`, so a grant with no Space or
+    service behind it is absent from both. `DEFAULT_AGENT_ROLE` /
+    `DEFAULT_AGENT_PERSONA` are the agent the person talks to; `botRoleFor(name,
+    template)` / `botPersonaFor(template)` are a bot. The starter roles name no
+    tool; the capability skills follow the grant.
 23. **A skill is advertised, not carried, and its grant is the switch.**
     `userData/skills/<name>/SKILL.md` prints its name and one line in the prompt;
     `load_skill` reads the body when a task matches. `enabledSkills` is the one
@@ -164,6 +167,12 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     and the pet's each filter on it, so two voices never read one answer. The
     voice model is started before the turn, and the transcript is what is stored
     — the audio is not.
+27. **A false file-tool denial is corrected in the prompt, never in the log.** A
+    replayed assistant message that says it cannot edit files is replaced with a
+    user-role correction when the turn actually offers `write_file`; the stored
+    message stays what the person saw. The turn also carries an ephemeral tool
+    note beside the question, because a small model copies its own last answer
+    and the correction has to be in the person's voice to break the pattern.
 
 ## Documents
 

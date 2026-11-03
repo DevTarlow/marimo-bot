@@ -187,9 +187,9 @@ const listDir = asAnyTool({
 const writeFileTool = asAnyTool({
   name: 'write_file',
   description:
-    'Write UTF-8 text to a file inside the workspace, replacing it if it exists ' +
-    'or creating it and its parent folders if it does not. Replacing an existing ' +
-    'file requires approval. Output is capped at 1 MiB.',
+    'Create, edit or replace a UTF-8 text file inside the workspace; replacing ' +
+    'an existing file asks the person first. Read the file when it already ' +
+    'exists, then send the complete new contents. Output is capped at 1 MiB.',
   parameters: z.object({
     path: z.string().describe('File to write, relative to the workspace root.'),
     content: z.string().describe('The complete new contents of the file.'),

@@ -9,6 +9,11 @@
  * Memory is carried whole here; retrieval narrows it later, in the same layer
  * that owns the file. A skill is advertised by name and one line, never carried
  * as a body: `load_skill` reads the body when a task matches.
+ *
+ * The tool list is the one layer taken from the definitions the adapter actually
+ * wraps rather than from the frozen spec, so a grant the turn cannot use is not
+ * named. A small model reads the list in prose; the tool JSON alone is not
+ * enough, and this session's `write_file` denial is the evidence.
  */
 import type {HarnessSpec} from '../harness/spec.js';
 
@@ -20,6 +25,15 @@ export interface HarnessSkillSummary {
 export interface HarnessPromptContext {
   memory?: string;
   skills?: readonly HarnessSkillSummary[];
+  /**
+   * The tools this turn can actually call, by name and one line.
+   *
+   * Supplied by the adapter from the definitions it wraps, not read from
+   * `harness.tools.grants`: a grant the turn cannot use (no Space, no service)
+   * is not offered, and a prompt that named it would advertise a capability the
+   * turn does not have. Each description is already bounded by the caller.
+   */
+  tools?: ReadonlyArray<{name: string; description: string}>;
   /**
    * Capabilities this bot does not have and could ask for.
    *
@@ -83,6 +97,39 @@ export function composeHarnessInstruction(
         'Skills you may load. The line says when one is useful; the steps are ' +
           'read with load_skill only when a task matches:',
         ...skills.map((skill) => `- ${skill.name} — ${skill.description}`),
+      ].join('\n'),
+    );
+  }
+
+  const tools = context.tools ?? [];
+  if (tools.length > 0) {
+    const canWrite = tools.some((tool) => tool.name === 'write_file');
+    const canRead = tools.some((tool) => tool.name === 'read_file');
+    sections.push(
+      [
+        '# Tools you have',
+        '',
+        'These are callable in this turn. If the request needs one, call it',
+        'rather than telling the person you cannot. A greeting needs none of',
+        'them.',
+        '',
+        ...tools.map((tool) =>
+          tool.description.trim().length === 0
+            ? `- ${tool.name}`
+            : `- ${tool.name} — ${tool.description.trim()}`,
+        ),
+        ...(canWrite
+          ? [
+              '',
+              canRead
+                ? 'A request to change a file is a `write_file` call: read it first ' +
+                  'when it already exists, then send the complete new text. Do ' +
+                  'not tell the person to edit it themselves.'
+                : 'A request to change a file is a `write_file` call: send the ' +
+                  'complete new text. Do not tell the person to edit it ' +
+                  'themselves.',
+            ]
+          : []),
       ].join('\n'),
     );
   }

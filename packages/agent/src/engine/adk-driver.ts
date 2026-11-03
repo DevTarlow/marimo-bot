@@ -175,15 +175,34 @@ export class AdkDriver implements TurnDriver {
       input.signal,
       input.turnId,
     );
+    const definitions = this.offeredDefinitions(input.harness, context);
     const runner = this.runnerFor(
       input.harness,
       sessions,
       context,
+      definitions,
       input.instruction,
       input.sessionId,
     );
     const parts: Part[] = [{text: input.text}];
     parts.push(...(await this.attachmentParts(input.attachments, input.harness)));
+    /*
+     * The system prompt already lists these, but a 2B model that has just told
+     * the person it cannot edit a file will repeat that in the next turn unless
+     * the correction is beside the question. This part is built from the same
+     * definitions as the list and is never written to the log: the stored user
+     * message stays the person's words.
+     */
+    if (definitions.length > 0) {
+      /*
+       * The newline matters: OpenAI-compatible messages carry this as one text
+       * body, so a note concatenated straight onto the question reads as part
+       * of the sentence rather than as a bracket the model can skip.
+       */
+      parts.push({
+        text: `\n\n${toolReminder(definitions.map((definition) => definition.name))}`,
+      });
+    }
     yield* this.stream(runner, {
       sessionId: input.sessionId,
       harness: input.harness,
@@ -222,6 +241,7 @@ export class AdkDriver implements TurnDriver {
       input.harness,
       sessions,
       context,
+      this.offeredDefinitions(input.harness, context),
       input.instruction,
       input.sessionId,
     );
@@ -438,6 +458,21 @@ export class AdkDriver implements TurnDriver {
         });
       }
       case 'assistant.message': {
+        const correction = fileDenialCorrection(harness, event.text);
+        /*
+         * The correction is replayed as the person's words, not the model's: a
+         * small model copies the last assistant message it sees, so putting the
+         * correction in its own voice just gives it a new sentence to copy. As
+         * a user note it is an instruction to follow, and the false denial is
+         * gone from the prompt entirely.
+         */
+        if (correction !== undefined) {
+          return createEvent({
+            ...base,
+            author: 'user',
+            content: {role: 'user', parts: [{text: correction}]},
+          });
+        }
         const parts: Part[] = [];
         if (event.reasoning !== undefined && event.reasoning.length > 0) {
           parts.push({text: event.reasoning, thought: true});
@@ -553,12 +588,17 @@ export class AdkDriver implements TurnDriver {
     harness: HarnessSpec,
     sessions: InMemorySessionService,
     context: ToolContext,
+    definitions: readonly AnyToolDefinition[],
     instruction: string | undefined,
     sessionId: string,
     promptContext?: HarnessPromptContext,
-    omitTools?: ReadonlySet<string>,
     model?: BaseLlm,
   ): Runner {
+    /*
+     * One array for both halves of the offer: the tools ADK wraps and the list
+     * the model reads in prose. Two computations would be two chances for the
+     * prompt to name a tool the turn cannot call.
+     */
     const agent = new LlmAgent({
       name: adkAgentName(harness.id),
       description: harness.identity.role.slice(0, 200) || harness.identity.name,
@@ -576,11 +616,21 @@ export class AdkDriver implements TurnDriver {
           {};
         return composeHarnessInstruction(harness, {
           ...prompt,
+          tools: definitions.map((definition) => ({
+            name: definition.name,
+            description: firstSentence(definition.description, 120),
+          })),
           catalogue: this.requestCatalogue(harness),
           ...(instruction === undefined ? {} : {instruction}),
         });
       },
-      tools: this.buildTools(harness, context, sessions, sessionId, omitTools),
+      tools: this.buildTools(
+        harness,
+        definitions,
+        context,
+        sessions,
+        sessionId,
+      ),
     });
     return new Runner({
       appName: this.appName,
@@ -684,10 +734,14 @@ ${task}`});
       target.harness,
       sessions,
       target.toolContext,
+      this.offeredDefinitions(
+        target.harness,
+        target.toolContext,
+        new Set(['ask_agent']),
+      ),
       undefined,
       sessionId,
       target.promptContext,
-      new Set(['ask_agent']),
       target.model,
     );
 
@@ -802,14 +856,20 @@ ${task}`});
     return [...asked.values()].filter((entry) => !answered.has(entry.id));
   }
 
-  private buildTools(
+  /**
+   * The definitions this turn may actually call, before ADK wraps them.
+   *
+   * The grant is not the offer: a workspace tool without a Space, a memory tool
+   * without a store and a connector tool without a connection are all absent
+   * here. The prompt's tool list is built from this array, so the two cannot
+   * disagree.
+   */
+  private offeredDefinitions(
     harness: HarnessSpec,
     context: ToolContext,
-    sessions: InMemorySessionService,
-    sessionId: string,
     omitTools?: ReadonlySet<string>,
-  ): FunctionTool<never>[] {
-    const definitions = [
+  ): AnyToolDefinition[] {
+    return [
       ...(this.options.toolDefinitions?.(harness) ??
         toolsFor(harness, {
           memory: context.memory !== undefined,
@@ -822,6 +882,15 @@ ${task}`});
         })),
       ...(this.options.mcpTools?.(harness) ?? []),
     ].filter((definition) => omitTools?.has(definition.name) !== true);
+  }
+
+  private buildTools(
+    harness: HarnessSpec,
+    definitions: readonly AnyToolDefinition[],
+    context: ToolContext,
+    sessions: InMemorySessionService,
+    sessionId: string,
+  ): FunctionTool<never>[] {
     return definitions.map((definition) => {
       const rule = strongerGate(
         definition.gate ?? 'never',
@@ -1279,15 +1348,73 @@ function imageMimeType(path: string): string | undefined {
 
 
 /**
+ * A replacement for a replayed false "I cannot edit" answer.
+ *
+ * A small model that has already said it lacks `write_file` will often copy
+ * that sentence in the next turn, even with the tool list in the fresh
+ * instruction, because the strongest local pattern in the conversation is its
+ * own denial. The stored log is not rewritten; the *replayed* assistant message
+ * is replaced with this correction, so there is no false sentence left to copy.
+ * It is only used when the turn really does offer `write_file`, so a genuine
+ * refusal is left alone.
+ */
+function fileDenialCorrection(
+  harness: HarnessSpec,
+  text: string,
+): string | undefined {
+  if (
+    harness.workspaceRoot === undefined ||
+    !harness.tools.grants.includes('write_file')
+  ) {
+    return undefined;
+  }
+  const denial =
+    /I (?:don't|do not) have (?:a |any )?tool (?:to |for )?(?:read or )?(?:edit|modify|change|write)|I can only read files?|I can(?:'t|not) (?:edit|modify|change) files?|need to edit the file yourself/iu;
+  if (!denial.test(text)) {
+    return undefined;
+  }
+  return (
+    '[App correction: the earlier answer was wrong. `write_file` is available ' +
+    'in this conversation; a request to change a file is a `write_file` call. ' +
+    'Do not repeat that you cannot edit files.]'
+  );
+}
+
+/**
+ * The tool names, in the one line the user turn carries.
+ *
+ * The system prompt lists the tools, but a conversation can already hold the
+ * model's own denial by the time this turn starts. A small model corrects a
+ * belief that sits beside the question more reliably than one it has to
+ * retrieve from the instruction, so the reminder travels with the new message.
+ * It is built from the same definitions the prompt uses, and it is never
+ * written to the log: the stored user message stays the person's words.
+ */
+function toolReminder(names: readonly string[]): string {
+  return (
+    '[Correction: you do have these tools in this turn. If an earlier answer ' +
+    'in this conversation said you did not have one of them, that answer was ' +
+    `wrong. Tools available: ${names.join(', ')}. Use the one the request ` +
+    'needs, and do not mention this note.]'
+  );
+}
+
+/**
  * The first sentence of a tool description, bounded.
  *
- * The catalogue is paid on every turn, so a full description of every ungranted
- * tool would be a context tax on the one feature that is supposed to reduce the
- * person's explaining. The first sentence is what distinguishes one capability
- * from another; the schema the model gets when it is granted says the rest.
+ * The catalogue and the prompt's tool list are both paid on every turn, so a
+ * full description of every tool would be a context tax on the one feature that
+ * is supposed to reduce the person's explaining. The first sentence is what
+ * distinguishes one capability from another; the schema the model gets when it
+ * is granted says the rest. Whitespace is collapsed first, because an MCP
+ * server's description can arrive with newlines and a newline inside a bullet
+ * breaks the list the model is reading.
  */
-function firstSentence(text: string): string {
-  const end = text.indexOf('. ');
-  const sentence = (end < 0 ? text : text.slice(0, end + 1)).trim();
-  return sentence.length > 140 ? `${sentence.slice(0, 137)}...` : sentence;
+function firstSentence(text: string, limit = 140): string {
+  const collapsed = text.replace(/\s+/gu, ' ').trim();
+  const end = collapsed.indexOf('. ');
+  const sentence = end < 0 ? collapsed : collapsed.slice(0, end + 1);
+  return sentence.length > limit
+    ? `${sentence.slice(0, Math.max(0, limit - 3))}...`
+    : sentence;
 }

@@ -57,4 +57,25 @@ describe('turnInstruction', () => {
     // setting does nothing.
     expect(detailed).toMatch(/Answer completely/u);
   });
+
+  /*
+   * The failure this guards is on disk: a 2B model in the companion answered
+   * "I don't have a tool to edit files" after a spoken turn whose last line said
+   * only "do not narrate tool use". A small model reads that as "do not use
+   * tools", so the instruction has to permit the call in the same breath as it
+   * forbids the narration.
+   */
+  it('lets a spoken answer call tools, and only forbids narrating them', () => {
+    const spoken = turnInstruction('pet', 'brief', undefined, true) ?? '';
+
+    expect(spoken).toMatch(/may call tools/u);
+    expect(spoken).toMatch(/do not narrate/u);
+    expect(spoken).not.toMatch(/Do not narrate tool use/u);
+  });
+
+  it('gives the window’s spoken answer the same permission', () => {
+    const spoken = turnInstruction('window', 'brief', undefined, true) ?? '';
+
+    expect(spoken).toMatch(/may call tools/u);
+  });
 });

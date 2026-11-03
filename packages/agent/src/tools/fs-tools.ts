@@ -150,10 +150,10 @@ export function createWriteFileTool(context: FileToolContext) {
   return new FunctionTool({
     name: 'write_file',
     description:
-      "Write UTF-8 text to a file in the user's workspace, replacing it if it " +
-      'already exists or creating it (and its parent directories) if it does ' +
-      'not. Overwriting an existing file requires the user to approve first, so ' +
-      'say what the change is for. Output is capped at 1 MiB.',
+      "Create, edit or replace a UTF-8 text file in the user's workspace; " +
+      'replacing an existing file asks the person first. Read the file when it ' +
+      'already exists, then send the complete new contents. Output is capped at ' +
+      '1 MiB.',
     parameters: z.object({
       path: z
         .string()

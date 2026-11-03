@@ -53,6 +53,20 @@ export {describeCron, nextCronRun, nextRunAfter, parseCron} from './cron.js';
 export type {CronSpec} from './cron.js';
 
 /*
+ * The attachment block a message carries: how it is spelled, how it is read
+ * back, and which files in it are pictures. Shared rather than owned by the
+ * composer, because the runtime and the window both have to agree with it about
+ * what was attached.
+ */
+export {
+  ATTACHED_FILES_HEADING,
+  imageMimeType,
+  isImagePath,
+  readAttachedFiles,
+} from './attachments.js';
+export type {AttachedFile, MessageAttachments} from './attachments.js';
+
+/*
  * The approval summary is here rather than in the renderer because the window's
  * card and the Discord message both have to say the same thing about a gate.
  */
@@ -305,6 +319,29 @@ export const ASSET_SCHEME = 'marimo-asset';
  */
 export function botAvatarUrl(profileId: string, version: string): string {
   return `${ASSET_SCHEME}://bot/${encodeURIComponent(profileId)}.png?v=${encodeURIComponent(version)}`;
+}
+
+/**
+ * `marimo-asset://space/<profile id>/<session id>?path=<relative path>`.
+ *
+ * A picture attached to a message lives in the Space the conversation works in,
+ * which the sandboxed renderer cannot read either. The URL names the
+ * *conversation* rather than a folder, because that is the fact the main
+ * process can resolve through the same rule a turn uses: a conversation's own
+ * Space, or the current one for a chat that predates them. The path is the one
+ * the message already carries, relative to that Space, and the handler refuses
+ * anything that resolves outside it.
+ */
+export function spaceImageUrl(
+  profileId: string,
+  sessionId: string,
+  path: string,
+): string {
+  return (
+    `${ASSET_SCHEME}://space/${encodeURIComponent(profileId)}` +
+    `/${encodeURIComponent(sessionId)}` +
+    `?path=${encodeURIComponent(path)}`
+  );
 }
 
 /*
@@ -2089,17 +2126,6 @@ export interface SkippedFile {
   name: string;
   reason: string;
 }
-
-/**
- * The line attached paths sit under, as the message spells it.
- *
- * Here rather than beside the composer that writes it, because two readers now
- * depend on the same spelling: the renderer that composes the message, and the
- * runtime that reads the block back out of it to say so in the turn's own
- * context. A second literal in the second reader is a block that silently stops
- * being recognised the day somebody rewords the first.
- */
-export const ATTACHED_FILES_HEADING = 'Attached files:';
 
 /* -------------------------------------------------------------------------- */
 /* Jobs                                                                        */

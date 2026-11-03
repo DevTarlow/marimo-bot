@@ -447,12 +447,22 @@ async function bootstrap(): Promise<void> {
   installSessionPermissions();
 
   /*
-   * The handler for uploaded bot icons. It has to exist before the window loads,
+   * The handler for the pictures the window shows: uploaded bot icons, and the
+   * images a conversation attached. It has to exist before the window loads,
    * because the first read of a profile with a custom icon asks for one — and a
    * scheme with no handler answers every request with a failure rather than
    * waiting for one to appear.
+   *
+   * The conversation lookup is a closure over the agent, which starts below:
+   * resolving a chat to its Space is the runtime's rule, and by the time a
+   * picture is asked for the agent is either there or the request is answered
+   * with a 404 like every other one that cannot be served.
    */
-  installAssetHandler(paths.avatars);
+  installAssetHandler({
+    avatarsDir: paths.avatars,
+    conversationRoot: async (profileId, sessionId) =>
+      await agent?.conversationFolder(profileId, sessionId),
+  });
 
   /*
    * One description of this install's background service, used by the card that

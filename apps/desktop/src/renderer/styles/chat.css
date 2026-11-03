@@ -695,6 +695,137 @@ body.resizing-rail * {
   border-radius: var(--radius) var(--radius) var(--radius-sm) var(--radius);
 }
 
+/*
+ * The files a message names, under its words and on the same side of the
+ * column.
+ *
+ * A picture is drawn at a size a message can hold rather than at its own pixel
+ * size, and the whole thumbnail is the button that opens it larger: the max
+ * widths here are the display size, not a limit on what can be seen.
+ * `flex-end` keeps the block with the user's bubbles, which sit on the right.
+ */
+.message-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  max-width: 88%;
+}
+
+.message-image {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: zoom-in;
+  line-height: 0;
+  transition: border-color var(--transition-fast);
+}
+
+.message-image:hover {
+  border-color: var(--border-strong);
+}
+
+.message-image img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(320px, 60vw);
+  max-height: 240px;
+  object-fit: contain;
+}
+
+/* A file the chat cannot draw: named, in the same shape as the composer's
+   chips, so a message with a text file on it still says which one. */
+.message-file {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The larger view.
+ *
+ * Above everything else in the window, including the rail's menus: it is the
+ * one thing the person asked to look at. The dim fill rather than a solid one
+ * so the transcript is still recognisable behind it, and the picture is capped
+ * against the window rather than at its own size — a 4000-pixel photograph is
+ * exactly what this is for.
+ */
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: rgb(0 0 0 / 72%);
+}
+
+.image-viewer-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+}
+
+.image-viewer-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 92vw;
+  max-height: 82vh;
+  object-fit: contain;
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 45%);
+}
+
+.image-viewer-name {
+  max-width: 92vw;
+  overflow: hidden;
+  color: rgb(255 255 255 / 88%);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-viewer-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: rgb(0 0 0 / 45%);
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 50%;
+  color: #fff;
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+.image-viewer-close:hover {
+  background: rgb(255 255 255 / 18%);
+}
+
 .message-error {
   margin: 0;
   color: var(--danger);

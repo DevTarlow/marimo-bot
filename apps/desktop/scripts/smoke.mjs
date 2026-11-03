@@ -823,6 +823,170 @@ async function main() {
     }
 
     /*
+     * The picture a message carries, drawn in the transcript.
+     *
+     * The window has no copy of an attached file: it has the Space and a path
+     * the message spells, and the picture arrives through the app's own
+     * `marimo-asset` scheme. A scheme that is unregistered, missing from the
+     * CSP or resolving a conversation against the wrong folder all fail the
+     * same way — as a thumbnail that never appears — so this is the one check
+     * that proves those three agree. The block is typed rather than attached
+     * through the picker because the text is what the app stores, and that text
+     * is what the window has to draw from.
+     *
+     * Both directions are asserted: the message's own words stay, the file's
+     * name is not what is drawn, and the picture opens into a larger dialog.
+     */
+    const spacePath = await evaluate(
+      `window.marimo
+        .call('workspaces.list', {})
+        .then(({workspaces, activeWorkspaceId}) =>
+          workspaces.find((entry) => entry.id === activeWorkspaceId)?.path ?? '')`,
+    );
+    if (typeof spacePath !== 'string' || spacePath.length === 0) {
+      fail('the window has no Space to read an attached picture from');
+    } else {
+      await copyFile(
+        join(appRoot, 'public', 'marimo-logo.png'),
+        join(spacePath, 'smoke-shot.png'),
+      );
+      const attachedText = `what is in this picture?\n\nAttached files:\n- smoke-shot.png`;
+      const typeable = await evaluate(`(() => {
+        const input = document.querySelector('textarea.composer-input');
+        if (input === null) return false;
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLTextAreaElement.prototype,
+          'value',
+        ).set;
+        setter.call(input, ${JSON.stringify(attachedText)});
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        return input.value.length > 0;
+      })()`);
+      if (typeable !== true) {
+        fail('the composer is not there to type an attached picture into');
+      }
+      const sendable = await until(
+        'the composer to take the message',
+        async () =>
+          (await evaluate(`(() => {
+            const button = document.querySelector('.composer-send');
+            return button !== null && button.disabled === false;
+          })()`)) === true
+            ? true
+            : undefined,
+      ).catch(() => undefined);
+      if (sendable !== true) {
+        fail('the composer never became ready to send the attached picture');
+      } else {
+        await evaluate(`document.querySelector('.composer-send')?.click()`);
+        /*
+         * Either outcome ends the wait: a loaded picture, or the file's name
+         * drawn in its place. Waiting only for the picture would turn "the
+         * scheme refused it" into a forty-five second timeout.
+         */
+        const drawn = await until(
+          'the attached picture to be drawn',
+          async () => {
+            const value = await evaluate(`(() => {
+              const chip = [...document.querySelectorAll('.message-file')].at(-1);
+              if (chip !== undefined) {
+                return JSON.stringify({
+                  loaded: false,
+                  chip: chip.textContent,
+                  width: 0,
+                  words: '',
+                });
+              }
+              const image = [
+                ...document.querySelectorAll('.message-image img'),
+              ].at(-1);
+              if (
+                image === undefined ||
+                !image.complete ||
+                image.naturalWidth === 0
+              ) {
+                return undefined;
+              }
+              const bubble = [
+                ...document.querySelectorAll('.message-user .bubble'),
+              ].at(-1);
+              return JSON.stringify({
+                loaded: true,
+                chip: null,
+                width: Math.round(image.getBoundingClientRect().width),
+                words: bubble?.textContent ?? '',
+              });
+            })()`);
+            return value === undefined ? undefined : JSON.parse(value);
+          },
+        ).catch(() => undefined);
+
+        if (drawn === undefined) {
+          fail(
+            'the attached picture never appeared: the message drew neither a ' +
+              "thumbnail nor the file's name",
+          );
+        } else if (drawn.chip !== null || drawn.loaded !== true) {
+          fail(
+            `the attached picture fell back to its name (${String(drawn.chip)}): ` +
+              'the marimo-asset URL was refused or the CSP blocked it',
+          );
+        } else if (drawn.width < 40) {
+          fail(
+            `the thumbnail is ${String(drawn.width)}px wide, which is not a picture`,
+          );
+        } else if (drawn.words.includes('Attached files:')) {
+          fail(
+            'the message still spells the attachment block under the picture',
+          );
+        } else {
+          await evaluate(`document.querySelector('.message-image')?.click()`);
+          const viewer = await until('the larger view to open', async () => {
+            const value = await evaluate(`(() => {
+                const dialog = document.querySelector('.image-viewer');
+                const image = dialog?.querySelector('img');
+                if (
+                  !dialog ||
+                  !image ||
+                  !image.complete ||
+                  image.naturalWidth === 0
+                ) {
+                  return undefined;
+                }
+                return JSON.stringify({
+                  labelled: dialog.getAttribute('aria-modal') === 'true',
+                });
+              })()`);
+            return value === undefined ? undefined : JSON.parse(value);
+          }).catch(() => undefined);
+          if (viewer === undefined) {
+            fail('clicking the thumbnail did not open a larger view of it');
+          } else {
+            await evaluate(
+              `document.dispatchEvent(
+                new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}),
+              )`,
+            );
+            const closed = await until('the larger view to close', async () =>
+              (await evaluate(
+                `document.querySelector('.image-viewer') === null`,
+              )) === true
+                ? true
+                : undefined,
+            ).catch(() => undefined);
+            if (closed !== true) {
+              fail('Escape did not close the larger view');
+            } else {
+              ok(
+                `an attached picture is drawn at ${String(drawn.width)}px and opens larger`,
+              );
+            }
+          }
+        }
+      }
+    }
+
+    /*
      * The rail, end to end.
      *
      * Folders are the part of the window no unit test can prove: the shape

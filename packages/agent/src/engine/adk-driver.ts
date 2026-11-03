@@ -24,10 +24,13 @@ import {
 import type {BaseLlm} from '@google/adk';
 import type {Content, Part} from '@google/genai';
 import {readFile, stat} from 'node:fs/promises';
-import {extname} from 'node:path';
 
 import type {Attachment} from '@marimo/protocol';
-import {MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS} from '@marimo/protocol';
+import {
+  imageMimeType,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS,
+} from '@marimo/protocol';
 
 import type {GateRule, HarnessSpec} from '../harness/spec.js';
 import {
@@ -1363,25 +1366,6 @@ function eventChars(event: SessionEvent): number {
       return JSON.stringify(event.result ?? '').length;
     default:
       return 80;
-  }
-}
-
-/** The content type an image path is sent with, by extension. */
-function imageMimeType(path: string): string | undefined {
-  switch (extname(path).toLowerCase()) {
-    case '.png':
-      return 'image/png';
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.webp':
-      return 'image/webp';
-    case '.gif':
-      return 'image/gif';
-    case '.bmp':
-      return 'image/bmp';
-    default:
-      return undefined;
   }
 }
 

@@ -1048,6 +1048,16 @@ export function App(): React.JSX.Element {
             delegations={agent.delegations}
             agents={settings?.profiles ?? agent.agents}
             leadId={leadId}
+            /*
+              The conversation's pictures are read through its own Space, and
+              the pair is what the main process resolves. Absent before a
+              conversation is open, which draws the names instead.
+            */
+            space={
+              agent.profile === undefined || agent.sessionId === null
+                ? null
+                : {profileId: agent.profile.id, sessionId: agent.sessionId}
+            }
             pending={agent.pending}
             onDecide={(callId, confirmed) => {
               void agent.decide(callId, confirmed);

@@ -24,7 +24,7 @@
  * Discord mention pass no `origin`, and telling a job "this is the first thing
  * they have said in this conversation" would simply be false.
  */
-import {ATTACHED_FILES_HEADING} from '@marimo/protocol';
+import {readAttachedFiles} from '@marimo/protocol';
 
 /** How recently a message still reads as the same exchange rather than a return. */
 const SAME_EXCHANGE_MS = 2 * 60 * 1000;
@@ -79,11 +79,12 @@ export function turnContext(facts: TurnContextFacts): string | undefined {
       : '- They asked this in the main window.',
   );
 
-  const attached = attachedPaths(facts.text);
+  const attached = readAttachedFiles(facts.text).files;
   if (attached.length > 0) {
     lines.push(
-      `- They attached ${attached.join(', ')}. Those files are why they wrote,` +
-        ' and the paths are relative to the folder you work in.',
+      `- They attached ${attached.map((file) => file.path).join(', ')}. ` +
+        'Those files are why they wrote, and the paths are relative to the ' +
+        'folder you work in.',
     );
   }
 
@@ -95,44 +96,6 @@ export function turnContext(facts: TurnContextFacts): string | undefined {
     '',
     ...lines,
   ].join('\n');
-}
-
-/**
- * The paths in the composer's attachment block, in the order they were listed.
- *
- * Only lines under the heading and only bulleted ones, so a message that merely
- * *mentions* the heading does not turn the sentence after it into a file list.
- * The heading is taken from the last occurrence, which is where the composer puts
- * it: after whatever the user typed.
- */
-export function attachedPaths(text: string): string[] {
-  const lines = text.split('\n');
-  let start = -1;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (lines[index]?.trim() === ATTACHED_FILES_HEADING) {
-      start = index;
-      break;
-    }
-  }
-  if (start < 0) {
-    return [];
-  }
-
-  const paths: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    const match = /^\s*-\s+(.+?)\s*$/u.exec(line);
-    const path = match?.[1] ?? '';
-    if (path.length === 0) {
-      // The first line that is neither a bullet nor blank ends the block; the
-      // heading is followed by the list and nothing else.
-      if (line.trim().length > 0) {
-        break;
-      }
-      continue;
-    }
-    paths.push(path);
-  }
-  return paths;
 }
 
 const DAY_NAMES = [

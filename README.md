@@ -79,6 +79,8 @@ The file is gone, and the app asks before every delete. Moving a file onto an ex
 
 Attach a picture with the `+` beside the message box. The Omni model reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed.
 
+The picture is shown in the chat at a size that fits the message, not as its file name. Click it for a larger view; Escape, the close button or a click outside closes it.
+
 The picture is attached to that one message. Attaching it does not copy or index it, and it is not sent anywhere: the Omni model runs on this computer. (Recall indexes a Space's media only if you turned media search on.)
 
 ### Voice

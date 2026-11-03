@@ -11,7 +11,7 @@ import {describe, expect, it} from 'vitest';
 
 import {ATTACHED_FILES_HEADING} from '@marimo/protocol';
 
-import {attachedPaths, turnContext} from './turn-context.js';
+import {turnContext} from './turn-context.js';
 
 /** A local wall-clock moment, so the assertions do not depend on the test host. */
 function at(year: number, month: number, day: number, hour: number, minute = 0) {
@@ -121,36 +121,5 @@ describe('turnContext', () => {
     });
 
     expect(block).toBeTypeOf('string');
-  });
-});
-
-describe('attachedPaths', () => {
-  it('reads the block the composer writes', () => {
-    expect(
-      attachedPaths(`what is this\n\n${ATTACHED_FILES_HEADING}\n- one.ts\n- two.ts`),
-    ).toEqual(['one.ts', 'two.ts']);
-  });
-
-  it('is empty for a message that merely mentions the heading', () => {
-    expect(attachedPaths(`why does ${ATTACHED_FILES_HEADING} not work`)).toEqual(
-      [],
-    );
-  });
-
-  it('takes the last block, which is where the composer puts it', () => {
-    // A user can type the heading themselves. The composer's own block comes
-    // after whatever they typed, so the last one is the real list.
-    expect(
-      attachedPaths(
-        `${ATTACHED_FILES_HEADING}\n- what-i-typed.ts\n\nlook at these\n\n` +
-          `${ATTACHED_FILES_HEADING}\n- real.ts`,
-      ),
-    ).toEqual(['real.ts']);
-  });
-
-  it('stops at the first line that is not a bullet', () => {
-    expect(
-      attachedPaths(`${ATTACHED_FILES_HEADING}\n- one.ts\nand that is all`),
-    ).toEqual(['one.ts']);
   });
 });

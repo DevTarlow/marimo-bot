@@ -7,9 +7,15 @@
  * the UI milestone, where it can be done with a renderer that escapes by
  * construction rather than by a regex somebody has to keep correct.
  */
-import {useEffect, useLayoutEffect, useRef, useState} from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
-import {DRAFT_BOT_TOOL} from '@marimo/protocol';
+import {DRAFT_BOT_TOOL, readAttachedFiles} from '@marimo/protocol';
 import type {AgentProfile, PendingGate, TranscriptMessage} from '@marimo/protocol';
 
 import {gateCopy} from '../gate-copy.js';
@@ -18,6 +24,8 @@ import {participantFor} from '../participants.js';
 import {Copy, Markdown} from './Markdown.js';
 import {BotBuilderIntro} from './BotBuilderIntro.js';
 import {BotDraftCard} from './BotDraftCard.js';
+import {ImageViewer, MessageFiles} from './MessageFiles.js';
+import type {MessageSpace, PreviewTarget} from './MessageFiles.js';
 
 import type {Delegation, LiveToolCall, LiveTurn} from '../hooks/useAgent.js';
 
@@ -233,6 +241,8 @@ function Message({
   agents,
   leadId,
   author,
+  space,
+  onPreview,
   onFeedback,
   onBotCreated,
 }: {
@@ -245,6 +255,9 @@ function Message({
    * message in a chat with one participant, which is most of them.
    */
   author?: string;
+  /** The Space a user's attached pictures are read from. */
+  space: MessageSpace | null;
+  onPreview: (target: PreviewTarget) => void;
   onFeedback?: (
     message: TranscriptMessage,
     correction?: string,
@@ -408,13 +421,49 @@ function Message({
             )}
           </div>
         ) : (
-          <div className="bubble">{message.text}</div>
+          <UserWords
+            text={message.text}
+            space={space}
+            onPreview={onPreview}
+          />
         )
       )}
       {message.error !== undefined && message.error.length > 0 && (
         <p className="message-error">{message.error}</p>
       )}
     </article>
+  );
+}
+
+/**
+ * The user's own message: their words, then the files they attached.
+ *
+ * The files are drawn outside the bubble rather than inside it, because the
+ * bubble's fill is the accent and a picture framed in accent reads as a
+ * decoration of the words rather than as the thing the message is about. A
+ * message that is only files has no bubble at all, which is what it should look
+ * like: the picture is the message.
+ */
+function UserWords({
+  text,
+  space,
+  onPreview,
+}: {
+  text: string;
+  space: MessageSpace | null;
+  onPreview: (target: PreviewTarget) => void;
+}): React.JSX.Element {
+  /*
+   * The block the composer appended is not shown as text: it is the same list
+   * the files below are drawn from, and printing both would show every attached
+   * picture twice — once as its name and once as itself.
+   */
+  const {body, files} = readAttachedFiles(text);
+  return (
+    <>
+      {body.length > 0 && <div className="bubble">{body}</div>}
+      <MessageFiles files={files} space={space} onPreview={onPreview} />
+    </>
   );
 }
 
@@ -426,6 +475,7 @@ export function Transcript({
   pending,
   agents,
   leadId,
+  space,
   onDecide,
   onFeedback,
   onBotCreated,
@@ -457,6 +507,13 @@ export function Transcript({
    * one needs no label, because it is what the transcript has always shown.
    */
   leadId: string | undefined;
+  /**
+   * The conversation a user's attached pictures are read from.
+   *
+   * Null before a conversation is open, which draws an attachment's name rather
+   * than a picture: there is no Space to resolve a path against yet.
+   */
+  space: MessageSpace | null;
   onDecide: (callId: string, confirmed: boolean) => void;
   /**
    * Records that an answer was wrong. Absent in a caller with nowhere to put it.
@@ -495,6 +552,21 @@ export function Transcript({
 
   const view = useRef<HTMLDivElement>(null);
   const [jumpable, setJumpable] = useState(false);
+  /*
+   * The picture open in the larger view, if any.
+   *
+   * One piece of state for the whole transcript rather than one per picture:
+   * only one can be open, and the viewer's focus handling belongs to a single
+   * dialog rather than to a copy inside every thumbnail.
+   */
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
+  /*
+   * Stable, so the viewer's own effect — which restores focus when it closes —
+   * does not re-run on every transcript render while a picture is open.
+   */
+  const closePreview = useCallback(() => {
+    setPreview(null);
+  }, []);
   /*
    * Whether to follow is decided from the geometry *before* the new content
    * arrived, which is why it is a ref rather than a comparison made after the
@@ -620,6 +692,8 @@ export function Transcript({
             message={message}
             agents={agents}
             leadId={leadId}
+            space={space}
+            onPreview={setPreview}
             {...(other === undefined ? {} : {author: other})}
             {...(onFeedback === undefined ? {} : {onFeedback})}
             {...(onBotCreated === undefined ? {} : {onBotCreated})}
@@ -629,7 +703,7 @@ export function Transcript({
 
       {outbox !== null && (
         <article className="message message-user">
-          <div className="bubble">{outbox}</div>
+          <UserWords text={outbox} space={space} onPreview={setPreview} />
         </article>
       )}
 
@@ -724,6 +798,13 @@ export function Transcript({
           Jump to latest
         </button>
       )}
+
+      {/*
+        The larger view of an attached picture, outside the scroll container so
+        the transcript behind it stays exactly where it was and comes back
+        unchanged when the dialog closes.
+      */}
+      <ImageViewer target={preview} onClose={closePreview} />
     </div>
   );
 }

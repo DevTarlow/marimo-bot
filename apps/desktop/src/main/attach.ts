@@ -16,10 +16,10 @@
  * out of it is exactly what the guard exists for.
  */
 import {open, stat} from 'node:fs/promises';
-import {basename, extname, relative} from 'node:path';
+import {basename, relative} from 'node:path';
 
 import {PathOutsideWorkspaceError, resolveInsideWorkspace} from '@marimo/agent';
-import {MAX_ATTACHMENT_BYTES} from '@marimo/protocol';
+import {isImagePath, MAX_ATTACHMENT_BYTES} from '@marimo/protocol';
 import type {PickedFile, SkippedFile} from '@marimo/protocol';
 
 /**
@@ -133,28 +133,5 @@ async function looksBinary(path: string): Promise<boolean> {
     return buffer.subarray(0, bytesRead).includes(0);
   } finally {
     await handle.close();
-  }
-}
-
-/**
- * Whether the vision model can read this file.
- *
- * By extension rather than by a decode: the picker runs before a model is warm,
- * and a header sniff would only tell us what the extension already does for the
- * five formats the llama.cpp encoder accepts. An extension the model cannot read
- * is refused by the binary probe below, which is the honest answer for a file
- * that might be a mislabelled image.
- */
-function isImagePath(path: string): boolean {
-  switch (extname(path).toLowerCase()) {
-    case '.png':
-    case '.jpg':
-    case '.jpeg':
-    case '.webp':
-    case '.gif':
-    case '.bmp':
-      return true;
-    default:
-      return false;
   }
 }

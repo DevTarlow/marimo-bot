@@ -64,7 +64,7 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Done        | Four Liquid AI LFM3 models in the catalogue, with Omni the only model this build offers and the one every task uses, at Q8 or Q4, run on a pinned GPU-capable llama.cpp build that offloads every layer when a device exists and falls back to the CPU when it does not. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes                                                                                                                                                         |
-| Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same Omni model, and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the Omni model, not a path the file tools would refuse                                                                                                                                                                                                                                          |
+| Done        | Voice: push-to-talk into the composer, speech recognition and speech synthesis by the same Omni model, and a spoken reply that only the surface which asked hears. Vision: an image attached to a message becomes bytes for the Omni model, not a path the file tools would refuse, and the chat draws it as a thumbnail that opens larger                                                                                                                                                                                              |
 | Done        | The first run downloads the Omni model, checks every byte against a pinned digest and only then offers the chat. It answers Chat, Images and Voice, so pictures and voice need no second download; the voice goal offers a spoken-replies switch. Settings → Models owns that one card and cleans up any dedicated files an older install left behind                                                                                                                                                                                                                                                        |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
 | Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                               |
@@ -519,6 +519,19 @@ served to the sandboxed renderer through the app's `marimo-asset` scheme. A
 malformed icon falls back to the default or the name's initial, which is the same
 rule the profile schema follows everywhere: an optional field that a newer build
 wrote must not make `ProfileStore.parseFile` skip the profile.
+
+**The same scheme draws an attached picture, and it names a conversation rather
+than a folder.** A message's text spells the files it carries, relative to the
+Space, so the window has a path and no file: `marimo-asset://space/<ids>?path=…`
+is resolved by the main process through `conversationFolder` — the same rule a
+turn uses to decide where it works — and then through
+`resolveInsideWorkspace`, so `..`, an absolute path and a symlink that leaves the
+Space are one refusal. The handler serves only an image by extension, under the
+attachment cap, and everything it refuses is a 404 because the window's fallback
+is the same for all of them: draw the file's name. A picture is a thumbnail in
+the transcript and a dialog at up to the window's own size; that is also why the
+block's reader (`readAttachedFiles`) lives in `packages/protocol` beside the
+heading rather than in the composer that writes it.
 
 ### A skill is a file, and the prompt only advertises it
 

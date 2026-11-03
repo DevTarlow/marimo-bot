@@ -728,7 +728,8 @@ async function main() {
      * and this run starts with a model already on disk, so it may not appear.
      * Either answer is honest; the card is not the subject of this check.
      */
-    const offeredRecall = await evaluate(`[...document.querySelectorAll('h2')].some(
+    const offeredRecall =
+      await evaluate(`[...document.querySelectorAll('h2')].some(
       (entry) => entry.textContent.includes('Search by what you remember'),
     )`);
     if (offeredRecall === true) {
@@ -883,18 +884,35 @@ async function main() {
      * live width and a remembered preference — because the failure a unit test
      * cannot see is the same one: a handle that never receives the pointer.
      */
-    const beforeRail = await evaluate(`(() => {
-      const rail = document.querySelector('.rail');
-      const handle = document.querySelector('.rail-resizer');
-      if (rail === null || handle === null) return JSON.stringify({});
-      const rect = handle.getBoundingClientRect();
-      return JSON.stringify({
-        width: rail.getBoundingClientRect().width,
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      });
-    })()`);
-    const startRail = JSON.parse(beforeRail ?? '{}');
+    /*
+     * The handle has to be the thing under its own centre before anything is
+     * pressed on it. CI caught this the hard way: the setup flow closes onto the
+     * chat and a drag fired immediately afterwards landed on what was still
+     * painted there, so the rail never moved and the check spent its whole
+     * deadline waiting for a pointer that had gone to the wrong element.
+     */
+    const beforeRail = await until('the rail handle to be on top', async () => {
+      const probe = await evaluate(`(() => {
+        const rail = document.querySelector('.rail');
+        const handle = document.querySelector('.rail-resizer');
+        if (rail === null || handle === null) return JSON.stringify({});
+        const rect = handle.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        return JSON.stringify({
+          width: rail.getBoundingClientRect().width,
+          x,
+          y,
+          onTop:
+            hit !== null &&
+            (hit === handle || handle.contains(hit) || hit.contains(handle)),
+        });
+      })()`);
+      const parsed = JSON.parse(probe ?? '{}');
+      return parsed.onTop === true ? parsed : undefined;
+    }).catch(() => undefined);
+    const startRail = beforeRail ?? {};
     if (
       typeof startRail.width !== 'number' ||
       typeof startRail.x !== 'number' ||
@@ -911,6 +929,22 @@ async function main() {
         buttons: 1,
         clickCount: 1,
       });
+      /*
+       * The body carries a class while a rail drag is live, so the press itself
+       * says whether it reached the handle. Checked before the moves: after the
+       * release the class is gone either way.
+       */
+      const dragging = await until('the rail drag to start', async () =>
+        (await evaluate(
+          `document.body.classList.contains('resizing-rail')`,
+        )) === true
+          ? true
+          : undefined,
+      ).catch(() => undefined);
+      if (dragging !== true) {
+        fail('the rail resize handle did not take the pointer');
+      }
+
       // Two moves rather than a jump, for the reason the drawer's drag has two.
       for (const x of [startRail.x + 15, target]) {
         await send('Input.dispatchMouseEvent', {
@@ -2176,7 +2210,9 @@ async function main() {
           `the Models card offers ${String(modelsCard.selects)} selects, not just the rest select`,
         );
       } else if (modelsCard.cards !== 1) {
-        fail(`the Models card draws ${String(modelsCard.cards)} models, not one`);
+        fail(
+          `the Models card draws ${String(modelsCard.cards)} models, not one`,
+        );
       } else if (
         !modelsCard.installed.some((text) => text.includes('4-bit')) ||
         !modelsCard.installed.some((text) => text.includes('LFM3 Omni 2B'))

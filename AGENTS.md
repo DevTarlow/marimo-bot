@@ -319,6 +319,52 @@ for a person.
 - **A turn records its outcome** on `turn.completed`/`failed`/`aborted`; the
   report adds the user's corrections.
 
+## The README
+
+`README.md` is the guide for the person using the app, and it is read as the
+current state of the app. A paragraph that describes last month's behaviour is a
+bug in the product description, not a stale document. **A change the person can
+see is not finished until the README says so, in the same commit as the code** —
+TECHNICAL.md is the design and this file is the working notes, so moving a
+paragraph between them is not an update.
+
+What counts, and where it goes:
+
+- **A model** — its name, size, licence, the task it answers, what the first run
+  downloads — lives in *Models*, *Getting started*, *Questions* and
+  *Requirements*, and every number in those four comes from the pins.
+- **A capability, tool, permission or shortcut** gets a line in the short list
+  and a place under *What it can do*, plus a bullet under *Privacy and control*
+  when it reaches the network. Removing one removes it from all of them, and from
+  *What is not finished* if it was listed there.
+- **A first-run step, a Settings card or a button** is quoted by name in the
+  README (`Regular`, `Power setup`, `Standard`, `Power user`, `Keep jobs running
+  when the app is closed`, `Talk to Marimo`), so renaming one is a README change.
+- **Where data lives, or what leaves the machine** goes in *Privacy and control*
+  and in the *Does it send my work anywhere?* answer. A new destination is a new
+  bullet even when the tool is off by default.
+- **Packaging, platforms or a gap** is claimed by *Getting started*,
+  *Requirements* and *What is not finished* at once, so those move together.
+
+**A rename is not done until the old name has been searched for**, in the README
+as well as in the code. A quote is how a label change leaves a false sentence
+behind, and a claim the build cannot back is deleted rather than softened.
+
+**A screenshot is a claim about the window.** When the window changes visibly,
+replace the image in `docs/screenshots/` and its alt text in the same commit.
+Never leave a picture of a capability the build no longer has: a screenshot of a
+model picker that was removed says more than any paragraph, and it says something
+false. One that cannot be refreshed is taken out of the README until it can be,
+never kept "for now".
+
+**Voice.** One writer throughout: British spellings (`licence`, `recogniser`,
+`synthesiser`), plain declarative sentences, the reader as *you* and the app as
+*it*, first person only in the opening "I built". The short list is what the app
+does today, not what it is becoming. Sizes and times are concrete, because the
+reader is deciding whether their machine can run it. A section may open with the
+question it answers. No adjective doing a number's work, and no promise the build
+does not keep.
+
 ## The loop
 
 **A task is done when it is committed; the branch moves when a human says so.**

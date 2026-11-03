@@ -17,24 +17,13 @@ Marimo Bot keeps a conversation's full history and the instructions it was runni
 
 The chat window and the moss ball share one conversation, so a question you ask from the corner of the screen is waiting in the window when you open it, and the folder you were working in comes back with it.
 
-<p align="center">
-  <img src="./docs/screenshots/app-light.png" alt="The Marimo Bot window in light mode, with Marimo and Writer in the sidebar and a Space open." />
-</p>
-
-<p align="center">The main window in light mode.</p>
-
-<p align="center">
-  <img src="./docs/screenshots/marimo-bot-chat-screenshot.png" alt="A chat with Marimo in the main window, where a memory update tool call appears above Marimo's reply." />
-</p>
-
-<p align="center">A chat with Marimo, and the memory update it made along the way.</p>
-
 ## The short version
 
 - Work in a folder, not a chat that forgets where it is.
 - One local Omni model for text, pictures and voice.
 - Attach a picture and the Omni model looks at it.
 - Talk instead of typing, and let the answer be spoken.
+- Search the web when the answer is not on this machine.
 - Make bots for writing, research, code or whatever you repeat.
 - Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
 - Keep a memory that follows you between folders.
@@ -46,6 +35,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 ## On this page
 
 - [What it can do](#what-it-can-do)
+- [The web](#the-web)
 - [The engine](#the-engine)
 - [Bots](#bots)
 - [Skills](#skills)
@@ -87,6 +77,12 @@ Turn on **Talk to Marimo** in Settings and the companion answers out loud.
 Hold the microphone button to speak, release it, and what you said appears in the message box before it is sent. The app transcribes with the same Omni model that speaks the answer, so a voice turn never needs two models loaded at once. The answer is kept short and read as prose: code blocks, tables and links are for the window, not for the ear.
 
 Voice mode uses the Omni model for the whole turn, not just the speaking. That keeps one model in memory, and it means a question asked by voice is answered by the same model that heard it. For harder work, use the window without the microphone.
+
+### The web
+
+Ask about something that is not on this computer and the bot can search the web. The query goes to DuckDuckGo, and the model gets back titles, addresses and a short snippet for each result. It is told to cite the address it relied on, and to treat the results as untrusted text rather than follow instructions found in them.
+
+Search is on by default. Reading a whole page is a second tool, `http_fetch`, and the Standard setup leaves it off: a search always goes to the search engine, while a fetch goes to whatever address the model was given, so it is a separate decision. Turn it on in Settings and the bot can download an `http` or `https` page up to 512 KiB; addresses on this machine or your own network are refused.
 
 ### Documents
 
@@ -176,11 +172,11 @@ Schedule a task, like a summary every morning. Closing the window does not quit 
 
 The sidebar has a switch called Keep jobs running when the app is closed. It installs a small background worker so a timer can wake it and run due jobs.
 
-The worker is a small copy of the app that runs due jobs while the window is closed, and it takes turns with the app so the two never write to one chat at the same time. It starts the local model for the job and stops it afterwards, because the model is hundreds of megabytes of weights and a spinning fan with no window to explain it.
+The worker is a small copy of the app that runs due jobs while the window is closed, and it takes turns with the app so the two never write to one chat at the same time. It starts the local model for the job and stops it afterwards, because the model is a gigabyte or two of weights and a spinning fan with no window to explain it.
 
 Then it goes back to sleep until the next job is due. To quit, use the tray menu.
 
-A job runs in its own conversation, with the same tools and approvals as a chat.
+A job runs in its own conversation, with the same tools and approvals as a chat. One tool is missing when the background worker runs a job: it has no browser, so a job that needs a web search has to run while the app is open.
 
 ### The companion
 
@@ -194,7 +190,7 @@ With **Talk to Marimo** on, the moss has a microphone of its own and speaks the 
 
 Every conversation runs on the harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
 
-The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills and connectors. It deliberately leaves the model assignment, the Space, the icon and memory alone: the model is an app-wide task choice now, and undoing a choice the person did not make in that dialog would be a surprise.
+The **Harness** card in Settings shows what the current bot has recorded: conversations, turns, tokens, suggestions, skills and scheduled jobs. It also lists the instruction and tool versions that bot has used. Restoring one puts back the bot's name, Role, Persona, tools, skills, connectors and how it runs — how memory is recalled, how much room a turn has before it is compacted, and how many tool calls a turn may spend. It deliberately leaves the model assignment, the Space, the icon and memory alone: the model is an app-wide task choice now, and undoing a choice the person did not make in that dialog would be a surprise.
 
 ## Models
 
@@ -212,13 +208,13 @@ The first run downloads only Omni. A model download starts when you press Downlo
 
 The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows the Omni model, its installed copy and its size, and **Remove…** deletes it. Removing the model is allowed only when nothing is running, and the next message then shows the download card instead of failing with a half-loaded engine.
 
-The models are licensed by Liquid AI under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE). They are downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
+The Omni model is licensed by Liquid AI under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/blob/main/LICENSE). It is downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
 
 ### Connectors
 
 A connector is a server you add in Settings. It can give a bot tools that live in another app or on another machine: a database, an issue tracker or a service on your network. MCP is the Model Context Protocol, a standard way for a tool server to describe what it can do.
 
-Each bot has its own permissions, and a connector that is not ticked is not offered to that bot. A bot can ask for one it does not have; the request waits in Learning with the reason it gave, and nothing changes until you approve it. A connector's token or password is stored like any other secret, and the background worker can only use one stored as plain text, with your consent.
+Each bot has its own permissions, and a connector that is not ticked is not offered to that bot. A connector is also untrusted until you say otherwise: every tool it offers asks before it runs, and trusting the connector is what stops the asking. A bot can ask for one it does not have; the request waits in Learning with the reason it gave, and nothing changes until you approve it. A connector's token or password is stored like any other secret, and the background worker can only use one stored as plain text, with your consent.
 
 ## Privacy and control
 
@@ -228,6 +224,7 @@ The app reaches the network only for things you ask for:
 
 - The first model download, and any later model download, come from Hugging Face.
 - A web search sends the query to DuckDuckGo.
+- A page fetch goes to the address the bot was given, once you have turned that tool on.
 - A connector talks to the server you set up.
 - Recall downloads its engine and model once.
 - **Check for updates** asks GitHub for the latest release only when you press it.
@@ -242,7 +239,7 @@ Every built-in tool the app offers is a switch in Settings. If a tool is off, th
 
 Recall is off until you turn it on, and it sends its record nowhere.
 
-Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. It does not delete a Space, and it does not delete the downloaded models if they live outside the app's folder. There is no undo for the rest.
+Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. It does not delete a Space. It does delete the downloaded models, which live in that folder, unless `MARIMO_MODEL_DIR` points them somewhere else. There is no undo.
 
 ## Getting started
 
@@ -315,11 +312,11 @@ The app stays in the tray and a scheduled job keeps going. You quit from the tra
 
 ### Can I change a bot later?
 
-Yes, Settings has its Role, Persona, tools, Space and icon. The Harness card can also restore an earlier version of them.
+Yes, Settings has its Role, Persona, tools, Space and icon. The Harness card can also restore an earlier version of the bot's name, Role, Persona, tools, skills and connectors, along with how it runs.
 
 ### Does it send my work anywhere?
 
-Only where you ask it to: a web search receives the query, and a connector receives what it is asked to do. The model, the speech recogniser and the speech synthesiser run here. The first model download and Recall's download contact Hugging Face; the update check contacts GitHub only when you press the button.
+Only where you ask it to: a web search receives the query, a page fetch goes to the address it was given, and a connector receives what it is asked to do. The model, the speech recogniser and the speech synthesiser run here. The first model download and Recall's download contact Hugging Face; the update check contacts GitHub only when you press the button.
 
 ### What is not finished?
 
@@ -331,6 +328,7 @@ See the next section for the short answer: Windows and macOS installers, automat
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
 - The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. It offloads every layer when it finds a device and falls back to the processor when it does not. NVIDIA users can switch to the CUDA build in Settings → Models; it is faster, but it adds about 776 MB on Linux or 671 MB on Windows and is tied to the driver versions above. The switch is opt-in rather than automatic so a laptop does not spend that download by default.
 - Voice mode is one microphone press and one spoken answer, not a hands-free conversation. There is no wake word and no barge-in.
+- The background worker has no browser, so a scheduled job that needs a web search runs only while the app is open.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
 - The app checks every model download against a fingerprint, but there is no signature to prove where it came from.
 

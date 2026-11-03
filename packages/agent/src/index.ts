@@ -141,6 +141,8 @@ export {
   selectMemory,
   splitMemory,
   toBullets,
+  personalFactsIn,
+  rememberPersonalDetails,
 } from './memory/index.js';
 export type {
   ForgetReport,
@@ -152,6 +154,8 @@ export type {
   MemoryStoreOptions,
   MemoryUpdate,
   MemoryProposal as ReviewProposal,
+  PersonalCapture,
+  PersonalFact,
   RecalledBullet,
   ReviewEvent,
   ReviewRequest,

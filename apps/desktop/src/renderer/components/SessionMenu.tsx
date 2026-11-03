@@ -14,6 +14,7 @@ import {useEffect, useState} from 'react';
 
 import type {SessionSummary, SessionUsage, Workspace} from '@marimo/protocol';
 
+import {copyLabel, useCopy} from '../clipboard.js';
 import {PopoverItem, Popover} from './Popover.js';
 import type {PopoverAnchor} from './Popover.js';
 
@@ -36,7 +37,7 @@ export function SessionMenu({
   onRename: () => void;
   onDelete: () => void;
 }): React.JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const {state: copyState, copy} = useCopy();
   const [confirming, setConfirming] = useState(false);
   const [usage, setUsage] = useState<SessionUsage | 'loading' | 'error' | null>(
     null,
@@ -75,21 +76,10 @@ export function SessionMenu({
           type="button"
           className="button button-quiet button-small"
           onClick={() => {
-            void navigator.clipboard.writeText(session.id).then(
-              () => {
-                setCopied(true);
-                setTimeout(() => {
-                  setCopied(false);
-                }, 1_500);
-              },
-              () => {
-                // A clipboard the window cannot reach is not worth an error
-                // banner; the id is on screen to select by hand.
-              },
-            );
+            copy(session.id);
           }}
         >
-          {copied ? 'Copied' : 'Copy'}
+          {copyLabel(copyState)}
         </button>
       </div>
 

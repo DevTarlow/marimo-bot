@@ -1118,6 +1118,72 @@ async function main() {
         'the conversation menu shows its id, a copy button, rename and delete',
       );
     }
+
+    /*
+     * And the copy button is a real clipboard write, not just a label.
+     *
+     * This is the check that would have caught the bug it was fixed for: the
+     * session's permission handlers answered `false` for
+     * `clipboard-sanitized-write`, the promise from `navigator.clipboard`
+     * rejected, and the rejection handler was empty — so the button did
+     * nothing and looked healthy. A trusted click is used rather than
+     * `button.click()`, because a clipboard write is a user action and the
+     * whole point is to exercise the path a person's click takes.
+     */
+    const copyPoint = await evaluate(`(() => {
+      const button = [...document.querySelectorAll('.popover button')].find(
+        (candidate) => (candidate.textContent ?? '').trim() === 'Copy',
+      );
+      if (button === undefined) return null;
+      const rect = button.getBoundingClientRect();
+      return JSON.stringify({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      });
+    })()`);
+    if (copyPoint === null) {
+      fail('the conversation menu has no Copy button to press');
+    } else {
+      const point = JSON.parse(copyPoint);
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        x: point.x,
+        y: point.y,
+        button: 'left',
+        buttons: 1,
+        clickCount: 1,
+      });
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        x: point.x,
+        y: point.y,
+        button: 'left',
+        buttons: 0,
+        clickCount: 1,
+      });
+      const copied = await until('the copy button to settle', async () => {
+        const label = await evaluate(`(() => {
+          const button = [...document.querySelectorAll('.popover button')].find(
+            (candidate) =>
+              /^(Copied|Copy failed)$/u.test(
+                (candidate.textContent ?? '').trim(),
+              ),
+          );
+          return button === undefined
+            ? null
+            : (button.textContent ?? '').trim();
+        })()`);
+        return label === 'Copied' || label === 'Copy failed'
+          ? label
+          : undefined;
+      });
+      if (copied !== 'Copied') {
+        fail(`the conversation menu's copy button said ${String(copied)}`);
+      } else {
+        ok('the conversation menu writes its id to the clipboard');
+      }
+    }
+
     // Escape closes it, and the check is that the listener is real rather than
     // that React re-rendered.
     await evaluate(

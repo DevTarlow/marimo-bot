@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 
 import {afterEach, describe, expect, it} from 'vitest';
@@ -1117,6 +1117,65 @@ describe('HarnessRuntime', () => {
     // Nothing was left for the person to answer, because there was nothing to
     // decide: the fact is in memory, where it can be searched and forgotten.
     expect((await runtime.learningProposals(profileId)).memory).toEqual([]);
+  });
+
+  /*
+   * The deterministic half. A small model cannot be relied on to call
+   * `update_memory` for "my name is Tarlow", and the answer to that message is
+   * the one that needs the fact — so the write happens before the turn, not in
+   * the review a minute later. A correction replaces the old bullet.
+   */
+  it('captures a personal detail before the turn that answers it', async () => {
+    const {deps, profileId} = await setup();
+    await deps.profiles.update(profileId, {
+      enabledTools: [
+        'current_time',
+        'read_memory',
+        'update_memory',
+        'prune_memory',
+      ],
+    });
+    const driver = new ScriptedDriver([
+      [
+        {type: 'step'},
+        {type: 'message', text: 'Nice to meet you, Tarlow.'},
+        {type: 'done'},
+      ],
+      [{type: 'step'}, {type: 'message', text: 'Thanks, Bob.'}, {type: 'done'}],
+    ]);
+    const runtime = runtimeFrom(deps, () => driver);
+    const personFile = resolvePersonMemoryFile(
+      deps.paths.personMemoryDir,
+      profileId,
+    );
+
+    await collect(
+      runtime.run(profileId, 's1', 'my name is Tarlow, remember that'),
+    );
+    const first = await readFile(personFile, 'utf8');
+    expect(first).toContain('## About the user');
+    expect(first).toContain("The user's name is Tarlow.");
+
+    await collect(runtime.run(profileId, 's1', 'actually my name is Bob'));
+    const corrected = await readFile(personFile, 'utf8');
+    expect(corrected).toContain("The user's name is Bob.");
+    expect(corrected).not.toContain('Tarlow');
+  });
+
+  it('captures nothing when the profile cannot write memory', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Hello.'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver);
+
+    await collect(runtime.run(profileId, 's1', 'my name is Tarlow'));
+    await expect(
+      readFile(
+        resolvePersonMemoryFile(deps.paths.personMemoryDir, profileId),
+        'utf8',
+      ),
+    ).rejects.toThrow();
   });
 
   it('queues a fact it could not write rather than losing it', async () => {

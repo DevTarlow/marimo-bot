@@ -47,6 +47,7 @@ import {
   harnessHash,
   resolveHarness,
   isAlwaysInjected,
+  rememberPersonalDetails,
   runReview,
   type AgentConfig,
   type AnyToolDefinition,
@@ -397,6 +398,15 @@ export class HarnessRuntime {
       )
       .catch(() => undefined);
 
+    /*
+     * A detail the person just stated is written before the model reads the
+     * prompt, not after the turn: the answer to "my name is Tarlow" is the one
+     * that needs it. Only a profile that can write memory captures, and a
+     * failure is no capture rather than a failed turn — the detail is then one
+     * review away.
+     */
+    await this.capturePersonalDetails(prepared, text);
+
     const state = this.stateFor(sessionId, prepared.config);
     state.driver.current = this.driverFor(prepared, sessionId);
     try {
@@ -422,6 +432,32 @@ export class HarnessRuntime {
       );
     } catch (error) {
       yield failed(sessionId, busyOr(error));
+    }
+  }
+
+  /**
+   * Writes a personal detail from this message before the model answers it.
+   *
+   * A 2B model is unreliable about reaching for `update_memory`, and in a real
+   * session it answered "my name is tarlow" by saying its own name was Marimo.
+   * The deterministic half handles the shapes that are unambiguous; the review
+   * still handles everything that has to be inferred.
+   */
+  private async capturePersonalDetails(
+    prepared: Prepared,
+    text: string,
+  ): Promise<void> {
+    if (!prepared.harness.tools.grants.includes('update_memory')) {
+      return;
+    }
+    try {
+      await rememberPersonalDetails(prepared.memory, text);
+    } catch {
+      /*
+       * Memory over its cap or a file that cannot be read is not a reason to
+       * fail the turn. The answer is still owed, and the review will propose
+       * the fact again when there is room.
+       */
     }
   }
 

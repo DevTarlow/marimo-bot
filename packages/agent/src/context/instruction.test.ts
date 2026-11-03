@@ -58,6 +58,18 @@ describe('composeHarnessInstruction tool list', () => {
     expect(text).not.toContain('list_dir — ');
   });
 
+  /*
+   * The list is the model's own reference. A 2B model read it back to the
+   * person as "the tools available in this turn are…" after an ordinary
+   * thank-you, so the instruction next to the list says what it is for.
+   */
+  it('says the list is for the model, not for the person', () => {
+    const text = composeHarnessInstruction(harness(), {tools: [read, write]});
+
+    expect(text).toContain('This list is for you');
+    expect(text).toContain('do not read it back to the person');
+  });
+
   it('says nothing about tools when the turn has none', () => {
     const text = composeHarnessInstruction(harness(), {tools: []});
 
@@ -173,6 +185,68 @@ describe('composeHarnessInstruction tool list', () => {
 
     expect(text).toContain(
       'A tool on your list is available even if you have not called it yet',
+    );
+  });
+});
+
+/*
+ * The memory file used to be introduced as "your own notebook", which a 2B model
+ * read as facts about itself: in the session that prompted this, "my name is
+ * tarlow" was answered with "My name is Marimo Bot, not Tarlow". The file is
+ * about the person, and the instruction that says so is only carried when the
+ * turn can write to it.
+ */
+describe('remembering the person', () => {
+  const update = {
+    name: 'update_memory',
+    description: 'Remember a durable fact.',
+  };
+
+  it('frames memory as facts about the person, not the agent', () => {
+    const text = composeHarnessInstruction(harness(), {
+      memory: '## About the user\n- Name: Tarlow',
+      tools: [read],
+    });
+
+    expect(text).toContain(
+      'What you remember about the person and their work:',
+    );
+    expect(text).toContain('not about you');
+    expect(text).not.toContain('your own notebook');
+  });
+
+  it('says how to remember a personal detail when the turn can write', () => {
+    const text = composeHarnessInstruction(harness(), {
+      tools: [read, update],
+    });
+
+    expect(text).toContain('# Remembering');
+    expect(text).toContain('"About the user"');
+    expect(text).toContain('Never store facts about yourself');
+    expect(text).toContain('pass the old bullet as "replaces"');
+  });
+
+  it('does not carry the remembering guidance without update_memory', () => {
+    const text = composeHarnessInstruction(harness(), {
+      memory: '## About the user\n- Name: Tarlow',
+      tools: [read],
+    });
+
+    expect(text).not.toContain('# Remembering');
+    expect(text).not.toContain('Never store facts about yourself');
+  });
+
+  it('puts remembering after the memory it is about and before the tools', () => {
+    const text = composeHarnessInstruction(harness(), {
+      memory: '## About the user\n- Name: Tarlow',
+      tools: [read, update],
+    });
+
+    expect(text.indexOf('What you remember')).toBeLessThan(
+      text.indexOf('# Remembering'),
+    );
+    expect(text.indexOf('# Remembering')).toBeLessThan(
+      text.indexOf('# Tools you have'),
     );
   });
 });

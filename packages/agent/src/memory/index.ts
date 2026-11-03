@@ -65,4 +65,9 @@ export type {CanonicalSection} from './sections.js';
 export {selectMemory} from './select.js';
 export type {MemorySelection, RecalledBullet} from './select.js';
 
+export {personalFactsIn, rememberPersonalDetails} from './personal.js';
+export type {PersonalCapture, PersonalFact} from './personal.js';
+
+export {REMEMBERING_GUIDANCE} from './guidance.js';
+
 export {MEMORY_SOFT_LIMIT_BYTES, memorySizeWarning} from './size.js';

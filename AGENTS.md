@@ -173,9 +173,12 @@ Each of these is silent when it breaks. That is the whole reason they are listed
 27. **A false file-tool denial is corrected in the prompt, never in the log.** A
     replayed assistant message that says it cannot edit files is replaced with a
     user-role correction when the turn actually offers `write_file`; the stored
-    message stays what the person saw. The turn also carries an ephemeral tool
-    note beside the question, because a small model copies its own last answer
-    and the correction has to be in the person's voice to break the pattern.
+    message stays what the person saw. When that denial is the last thing said,
+    the turn also carries a short ephemeral note beside the question, because a
+    small model copies its own last answer and the correction has to be in the
+    person's voice to break the pattern. The note names only `write_file` and
+    never the whole tool list: sent on every turn, the list was read back to the
+    person as "the tools available in this turn are…".
 
 ## Documents
 
@@ -318,6 +321,13 @@ for a person.
 
 - **Memory** is written by the review after its quote is verified, and the person
   searches and edits it in the Memory card afterwards.
+- **An explicit personal detail does not wait for the review.** A name, a
+  preferred name, an age, a birthday, where they live or work, a named person or
+  animal, a favourite thing — said in the first person — is read deterministically
+  and written under `About the user` before the turn starts, so the answer that
+  needed it already has it. A changed value replaces the old bullet. The review
+  still handles everything that has to be inferred, and a profile without
+  `update_memory` captures nothing.
 - **Everything else** is `learning/proposals.json`: a grant, a policy or
   maintenance. That is the queue that needs an answer.
 - **A proposal carries evidence.** A memory fact carries a quote verified against

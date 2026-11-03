@@ -7,14 +7,15 @@
  * safety does not depend on a sanitiser being configured correctly, because
  * there is nothing to sanitise.
  */
-import {createElement, useState} from 'react';
+import {createElement} from 'react';
 
+import {copyLabel, useCopy} from '../clipboard.js';
 import {parseInline, parseMarkdown, renderInline} from '../markdown.js';
 import type {Block} from '../markdown.js';
 
-/** A copy button that says it worked, then stops saying it. */
+/** A copy button that says what happened, then stops saying it. */
 function Copy({text, what}: {text: string; what: string}): React.JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const {state, copy} = useCopy();
 
   return (
     <button
@@ -22,21 +23,10 @@ function Copy({text, what}: {text: string; what: string}): React.JSX.Element {
       className="copy"
       aria-label={`Copy ${what}`}
       onClick={() => {
-        void navigator.clipboard.writeText(text).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => {
-              setCopied(false);
-            }, 1_500);
-          },
-          () => {
-            // A clipboard the window cannot reach is not worth an error banner
-            // over the conversation; the text is on screen to select by hand.
-          },
-        );
+        copy(text);
       }}
     >
-      {copied ? 'Copied' : 'Copy'}
+      {copyLabel(state)}
     </button>
   );
 }

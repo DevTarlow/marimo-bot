@@ -189,21 +189,31 @@ export class AdkDriver implements TurnDriver {
       ...(await this.attachmentParts(input.attachments, input.harness)),
     );
     /*
-     * The system prompt already lists these, but a 2B model that has just told
-     * the person it cannot edit a file will repeat that in the next turn unless
-     * the correction is beside the question. This part is built from the same
-     * definitions as the list and is never written to the log: the stored user
+     * The prompt lists the tools, but a 2B model that has just told the person
+     * it cannot edit a file repeats that in the next turn unless the correction
+     * is beside the question. The note is only for that denial: it used to ride
+     * on every turn with every tool name in it, and a model answered "nice
+     * thanks!" by reading the list back to the person as "the tools available
+     * in this turn are…". It is never written to the log, so the stored user
      * message stays the person's words.
      */
-    if (definitions.length > 0) {
+    const lastAssistant = [...history]
+      .reverse()
+      .find(
+        (event): event is Extract<SessionEvent, {type: 'assistant.message'}> =>
+          event.type === 'assistant.message',
+      );
+    if (
+      definitions.length > 0 &&
+      lastAssistant !== undefined &&
+      fileDenialCorrection(input.harness, lastAssistant.text) !== undefined
+    ) {
       /*
        * The newline matters: OpenAI-compatible messages carry this as one text
        * body, so a note concatenated straight onto the question reads as part
        * of the sentence rather than as a bracket the model can skip.
        */
-      parts.push({
-        text: `\n\n${toolReminder(definitions.map((definition) => definition.name))}`,
-      });
+      parts.push({text: `\n\n${toolReminder()}`});
     }
     yield* this.stream(runner, {
       sessionId: input.sessionId,
@@ -1409,21 +1419,22 @@ function fileDenialCorrection(
 }
 
 /**
- * The tool names, in the one line the user turn carries.
+ * The one line a user turn carries after a file denial.
  *
  * The system prompt lists the tools, but a conversation can already hold the
- * model's own denial by the time this turn starts. A small model corrects a
+ * model's own denial by the time this turn starts, and a small model corrects a
  * belief that sits beside the question more reliably than one it has to
- * retrieve from the instruction, so the reminder travels with the new message.
- * It is built from the same definitions the prompt uses, and it is never
- * written to the log: the stored user message stays the person's words.
+ * retrieve from the instruction. It names only the tool the denial was about
+ * and says not to read the list back: the previous version carried every tool
+ * name on every turn, and a model answered a thank-you by reciting that note.
+ * It is never written to the log, so the stored user message stays the person's
+ * words.
  */
-function toolReminder(names: readonly string[]): string {
+function toolReminder(): string {
   return (
-    '[Correction: you do have these tools in this turn. If an earlier answer ' +
-    'in this conversation said you did not have one of them, that answer was ' +
-    `wrong. Tools available: ${names.join(', ')}. Use the one the request ` +
-    'needs, and do not mention this note.]'
+    '[App correction: the earlier answer was wrong. `write_file` is available ' +
+    'in this turn. Use it when the request needs it, and do not list or ' +
+    'describe your tools unless the person asks what you can do.]'
   );
 }
 

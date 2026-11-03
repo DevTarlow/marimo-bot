@@ -250,17 +250,60 @@ describe('AdkDriver', () => {
     expect(system).not.toContain('- ask_agent');
 
     /*
-     * The correction sits beside the question as well. A conversation can
-     * already hold the model's own denial; the note is what breaks the belief
-     * without rewriting the stored user message.
+     * A clean turn carries no reminder. The old note listed every tool on every
+     * turn, and a 2B model answered a thank-you by reading that list back to
+     * the person — the note is only for the denial it was written for.
      */
     const sent = (model.requests[0]?.contents ?? [])
       .flatMap((content) => content.parts ?? [])
       .map((part) => part.text ?? '')
       .join('\n');
-    expect(sent).toContain('Correction: you do have these tools');
-    expect(sent).toContain('write_file');
-    expect(sent).toContain('do not mention this note');
+    expect(sent).not.toContain('[App correction:');
+    expect(sent).not.toContain('do not list or describe your tools');
+  });
+
+  /*
+   * The failure this guards is the one the reminder itself caused in the other
+   * direction: it was sent on every turn with every tool name in it, and the
+   * model read it aloud. It is still useful beside the question after a denial,
+   * so it stays there — naming only the tool the denial was about.
+   */
+  it('corrects a past file denial beside the question, without listing the tools', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Done.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const denial: SessionEvent = {
+      id: 'a-t0',
+      sessionId: 's1',
+      at: '2026-01-01T00:00:00.000Z',
+      turnId: 't0',
+      type: 'assistant.message',
+      author: 'Writer',
+      agentId: 'writer',
+      text: "I don't have a tool to edit files directly.",
+    };
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Just edit the current file.',
+        harness: harness(dir),
+        history: [denial],
+        signal: new AbortController().signal,
+      }),
+    );
+
+    const sent = (model.requests[0]?.contents ?? [])
+      .flatMap((content) => content.parts ?? [])
+      .map((part) => part.text ?? '')
+      .join('\n');
+    expect(sent).toContain('[App correction: the earlier answer was wrong.');
+    expect(sent).toContain('`write_file` is available in this turn');
+    expect(sent).toContain('do not list or describe your tools');
+    // The note names the one tool the denial was about, not the whole list.
+    expect(sent).not.toContain('list_dir');
+    expect(sent).not.toContain('run_shell');
   });
 
   it('does not remind the model of tools the turn does not have', async () => {
@@ -283,7 +326,7 @@ describe('AdkDriver', () => {
       .flatMap((content) => content.parts ?? [])
       .map((part) => part.text ?? '')
       .join('\n');
-    expect(sent).not.toContain('Tools available: ');
+    expect(sent).not.toContain('[App correction:');
   });
 
   /*

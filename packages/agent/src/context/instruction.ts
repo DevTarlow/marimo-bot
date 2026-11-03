@@ -16,6 +16,7 @@
  * enough, and this session's `write_file` denial is the evidence.
  */
 import type {HarnessSpec} from '../harness/spec.js';
+import {REMEMBERING_GUIDANCE} from '../memory/guidance.js';
 
 export interface HarnessSkillSummary {
   name: string;
@@ -80,14 +81,26 @@ export function composeHarnessInstruction(
     );
   }
 
+  const tools = context.tools ?? [];
+
   const memory = context.memory?.trim();
   if (memory !== undefined && memory.length > 0) {
     sections.push(
-      `What you remember:\n\n${memory}\n\n` +
-        'This is your own notebook. A fact that is out of date is worth ' +
-        'correcting with update_memory; a fact the person asked you to forget ' +
-        'is worth dropping.',
+      `What you remember about the person and their work:\n\n${memory}\n\n` +
+        'These are facts about the person and their work, not about you. A ' +
+        'fact that is out of date is worth correcting with update_memory; a ' +
+        'fact the person asked you to forget is worth dropping.',
     );
+  }
+
+  /*
+   * Only when the turn can actually write memory. The built-in memory skill
+   * carried this in the old composer, but the v2 prompt context is memory plus
+   * the person's own skills — so a 2B model had the file and no instruction
+   * that a first-person fact belonged in it.
+   */
+  if (tools.some((tool) => tool.name === 'update_memory')) {
+    sections.push(`# Remembering\n\n${REMEMBERING_GUIDANCE}`);
   }
 
   const skills = context.skills ?? [];
@@ -101,7 +114,6 @@ export function composeHarnessInstruction(
     );
   }
 
-  const tools = context.tools ?? [];
   if (tools.length > 0) {
     const canWrite = tools.some((tool) => tool.name === 'write_file');
     const canRead = tools.some((tool) => tool.name === 'read_file');
@@ -113,7 +125,8 @@ export function composeHarnessInstruction(
         '',
         'These are callable in this turn. If the request needs one, call it',
         'rather than telling the person you cannot. A greeting needs none of',
-        'them.',
+        'them. This list is for you: do not read it back to the person unless',
+        'they ask what you can do.',
         '',
         ...tools.map((tool) =>
           tool.description.trim().length === 0

@@ -46,6 +46,7 @@ import {disable, statusOf} from './service.js';
 import type {ServiceContext} from './service.js';
 import {installAssetHandler, registerAssetScheme} from './assets.js';
 import {registerMediaScheme} from './media/decode-window.js';
+import {isAppPermission, isOwnPage} from './permissions.js';
 import {
   applyUserDataPath,
   resolvePaths,
@@ -380,25 +381,37 @@ async function refreshCompanionSettings(): Promise<void> {
 let toldAboutTray = false;
 
 /**
- * Allowing the microphone, and nothing else.
+ * Allowing the microphone and the clipboard, and nothing else.
  *
- * The renderer asks for `getUserMedia({audio:true})` when somebody presses the
- * mic. Chromium routes that through these two handlers, and the app has no
- * untrusted content to speak of — but the boundary still matters: a page that is
- * not one of this app's own windows must not be able to open a microphone, and a
- * request for a camera is not one this app has a feature for. macOS asks the OS
- * for the first time here; the usage description that makes its prompt
- * meaningful is in the packaged `Info.plist` (see `apps/desktop/package.json`).
+ * Two features, both reached by pressing something in this app's own window.
+ * The microphone is `getUserMedia({audio:true})`; the clipboard is every Copy
+ * button, because Chromium routes `navigator.clipboard.writeText()` through
+ * these same two handlers as `clipboard-sanitized-write`. Denying that was
+ * silent: the button's rejection handler had nothing to show, so it looked
+ * unwired.
+ *
+ * The boundary still matters: a page that is not one of this app's own windows
+ * must not be able to open a microphone or write the clipboard, and a request
+ * for a camera is not one this app has a feature for. macOS asks the OS for
+ * the first time here; the usage description that makes its prompt meaningful
+ * is in the packaged `Info.plist` (see `apps/desktop/package.json`).
  */
-function installMicrophonePermission(): void {
-  const ownPage = (url: string): boolean =>
-    url.startsWith('file://') ||
-    (devServerUrl !== undefined && url.startsWith(devServerUrl));
+function installSessionPermissions(): void {
+  const ownPage = (url: string): boolean => isOwnPage(url, devServerUrl);
 
   session.defaultSession.setPermissionRequestHandler(
     (contents, permission, callback, details) => {
-      if (permission !== 'media' || !ownPage(contents.getURL())) {
+      if (!isAppPermission(permission) || !ownPage(contents.getURL())) {
         callback(false);
+        return;
+      }
+      /*
+       * A clipboard write needs no further question. The microphone does: the
+       * app has a voice feature and no camera, so `video` is refused before
+       * anything reaches the OS prompt.
+       */
+      if (permission === 'clipboard-sanitized-write') {
+        callback(true);
         return;
       }
       const mediaTypes =
@@ -424,14 +437,14 @@ function installMicrophonePermission(): void {
 
   session.defaultSession.setPermissionCheckHandler(
     (_contents, permission, requestingOrigin) =>
-      permission === 'media' && ownPage(requestingOrigin),
+      isAppPermission(permission) && ownPage(requestingOrigin),
   );
 }
 
 async function bootstrap(): Promise<void> {
   const paths = resolvePaths();
 
-  installMicrophonePermission();
+  installSessionPermissions();
 
   /*
    * The handler for uploaded bot icons. It has to exist before the window loads,

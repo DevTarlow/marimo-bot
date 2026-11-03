@@ -351,6 +351,38 @@ being old — `provenance.json` records when each bullet was first written and t
 Memory card shows them oldest first, with a search box and a Forget button, so
 what is stale is visible and the decision stays with the person.
 
+### A personal detail is written before the answer
+
+The idle review reads a conversation after it goes quiet, which is the right
+shape for a fact nobody stated. It is the wrong shape for "my name is Tarlow,
+remember that": the answer that needed the name was written a minute before the
+review ran, and the review is the same small model that failed to call
+`update_memory` in the first place.
+
+So the unambiguous first-person shapes are read deterministically out of the
+person's own message, before the turn starts. `personal.ts` knows a name, a
+preferred name, an age, a birthday, where they live and where they are from,
+where they work, the name of a partner, child, pet or friend, and a favourite
+thing. Each becomes a third-person bullet under `About the user`, in the person
+half, so the prompt that answers the sentence already carries it. Only a shape
+that names the fact is taken — "I love Minecraft" is not captured — and the
+review remains the path for everything that has to be inferred.
+
+A changed value for the same key is a correction: every older bullet for that key
+is forgotten before the new one is written, because a memory holding both
+"Tarlow" and "Bob" is worse than one holding neither. The capture is skipped
+entirely when the profile cannot write memory, and a failed write is no capture
+rather than a failed turn.
+
+The prompt had a second half of this bug. The v2 composer carries the memory file
+but not the built-in `memory` skill's body, so a 2B model had no instruction that
+a first-person fact belonged in the file — and the block introduced memory as
+"your own notebook", which it read as facts about itself. `# Remembering` is now
+added whenever `update_memory` is offered, the memory block says these are facts
+about the person and their work, and the model is told never to store a fact
+about itself. The guidance follows the grant, as every capability claim in the
+prompt does.
+
 ### An answer can be judged, and the judgement goes to the reviewer
 
 Everything in this app could be corrected except the thing the agent actually

@@ -25,6 +25,35 @@ const MAX_TITLE_CHARS = 200;
 export const CHALLENGE_TEXT =
   /complete the following challenge|select all squares|bots use duckduckgo|unusual traffic|too many requests/i;
 
+/** The tool's wording when the engine refused: one sentence, two raises. */
+export const CHALLENGE_ERROR =
+  'the search engine served an anti-bot challenge instead of results';
+
+/**
+ * How long a challenge has to stay on the page before the call fails.
+ *
+ * The interstitial is rendered by the engine's own script and is sometimes
+ * replaced by the results a moment later, so failing on the first poll would
+ * report a refusal for a search that was about to work. This is long enough for
+ * that replacement and far shorter than the search timeout.
+ */
+export const CHALLENGE_GRACE_MS = 1_500;
+
+/**
+ * Whether a challenge seen at `blockedSince` is still one at `now`.
+ *
+ * `blockedSince` is `undefined` until the first poll that reports a challenge,
+ * and goes back to `undefined` on the first poll that does not, so a page that
+ * recovers is not failed for having been blocked once.
+ */
+export function challengeIsFinal(
+  blockedSince: number | undefined,
+  now: number,
+  graceMs: number = CHALLENGE_GRACE_MS,
+): boolean {
+  return blockedSince !== undefined && now - blockedSince >= graceMs;
+}
+
 /**
  * Evaluated in the search page. Returns `{results, blocked}`:
  *

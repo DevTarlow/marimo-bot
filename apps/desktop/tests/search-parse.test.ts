@@ -5,8 +5,10 @@
 import {describe, expect, it} from 'vitest';
 
 import {
+  CHALLENGE_GRACE_MS,
   CHALLENGE_TEXT,
   EXTRACT_RESULTS_SCRIPT,
+  challengeIsFinal,
   normalizeExtraction,
 } from '../src/main/search/parse.js';
 
@@ -51,6 +53,27 @@ describe('CHALLENGE_TEXT', () => {
       'Top fruits by global production. 1. Banana — 135 million tonnes. ' +
       '2. Watermelon — 100 million tonnes.';
     expect(CHALLENGE_TEXT.test(body)).toBe(false);
+  });
+});
+
+describe('challengeIsFinal', () => {
+  it('is not final on the first poll', () => {
+    // The page may still be replacing the interstitial with results.
+    expect(challengeIsFinal(undefined, 1_000)).toBe(false);
+    expect(challengeIsFinal(1_000, 1_000)).toBe(false);
+    expect(challengeIsFinal(1_000, 1_000 + CHALLENGE_GRACE_MS - 1)).toBe(
+      false,
+    );
+  });
+
+  it('is final once it has persisted for the grace period', () => {
+    expect(challengeIsFinal(1_000, 1_000 + CHALLENGE_GRACE_MS)).toBe(true);
+    expect(challengeIsFinal(1_000, 9_000)).toBe(true);
+  });
+
+  it('forgets a challenge the page recovered from', () => {
+    // The provider resets `blockedSince` to undefined on a clean poll.
+    expect(challengeIsFinal(undefined, 9_000)).toBe(false);
   });
 });
 

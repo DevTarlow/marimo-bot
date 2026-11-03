@@ -24,7 +24,13 @@ import type {
   WebSearchResult,
 } from '@marimo/agent';
 
-import {EXTRACT_RESULTS_SCRIPT, normalizeExtraction} from './parse.js';
+import {
+  CHALLENGE_ERROR,
+  EXTRACT_RESULTS_SCRIPT,
+  challengeIsFinal,
+  normalizeExtraction,
+} from './parse.js';
+import {searchUserAgent} from './user-agent.js';
 
 const DEFAULT_ENGINE_URL = 'https://duckduckgo.com/';
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -100,9 +106,13 @@ export class BrowserSearchProvider implements WebSearchProvider {
     };
     const onAbort = (): void => destroy();
     request.signal?.addEventListener('abort', onAbort, {once: true});
-    hardenSession();
 
     try {
+      /*
+       * Inside the try so a session that cannot be hardened is a failed search,
+       * not a window the `finally` never gets to close.
+       */
+      hardenSession();
       window.webContents.setWindowOpenHandler(() => ({action: 'deny'}));
       window.webContents.on('will-navigate', (event, url) => {
         if (!isSameOrigin(url, engineOrigin)) {
@@ -115,6 +125,7 @@ export class BrowserSearchProvider implements WebSearchProvider {
       );
 
       const deadline = Date.now() + this.timeoutMs;
+      let blockedSince: number | undefined;
       for (;;) {
         if (window.isDestroyed()) {
           throw new Error('the search window closed before results arrived');
@@ -126,14 +137,20 @@ export class BrowserSearchProvider implements WebSearchProvider {
         if (results.length > 0) {
           return results;
         }
-        if (blocked) {
-          throw new Error(
-            'the search engine served an anti-bot challenge instead of results',
-          );
+        const now = Date.now();
+        blockedSince = blocked ? (blockedSince ?? now) : undefined;
+        if (challengeIsFinal(blockedSince, now)) {
+          throw new Error(CHALLENGE_ERROR);
         }
-        if (Date.now() >= deadline) {
-          // Nothing matched, and the page is not a challenge page: an honest
-          // empty result rather than a failure.
+        if (now >= deadline) {
+          /*
+           * A challenge still on screen at the deadline is a refusal too: the
+           * page never became results, and answering "no results" would say it
+           * did. An ordinary page with nothing on it is an honest empty result.
+           */
+          if (blocked) {
+            throw new Error(CHALLENGE_ERROR);
+          }
           return [];
         }
         await delay(POLL_INTERVAL_MS, request.signal);
@@ -157,14 +174,17 @@ let sessionHardened = false;
 
 /**
  * Locks down the shared `marimo-search` partition once: no permissions, and a
- * plain Chrome user agent, because Electron's own UA is one of the things
- * anti-bot pages look for.
+ * user agent that is a browser's rather than Electron's.
+ *
+ * The UA is built, not filtered, because Electron's names this app and the
+ * engine and an unknown product token is what DuckDuckGo challenges — the old
+ * filter removed `Marimo Desktop`, a name this app never had, so the app token
+ * survived and every search was refused. See `user-agent.ts`.
  */
 function hardenSession(): void {
   if (sessionHardened) {
     return;
   }
-  sessionHardened = true;
   const searchSession = electronSession.fromPartition(PARTITION);
   searchSession.setPermissionRequestHandler(
     (_contents, _permission, callback) => {
@@ -172,11 +192,14 @@ function hardenSession(): void {
     },
   );
   searchSession.setUserAgent(
-    searchSession
-      .getUserAgent()
-      .replace(/\sElectron\/[\d.]+/, '')
-      .replace(/\sMarimo Desktop\/[\d.]+/, ''),
+    searchUserAgent(process.platform, process.versions.chrome),
+    'en-US,en',
   );
+  /*
+   * Only after both calls succeed: a hardening that threw must be retried by the
+   * next search rather than remembered as done.
+   */
+  sessionHardened = true;
 }
 
 function isSameOrigin(url: string, origin: string): boolean {

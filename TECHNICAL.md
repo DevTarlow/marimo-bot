@@ -383,6 +383,16 @@ about the person and their work, and the model is told never to store a fact
 about itself. The guidance follows the grant, as every capability claim in the
 prompt does.
 
+That was still not enough for the identity question. With `The user's name is
+Tarlow.` under `About the user`, the live 2B model answered "what is my name?"
+with "Your name is Marimo Bot": the fact was in the prompt, but the model had
+mapped the person's question onto its own name. The prompt now opens with a
+`# Who is who` block — you are the assistant, the person talking to you is "the
+user" in both the instructions and memory, a question about "my name" is about
+them, and a name not in memory is unknown rather than the assistant's. Moving
+that block above the rules and the identity is what changed the live answer;
+the same fact stated later did not.
+
 ### An answer can be judged, and the judgement goes to the reviewer
 
 Everything in this app could be corrected except the thing the agent actually

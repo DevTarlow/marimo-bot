@@ -181,7 +181,7 @@ A fact about you follows you between Spaces, while a note about how a project is
 
 What does it remember? Settings lists every line and when it was written, with a search box and a **Forget** button.
 
-When you tell it something about yourself — your name, where you live, the people and animals in your life — it writes that down as you say it, before it answers. Say a different name later and the old line is replaced, so memory never holds both.
+When you tell it something about yourself — your name, where you live, the people and animals in your life — it writes that down as you say it, before it answers, and uses it when you ask. Say a different name later and the old line is replaced, so memory never holds both.
 
 If an answer is wrong, choose **Not quite**. The correction is recorded, and the next review turns it into a remembered fact.
 

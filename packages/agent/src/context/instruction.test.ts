@@ -250,3 +250,40 @@ describe('remembering the person', () => {
     );
   });
 });
+
+/*
+ * The failure this exists for is on this machine, not in a test fixture: with
+ * "The user's name is Tarlow." under About the user, a 2B model answered
+ * "Hey whats my name?" with "Your name is Marimo Bot." The fact was in the
+ * prompt; the model had mapped the question onto its own identity. Saying who
+ * is who before everything else is what fixed it against the live weights.
+ */
+describe('who is who', () => {
+  it('puts the person and the agent on their own sides, first', () => {
+    const text = composeHarnessInstruction(harness(), {
+      memory: "## About the user\n- The user's name is Tarlow.",
+      tools: [read],
+    });
+
+    expect(text.startsWith('# Who is who')).toBe(true);
+    expect(text).toContain('You are Writer, the assistant');
+    expect(text).toContain('The person talking to you is the user');
+    expect(text).toContain('always means that person');
+    expect(text).toContain('never you');
+    expect(text).toContain('ask "what is my name?", they mean themselves');
+    expect(text).toContain('never use');
+    expect(text.indexOf('# Who is who')).toBeLessThan(
+      text.indexOf('How you work:'),
+    );
+    expect(text.indexOf('# Who is who')).toBeLessThan(
+      text.indexOf('What you remember'),
+    );
+  });
+
+  it('does not depend on a name already being in memory', () => {
+    const text = composeHarnessInstruction(harness(), {tools: [read]});
+
+    expect(text).toContain('# Who is who');
+    expect(text).toContain('If memory does not tell you their name');
+  });
+});

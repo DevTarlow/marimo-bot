@@ -54,6 +54,29 @@ export function composeHarnessInstruction(
 ): string {
   const sections: string[] = [];
 
+  /*
+   * First, because a 2B model that has the right fact in front of it still
+   * answered "what is my name?" with its own name. In a real session with
+   * "The user's name is Tarlow." in memory it said "Your name is Marimo Bot" —
+   * the identity and the memory were both there, and the model mapped the
+   * person's question onto itself. Saying who is who, before the rules and the
+   * identity, is what the live model needed; the same fact stated later in the
+   * prompt was not enough.
+   */
+  sections.push(
+    [
+      '# Who is who',
+      `You are ${harness.identity.name}, the assistant. The person talking to you is the user.`,
+      '"The user" in these instructions and in memory always means that person,',
+      'never you.',
+      `Their name, when it is in memory, is the one under "About the user"; your`,
+      `name is ${harness.identity.name}.`,
+      'When they say "my" or ask "what is my name?", they mean themselves.',
+      'If memory does not tell you their name, say you do not know it; never use',
+      'your own name for theirs.',
+    ].join('\n'),
+  );
+
   sections.push(
     ['How you work:', ...harness.contract.map((rule) => `- ${rule}`)].join(
       '\n',

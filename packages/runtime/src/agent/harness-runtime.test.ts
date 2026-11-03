@@ -536,6 +536,64 @@ describe('HarnessRuntime', () => {
     expect(posted).toBe('The task is done.');
   });
 
+  /*
+   * A person says "the Reader bot", and so does the model. The name it is given
+   * back has to be the roster's, or the work never starts for the one-word
+   * difference.
+   */
+  it('starts a task for the bot a person named loosely', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Starting.'}, {type: 'done'}],
+      [{type: 'step'}, {type: 'message', text: 'Done.'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    const other = await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: ['current_time'],
+    });
+    let openedFor = '';
+    const runtime = new HarnessRuntime({
+      ...deps,
+      driverFactory: () => driver,
+      createSession: async (targetId, title) => {
+        openedFor = targetId;
+        return {id: 'task-2', title};
+      },
+    });
+    await collect(runtime.run(profileId, 's1', 'Start.'));
+    const started = await runtime.startTask(
+      profileId,
+      'the Reader bot',
+      'Read the folder.',
+      's1',
+    );
+    expect(started.ok).toBe(true);
+    expect(openedFor).toBe(other.id);
+  });
+
+  it('names the roster when the named bot does not exist', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Starting.'}, {type: 'done'}],
+    ]);
+    const {deps, profileId} = await setup();
+    await deps.profiles.create({
+      name: 'Reader',
+      role: (name) => `You are ${name}.`,
+      tools: ['current_time'],
+    });
+    const runtime = new HarnessRuntime({
+      ...deps,
+      driverFactory: () => driver,
+      createSession: async (_targetId, title) => ({id: 'task-3', title}),
+    });
+    await collect(runtime.run(profileId, 's1', 'Start.'));
+    const started = await runtime.startTask(profileId, 'Fern', 'Read.', 's1');
+    expect(started.ok).toBe(false);
+    expect(started.result).toContain('Reader');
+    expect(started.result).toContain('Use one of those names');
+  });
+
   it('restores identity, grants and model from a recorded harness', async () => {
     const {deps, profileId} = await setup();
     const versions = new HarnessVersionStore({
@@ -839,6 +897,67 @@ describe('HarnessRuntime', () => {
     );
     expect(after?.enabledTools).toContain('read_file');
     expect((await runtime.learningProposals()).proposals).toEqual([]);
+  });
+
+  it('grants a move, and refuses a delete at the write', async () => {
+    const {deps, profileId} = await setup();
+    /*
+     * Both are recorded before the runtime is built. A store caches the file it
+     * read, and the runtime keeps its own copy, so a write through a cache older
+     * than the runtime's last answer resurrects the proposal that answer
+     * removed.
+     */
+    const record = (input: Parameters<LearningProposalStore['record']>[0]) =>
+      new LearningProposalStore({file: deps.paths.learningProposals}).record(
+        input,
+      );
+    const move = await record({
+      kind: 'grant',
+      target: 'tool',
+      name: 'move_file',
+      profileId,
+      sessionId: null,
+      reason: 'I need to rename a file.',
+      evidence: [],
+    });
+    const remove = await record({
+      kind: 'grant',
+      target: 'tool',
+      name: 'delete_file',
+      profileId,
+      sessionId: null,
+      reason: 'I need to remove the old draft.',
+      evidence: [],
+    });
+
+    const runtime = runtimeFrom(deps, () => new ScriptedDriver([]));
+    const idOf = (
+      file: {proposals: {id: string; name?: string}[]},
+      name: string,
+    ) => file.proposals.find((proposal) => proposal.name === name)?.id ?? '';
+    const moved = await runtime.resolveLearningProposal(
+      idOf(move, 'move_file'),
+      true,
+    );
+    expect(moved.ok).toBe(true);
+    expect(moved.applied).toContain('move_file');
+
+    /*
+     * The card can be drawn from a stale catalogue, so the refusal is repeated
+     * at the write. A delete is only ever granted by the person in Settings.
+     */
+    const refused = await runtime.resolveLearningProposal(
+      idOf(remove, 'delete_file'),
+      true,
+    );
+    expect(refused.ok).toBe(false);
+    expect(refused.problem).toContain('not one this app can grant');
+
+    const after = (await deps.profiles.profiles()).find(
+      (profile) => profile.id === profileId,
+    );
+    expect(after?.enabledTools).toContain('move_file');
+    expect(after?.enabledTools).not.toContain('delete_file');
   });
 
   /*

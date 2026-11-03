@@ -1,4 +1,4 @@
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {afterEach, describe, expect, it} from 'vitest';
@@ -94,9 +94,9 @@ describe('toolsFor', () => {
   it('offers a request tool only when there is an inbox to record into', () => {
     const spec = harness('/tmp/space', ['request_tool', 'request_connector']);
     expect(toolsFor(spec, {}).map((entry) => entry.name)).toEqual([]);
-    expect(
-      toolsFor(spec, {learning: true}).map((entry) => entry.name),
-    ).toEqual(['request_tool', 'request_connector']);
+    expect(toolsFor(spec, {learning: true}).map((entry) => entry.name)).toEqual(
+      ['request_tool', 'request_connector'],
+    );
   });
 
   it('offers a workspace tool when there is a Space', () => {
@@ -113,6 +113,8 @@ describe('gateFor', () => {
     const spec = harness('/tmp/space');
     expect(gateFor(spec, 'run_shell')).toBe('always');
     expect(gateFor(spec, 'write_file')).toBe('on-overwrite');
+    expect(gateFor(spec, 'move_file')).toBe('on-overwrite');
+    expect(gateFor(spec, 'delete_file')).toBe('always');
     expect(gateFor(spec, 'read_file')).toBe('never');
   });
 });
@@ -163,6 +165,128 @@ describe('the core tools', () => {
     );
     expect(result.ok).toBe(true);
     expect(String(result.result)).toContain('[truncated:');
+  });
+
+  it('deletes one file', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'old.txt'), 'x', 'utf8');
+    const result = await tool('delete_file').execute(
+      {path: 'old.txt'},
+      context(dir),
+    );
+    expect(result.ok).toBe(true);
+    expect(String(result.result)).toContain('Deleted old.txt');
+    await expect(stat(join(dir, 'old.txt'))).rejects.toThrow();
+  });
+
+  /*
+   * One file per call, and never a folder. A recursive delete is the one
+   * mistake in this tool that cannot be undone, so the shape of the call makes
+   * it impossible rather than the prompt asking nicely.
+   */
+  it('refuses to delete a folder', async () => {
+    const dir = await workDir();
+    await mkdir(join(dir, 'notes'));
+    const result = await tool('delete_file').execute(
+      {path: 'notes'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('folder');
+    expect((await stat(join(dir, 'notes'))).isDirectory()).toBe(true);
+  });
+
+  it('refuses to delete a path that leaves the Space', async () => {
+    const dir = await workDir();
+    const result = await tool('delete_file').execute(
+      {path: '../outside.txt'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('outside the workspace');
+  });
+
+  it('refuses to delete a file that is not there', async () => {
+    const dir = await workDir();
+    const result = await tool('delete_file').execute(
+      {path: 'missing.txt'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('no such file');
+  });
+
+  it('renames a file and creates the folder it moves into', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'draft.md'), 'hello', 'utf8');
+    const result = await tool('move_file').execute(
+      {path: 'draft.md', to: 'archive/2026/draft.md'},
+      context(dir),
+    );
+    expect(result.ok).toBe(true);
+    expect(String(result.result)).toContain('Moved draft.md');
+    expect(await readFile(join(dir, 'archive/2026/draft.md'), 'utf8')).toBe(
+      'hello',
+    );
+    await expect(stat(join(dir, 'draft.md'))).rejects.toThrow();
+  });
+
+  it('replaces an existing destination', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'new.txt'), 'new', 'utf8');
+    await writeFile(join(dir, 'old.txt'), 'old', 'utf8');
+    const result = await tool('move_file').execute(
+      {path: 'new.txt', to: 'old.txt'},
+      context(dir),
+    );
+    expect(result.ok).toBe(true);
+    expect(String(result.result)).toContain('Replaced new.txt → old.txt');
+    expect(await readFile(join(dir, 'old.txt'), 'utf8')).toBe('new');
+  });
+
+  it('refuses to move a folder', async () => {
+    const dir = await workDir();
+    await mkdir(join(dir, 'notes'));
+    const result = await tool('move_file').execute(
+      {path: 'notes', to: 'archive'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('folder');
+  });
+
+  it('refuses to move onto a folder', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'file.txt'), 'x', 'utf8');
+    await mkdir(join(dir, 'notes'));
+    const result = await tool('move_file').execute(
+      {path: 'file.txt', to: 'notes'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('folder');
+  });
+
+  it('refuses a move that leaves the Space', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'file.txt'), 'x', 'utf8');
+    const result = await tool('move_file').execute(
+      {path: 'file.txt', to: '../outside.txt'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('outside the workspace');
+  });
+
+  it('refuses a move onto itself', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'file.txt'), 'x', 'utf8');
+    const result = await tool('move_file').execute(
+      {path: 'file.txt', to: './file.txt'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('already at that path');
   });
 
   it('lists a folder and marks a directory', async () => {

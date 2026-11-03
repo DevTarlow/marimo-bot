@@ -104,13 +104,18 @@ describe('memory tools', () => {
     });
   });
 
-  it('says the memory is empty before anything is written', async () => {
+  it('says the memory is empty without pointing at a file', async () => {
     const output = await run(createReadMemoryTool({memory}), {});
     expect(output).toContain('Memory is empty');
-    expect(output).toContain(memory.location);
+    /*
+     * No path. A model handed one reads it as a file to open, which is how a
+     * turn ends up calling `read_file` on memory and being refused for leaving
+     * the workspace.
+     */
+    expect(output).not.toContain(memory.location);
   });
 
-  it('reads back what was written', async () => {
+  it('reads back what was written, facts before the file note', async () => {
     await run(createUpdateMemoryTool({memory}), {
       section: 'Preferences',
       content: 'Prefers pnpm',
@@ -118,6 +123,9 @@ describe('memory tools', () => {
     const output = await run(createReadMemoryTool({memory}), {});
     expect(output).toContain('- Prefers pnpm');
     expect(output).toContain('## Preferences');
+    expect(output.indexOf('- Prefers pnpm')).toBeLessThan(
+      output.indexOf("app's memory file"),
+    );
   });
 
   it('writes a fact into the named section', async () => {

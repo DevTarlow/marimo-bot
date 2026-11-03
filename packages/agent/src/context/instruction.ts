@@ -105,6 +105,8 @@ export function composeHarnessInstruction(
   if (tools.length > 0) {
     const canWrite = tools.some((tool) => tool.name === 'write_file');
     const canRead = tools.some((tool) => tool.name === 'read_file');
+    const canMove = tools.some((tool) => tool.name === 'move_file');
+    const canDelete = tools.some((tool) => tool.name === 'delete_file');
     sections.push(
       [
         '# Tools you have',
@@ -118,16 +120,34 @@ export function composeHarnessInstruction(
             ? `- ${tool.name}`
             : `- ${tool.name} — ${tool.description.trim()}`,
         ),
+        ...(canMove
+          ? [
+              '',
+              'To rename or move a file, call `move_file` with the path it has ' +
+                'now and the path it should have. This is the only way to ' +
+                'rename: writing the text under the new name leaves the old ' +
+                'file where it was, so that is not a rename even when the ' +
+                'person used the word.',
+            ]
+          : []),
         ...(canWrite
           ? [
               '',
               canRead
-                ? 'A request to change a file is a `write_file` call: read it first ' +
-                  'when it already exists, then send the complete new text. Do ' +
-                  'not tell the person to edit it themselves.'
-                : 'A request to change a file is a `write_file` call: send the ' +
+                ? 'To change what is inside a file, call `write_file`: read it ' +
+                  'first when it already exists, then send the complete new ' +
+                  'text. Do not tell the person to edit it themselves.'
+                : 'To change what is inside a file, call `write_file`: send the ' +
                   'complete new text. Do not tell the person to edit it ' +
                   'themselves.',
+            ]
+          : []),
+        ...(canDelete
+          ? [
+              '',
+              'A request to remove a file is a `delete_file` call. It asks the ' +
+                'person first, and the file is gone for good afterwards, so name ' +
+                'the file you are deleting. Do not use a shell command to delete.',
             ]
           : []),
       ].join('\n'),
@@ -141,9 +161,7 @@ export function composeHarnessInstruction(
         'Capabilities you do not have. If a task needs one, `request_tool` can',
         'ask the person for it — they decide, and you do not have it until they',
         'do. Do not use this list to narrate a capability you were not given:',
-        ...catalogue.map(
-          (entry) => `- ${entry.name} — ${entry.description}`,
-        ),
+        ...catalogue.map((entry) => `- ${entry.name} — ${entry.description}`),
       ].join('\n'),
     );
   }

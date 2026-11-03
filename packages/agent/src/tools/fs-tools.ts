@@ -1,16 +1,25 @@
 /**
- * Filesystem tools: `read_file`, `list_dir` and `write_file`.
+ * Filesystem tools: `read_file`, `list_dir`, `write_file`, `move_file` and
+ * `delete_file`.
  *
- * All three are confined to the workspace root through `resolveInsideWorkspace`,
+ * All five are confined to the workspace root through `resolveInsideWorkspace`,
  * and the readers cap what they return so one large file cannot consume the
  * whole context window.
  *
- * `write_file` is the only one that can destroy something, so it is gated: ADK
- * pauses the turn for an approval card whenever the target already exists. A
- * brand-new file writes without a prompt, which keeps ordinary file creation
- * from turning into a wall of dialogs.
+ * Three of them can destroy something, and each is gated by what it would
+ * actually destroy. `write_file` and `move_file` pause only when the target
+ * already exists, so ordinary creation and renaming do not turn into a wall of
+ * dialogs. `delete_file` has no trash and no undo, so it pauses every time.
  */
-import {mkdir, readFile, readdir, stat, writeFile} from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 
 import {FunctionTool} from '@google/adk';
@@ -218,6 +227,163 @@ export function createWriteFileTool(context: FileToolContext) {
       return existing
         ? `Replaced ${resolved} (${existing.size} → ${bytes} bytes).`
         : `Wrote ${resolved} (${bytes} bytes, new file).`;
+    },
+  });
+}
+
+/**
+ * `move_file`: rename or move one file, creating the destination folder.
+ *
+ * The gate is the destination, not the source: a move that lands on a file
+ * already there destroys it, and a move to a free name destroys nothing. The
+ * predicate resolves both paths so a destination outside the Space counts as
+ * "no gate" and the tool refuses in `execute` with a readable sentence.
+ */
+export function createMoveFileTool(context: FileToolContext) {
+  return new FunctionTool({
+    name: 'move_file',
+    description:
+      "Move or rename one file in the user's workspace. To rename notes.txt to " +
+      'garden.txt call it with path "notes.txt" and to "garden.txt". A rename ' +
+      'is this call: the file keeps one copy, and no text is written. The ' +
+      'destination folder is created when it is missing; replacing a file that ' +
+      'is already there asks the person first. Folders are not moved.',
+    parameters: z.object({
+      path: z.string().describe('The file to move, e.g. "notes/draft.md".'),
+      to: z
+        .string()
+        .describe(
+          'Where it should end up, including the new file name, e.g. ' +
+            '"notes/2026/draft.md".',
+        ),
+    }),
+    requireConfirmation: async ({path: candidate, to: destination}) => {
+      try {
+        const source = await resolveInsideWorkspace(
+          context.workspaceRoot,
+          candidate,
+        );
+        const target = await resolveInsideWorkspace(
+          context.workspaceRoot,
+          destination,
+        );
+        if (source === target) {
+          return false;
+        }
+        const info = await stat(target);
+        return info.isFile();
+      } catch {
+        return false;
+      }
+    },
+    execute: async ({path: candidate, to: destination}) => {
+      let source: string;
+      let target: string;
+      try {
+        source = await resolveInsideWorkspace(context.workspaceRoot, candidate);
+        target = await resolveInsideWorkspace(
+          context.workspaceRoot,
+          destination,
+        );
+      } catch (error) {
+        if (error instanceof PathOutsideWorkspaceError) {
+          return error.message;
+        }
+        return `Could not resolve the move: ${describeError(error)}`;
+      }
+      if (source === target) {
+        return `"${candidate}" is already at that path.`;
+      }
+
+      let info: Awaited<ReturnType<typeof stat>>;
+      try {
+        info = await stat(source);
+      } catch (error) {
+        return `Could not inspect "${candidate}": ${describeError(error)}`;
+      }
+      if (info.isDirectory()) {
+        return `"${candidate}" is a directory. move_file moves one file at a time.`;
+      }
+      if (!info.isFile()) {
+        return `"${candidate}" is not a regular file.`;
+      }
+
+      let existing: Awaited<ReturnType<typeof stat>> | undefined;
+      try {
+        existing = await stat(target);
+      } catch (error) {
+        if (!isNotFound(error)) {
+          return `Could not inspect "${destination}": ${describeError(error)}`;
+        }
+      }
+      if (existing?.isDirectory()) {
+        return `"${destination}" is a directory. Give move_file a file path.`;
+      }
+
+      try {
+        await mkdir(dirname(target), {recursive: true});
+        await rename(source, target);
+      } catch (error) {
+        return `Could not move "${candidate}": ${describeError(error)}`;
+      }
+
+      return existing
+        ? `Replaced ${target} with ${source}.`
+        : `Moved ${source} → ${target}.`;
+    },
+  });
+}
+
+/**
+ * `delete_file`: remove one file, permanently, with a card every time.
+ *
+ * There is no trash and no undo, so the gate is `always` rather than
+ * `on-overwrite`: the person sees the path before anything is removed. Folders
+ * are refused rather than walked, because a recursive delete is a different
+ * capability with a different card.
+ */
+export function createDeleteFileTool(context: FileToolContext) {
+  return new FunctionTool({
+    name: 'delete_file',
+    description:
+      "Delete one file in the user's workspace. The person approves every " +
+      'delete, and it cannot be undone. Folders are not deleted.',
+    parameters: z.object({
+      path: z
+        .string()
+        .describe('The file to delete, e.g. "notes/old-draft.md".'),
+    }),
+    requireConfirmation: async () => true,
+    execute: async ({path: candidate}) => {
+      let target: string;
+      try {
+        target = await resolveInsideWorkspace(context.workspaceRoot, candidate);
+      } catch (error) {
+        if (error instanceof PathOutsideWorkspaceError) {
+          return error.message;
+        }
+        return `Could not resolve "${candidate}": ${describeError(error)}`;
+      }
+
+      let info: Awaited<ReturnType<typeof stat>>;
+      try {
+        info = await stat(target);
+      } catch (error) {
+        return `Could not inspect "${candidate}": ${describeError(error)}`;
+      }
+      if (info.isDirectory()) {
+        return `"${candidate}" is a directory. delete_file removes one file at a time.`;
+      }
+      if (!info.isFile()) {
+        return `"${candidate}" is not a regular file.`;
+      }
+
+      try {
+        await unlink(target);
+      } catch (error) {
+        return `Could not delete "${candidate}": ${describeError(error)}`;
+      }
+      return `Deleted ${target}.`;
     },
   });
 }

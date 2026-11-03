@@ -50,12 +50,21 @@ export const readMemoryTool: AnyToolDefinition = {
       if (text.trim().length === 0) {
         return outcome(
           true,
-          `Memory is empty (${memory.location}). Use update_memory to record durable facts.`,
+          'Memory is empty. Use update_memory to record durable facts.',
         );
       }
+      /*
+       * The facts first and the file note last. It used to lead with two
+       * absolute paths, and a small model read that as an instruction: it spent
+       * the turn calling `read_file` on them (refused, outside the workspace)
+       * and then told the person it remembered nothing that was right there in
+       * the text below.
+       */
       return outcome(
         true,
-        `${memory.location} (${size} bytes)\n\n${text}${warning ? `\n\n${warning}` : ''}`,
+        `${text}\n\n(${String(size)} bytes. This is the app's memory file, not a ` +
+          'workspace file: edit it with the memory tools, not the file ' +
+          `tools.)${warning ? `\n\n${warning}` : ''}`,
       );
     } catch (error) {
       return outcome(

@@ -85,7 +85,8 @@ export function createSaveSkillTool(context: SkillToolContext) {
       'already exists replaces that skill. `description` is the one line that ' +
       'says when to use it. `instructions` is the procedure itself, in the ' +
       'imperative, naming the tools it uses. The user has to approve it before ' +
-      'it is saved.',
+      'it is saved. This is not how a skill is read: to follow one that already ' +
+      'exists, call `load_skill` with its name.',
     parameters: z.object({
       name: z
         .string()
@@ -147,7 +148,9 @@ export function createLoadSkillTool(context: {library: SkillLibrary}) {
       'task one of them covers, then follow what it says. Loading a skill gives ' +
       'you the procedure, not a summary of it.',
     parameters: z.object({
-      name: z.string().describe('The skill name exactly as the prompt lists it.'),
+      name: z
+        .string()
+        .describe('The skill name exactly as the prompt lists it.'),
     }),
     execute: async ({name}) => {
       try {

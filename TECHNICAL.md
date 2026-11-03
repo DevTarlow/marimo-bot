@@ -414,10 +414,10 @@ failed or an older build left it behind.
   The Memory card is the control: every bullet is listed, searchable, and has a
   Forget button that also records a refusal so the reviewer cannot re-add it.
 - **Grants.** `request_tool` and `request_connector` name a capability from the
-  catalogue with a reason and the turn it came from. `run_shell` is not in the
-  catalogue the prompt shows, is refused by the tool, and is refused again at
-  the write. A grant is applied only by `resolveLearningProposal`, never by the
-  turn that asked.
+  catalogue with a reason and the turn it came from. `run_shell` and
+  `delete_file` are not in the catalogue the prompt shows, are refused by the
+  tool, and are refused again at the write. A grant is applied only by
+  `resolveLearningProposal`, never by the turn that asked.
 - **Policy.** `propose_policy` can change memory recall, compaction room and the
   tool-call budget. The schema has no field for Role, Persona, the contract or a
   gate — that is the boundary, expressed as a type rather than a paragraph. The
@@ -714,6 +714,21 @@ it belongs to the install: two agents asked about the same project work in the
 same folder, under the same confinement, with the same
 `<folder>/.marimo/<agent>/` memory.
 
+**The file tools are five, and the ones that destroy something ask every time.**
+`read_file`, `list_dir` and `write_file` cover the ordinary work; `write_file` asks
+only when the path is already a file, because a new file costs nothing. `move_file`
+is the rename, kept separate because a small model told to rename a file will
+otherwise write a second copy and leave the first behind — it takes a `path` and a
+`to`, creates the destination's parent, and asks only when a file is already at the
+target, which is the case it replaces. `delete_file` is one file per call, no
+folder and no recursion, and it asks on every call: there is no bin to restore
+from, so the gate is the only chance to stop it. Both refusals are made after
+resolution like every other path (`..`, outside the Space, a symlink that leaves
+it), and both refuse a directory rather than emptying one. `delete_file` is
+Power-only, and `request_tool` refuses it by name, in the catalogue and again at
+the proposal write, for the same reason as `run_shell`: a bot that can ask for it
+could talk its way past the switch the person never turned on.
+
 **A fresh install starts in a folder the app made, not in the home directory.**
 `defaultWorkspace` is `<home>/Marimo`, and `WorkspaceStore` creates it when it
 seeds the document. The old default was the home directory itself, and the failure
@@ -794,7 +809,14 @@ stops one turn reading as one voice.
 install has — an unknown name, an unknown Space and a blank task are all refusals
 in words, never a throw, because a throw ends the parent's turn and turns "no such
 helper" into "your request failed" — and the host builds the helper from that
-profile, so it runs with its own identity, tools, skills, model and Space. Depth
+profile, so it runs with its own identity, tools, skills, model and Space. The
+name is compared as a person says it as well as as the document spells it: case,
+spacing, a leading "the" and a trailing "bot" or "agent" are folded away before
+matching, because "ask the Fern bot" is how both a person and a small model name
+a bot called Fern, and a refusal for the word "bot" is a refusal nobody can act
+on. An exact id or name still wins, and a name that folds to two bots is refused
+with the roster rather than guessed — the one failure mode that would be worse
+than the refusal is handing the work to the other bot. Depth
 is one by construction rather than by a number compared at runtime: the host
 builds the helper _without_ this tool, so recursion is not something a model can
 talk its way into. The bounds are 60 model turns, five minutes, 8,000 characters

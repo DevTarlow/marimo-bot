@@ -118,7 +118,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `this.host(childProfileId)`. Depth is one by construction. A helper's gate is
     answered from the parent's card, and the parent's tool sends ADK the
     confirmation for the child's call rather than telling the child the news and
-    asking it to redo the work.
+    asking it to redo the work. The name is matched the way it is spoken — case,
+    a leading "the", a trailing "bot" or "agent" — because a model asked for "the
+    Fern bot" was refused, while an exact name still wins and a name two bots
+    share is refused with the roster.
 19. **ADK ends the invocation at a gate, so a tool cannot wait inside one.** The
     helper parking on an approval ends *its* invocation, and a parent tool that
     sat waiting would leave the model's own call unanswered. `ask_agent` raises a
@@ -226,9 +229,17 @@ screen.
 pre-built `enabledTools` grants: the first run asks the question as **Regular** or
 **Power setup**, Settings repeats it as Standard and Power user, choosing one
 writes the same grant the switches show, and every switch stays on the one
-screen. Power is the one preset that grants `run_shell`, because the person is
-explicitly choosing full control there; the gate that asks before a command is
-unchanged, and `request_tool` still refuses the shell.
+screen. Power is the one preset that grants `run_shell` and `delete_file`,
+because the person is explicitly choosing full control there; the gates that ask
+before a command and before a delete are unchanged, and `request_tool` still
+refuses both.
+
+**Deleting is one file, for good, and asked every time.** `delete_file` takes no
+folder and no recursive flag, and `unlink` is the whole implementation — there is
+no bin, so the approval card is the only undo. `move_file` is the rename for the
+same reason: without it a model asked to rename writes a copy and leaves the
+original. A move asks only when a file is already at the target, since that is
+the case it replaces.
 
 **The goals after the direction are a plan, not a grant.** They are held in the
 renderer and never written; they choose which steps appear (a bot step, the
@@ -312,8 +323,8 @@ for a person.
 - **A proposal carries evidence.** A memory fact carries a quote verified against
   the transcript; a grant or policy carries the turn it came from.
 - **`resolveLearningProposal` is the only write for a change.** The tool that
-  asks cannot grant, and `run_shell` is refused by the tool, the catalogue and
-  the write.
+  asks cannot grant, and `run_shell` and `delete_file` are refused by the tool,
+  the catalogue and the write.
 - **A refusal is a lesson.** It is keyed by subject, current for six months, and
   listed in the inbox with a way to clear it.
 - **A turn records its outcome** on `turn.completed`/`failed`/`aborted`; the

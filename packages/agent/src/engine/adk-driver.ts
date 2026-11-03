@@ -185,7 +185,9 @@ export class AdkDriver implements TurnDriver {
       input.sessionId,
     );
     const parts: Part[] = [{text: input.text}];
-    parts.push(...(await this.attachmentParts(input.attachments, input.harness)));
+    parts.push(
+      ...(await this.attachmentParts(input.attachments, input.harness)),
+    );
     /*
      * The system prompt already lists these, but a 2B model that has just told
      * the person it cannot edit a file will repeat that in the next turn unless
@@ -270,7 +272,9 @@ export class AdkDriver implements TurnDriver {
      * audit; they are not replayed into the provider, or compaction would cost a
      * model call and change nothing.
      */
-    const summary = [...history].reverse().find((event) => event.type === 'summary');
+    const summary = [...history]
+      .reverse()
+      .find((event) => event.type === 'summary');
     const through =
       summary === undefined
         ? -1
@@ -611,9 +615,7 @@ export class AdkDriver implements TurnDriver {
        */
       instruction: async () => {
         const prompt =
-          promptContext ??
-          (await this.options.promptContext?.(harness)) ??
-          {};
+          promptContext ?? (await this.options.promptContext?.(harness)) ?? {};
         return composeHarnessInstruction(harness, {
           ...prompt,
           tools: definitions.map((definition) => ({
@@ -722,10 +724,12 @@ export class AdkDriver implements TurnDriver {
       const news = decision.confirmed
         ? 'The user approved this. Carry on and finish the task, then report the result.'
         : 'The user declined this. Stop and say what you had done so far.';
-      parts.push({text: `${news}
+      parts.push({
+        text: `${news}
 
 Your task:
-${task}`});
+${task}`,
+      });
     } else {
       parts.push({text: task});
     }
@@ -763,7 +767,10 @@ ${task}`});
           .map((part) => part.text ?? '')
           .filter((part) => part.length > 0)
           .join('');
-        if (text.length > 0 && event.author === adkAgentName(target.harness.id)) {
+        if (
+          text.length > 0 &&
+          event.author === adkAgentName(target.harness.id)
+        ) {
           if (event.partial === true) {
             streamed = true;
             answer += text;
@@ -839,8 +846,7 @@ ${task}`});
           call.id !== undefined
         ) {
           const args = call.args as
-            | {toolConfirmation?: {hint?: string}}
-            | undefined;
+            {toolConfirmation?: {hint?: string}} | undefined;
           asked.set(call.id, {
             id: call.id,
             ...(args?.toolConfirmation?.hint === undefined
@@ -900,7 +906,11 @@ ${task}`});
         name: definition.name,
         description: definition.description,
         parameters: definition.parameters,
-        requireConfirmation: this.confirmationFor(rule, harness),
+        requireConfirmation: this.confirmationFor(
+          rule,
+          harness,
+          definition.name,
+        ),
         execute: async (
           args: Record<string, unknown>,
           adkContext: unknown,
@@ -931,9 +941,9 @@ ${task}`});
    * The capabilities this bot could ask for, in the words the catalogue uses.
    *
    * Only when it has `request_tool`: advertising a list of things the bot cannot
-   * request is the prompt-invites-a-call-it-cannot-make failure. The shell is
-   * removed here as well as refused by the tool and the runtime, because this is
-   * the sentence the model reads before it decides to ask.
+   * request is the prompt-invites-a-call-it-cannot-make failure. The shell and
+   * the delete are removed here as well as refused by the tool and the runtime,
+   * because this is the sentence the model reads before it decides to ask.
    */
   private requestCatalogue(
     harness: HarnessSpec,
@@ -946,6 +956,7 @@ ${task}`});
       (tool) =>
         !granted.has(tool.name) &&
         tool.name !== 'run_shell' &&
+        tool.name !== 'delete_file' &&
         tool.name !== 'request_tool' &&
         tool.name !== 'request_connector' &&
         tool.name !== 'propose_policy',
@@ -958,6 +969,7 @@ ${task}`});
   private confirmationFor(
     rule: GateRule,
     harness: HarnessSpec,
+    toolName: string,
   ): boolean | ((args: Record<string, unknown>) => boolean | Promise<boolean>) {
     if (rule === 'always' || rule === 'on-untrusted-server') {
       return true;
@@ -969,13 +981,17 @@ ${task}`});
      * `on-overwrite` is a gate over the arguments: creating a file is safe and
      * replacing one is not. The predicate is evaluated again when an approval
      * resumes the call, so the file can have changed while the card was open.
+     *
+     * A move is gated on its *destination* rather than on its source: the file
+     * being moved is the one the person asked to move, and the file that can be
+     * lost is the one already sitting where it is going.
      */
     return async (args: Record<string, unknown>): Promise<boolean> => {
-      const candidate = args.path;
-      if (
-        typeof candidate !== 'string' ||
-        harness.workspaceRoot === undefined
-      ) {
+      if (harness.workspaceRoot === undefined) {
+        return false;
+      }
+      const candidate = toolName === 'move_file' ? args.to : args.path;
+      if (typeof candidate !== 'string') {
         return false;
       }
       try {
@@ -983,6 +999,19 @@ ${task}`});
           harness.workspaceRoot,
           candidate,
         );
+        if (toolName === 'move_file') {
+          const source = args.path;
+          if (typeof source !== 'string') {
+            return false;
+          }
+          const from = await resolveInsideWorkspace(
+            harness.workspaceRoot,
+            source,
+          );
+          if (from === target) {
+            return false;
+          }
+        }
         return (await stat(target)).isFile();
       } catch {
         return false;
@@ -1271,7 +1300,6 @@ function confirmationParts(
   return parts;
 }
 
-
 function capHistory(history: readonly SessionEvent[]): {
   events: readonly SessionEvent[];
   omitted: boolean;
@@ -1286,7 +1314,10 @@ function capHistory(history: readonly SessionEvent[]): {
     if (start < history.length && history.length - index > MAX_HISTORY_EVENTS) {
       break;
     }
-    if (start < history.length && chars + eventChars(event) > MAX_HISTORY_CHARS) {
+    if (
+      start < history.length &&
+      chars + eventChars(event) > MAX_HISTORY_CHARS
+    ) {
       break;
     }
     chars += eventChars(event);
@@ -1313,9 +1344,7 @@ function eventChars(event: SessionEvent): number {
        * resolution; using the encoded size here would make a 300KB screenshot
        * look like 75K tokens and compact a conversation that still fits.
        */
-      return (
-        event.text.length + (event.attachments?.length ?? 0) * 4000
-      );
+      return event.text.length + (event.attachments?.length ?? 0) * 4000;
     case 'assistant.message':
       return event.text.length + (event.reasoning?.length ?? 0);
     case 'tool.call':
@@ -1345,7 +1374,6 @@ function imageMimeType(path: string): string | undefined {
       return undefined;
   }
 }
-
 
 /**
  * A replacement for a replayed false "I cannot edit" answer.

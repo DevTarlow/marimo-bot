@@ -288,9 +288,7 @@ describe('AgentRuntime', () => {
    */
   describe('conversations before a model has run', () => {
     it('can be started anyway', async () => {
-      const session = await runtime({}).createSession(
-        profileId,
-      );
+      const session = await runtime({}).createSession(profileId);
       expect(session).toBeDefined();
       expect(session?.id.length).toBeGreaterThan(0);
     });
@@ -523,6 +521,15 @@ describe('the catalogue', () => {
 
     expect(names).toContain('read_file');
     expect(names).toContain('write_file');
+    /*
+     * The engine builds these three, and the catalogue is the only list the
+     * Settings screen draws from. A tool the runtime offers but the catalogue
+     * omits is a switch that does not exist, which is how `start_task` was
+     * unreachable before.
+     */
+    expect(names).toContain('move_file');
+    expect(names).toContain('delete_file');
+    expect(names).toContain('start_task');
     // Every entry has to carry a description, or the settings screen offers a
     // checkbox with nothing beside it.
     expect(catalog.tools.every((tool) => tool.description.length > 10)).toBe(
@@ -587,6 +594,15 @@ describe('the catalogue', () => {
     expect(names.has('save_skill')).toBe(true);
 
     /*
+     * Moving a file is ordinary work, so the widest card offers it. Deleting is
+     * not: it is permanent, and the only way to grant it is the person turning
+     * the switch on in Settings.
+     */
+    expect(capable?.tools).toContain('move_file');
+    expect(capable?.tools).toContain('start_task');
+    expect(capable?.tools).not.toContain('delete_file');
+
+    /*
      * The control choice is computed from the same catalogue rather than kept
      * as a second list. Standard is what a fresh profile is granted, and power
      * is every tool this install can offer — so a tool the catalogue builds is
@@ -607,6 +623,12 @@ describe('the catalogue', () => {
     );
     expect(new Set(power?.tools ?? [])).toEqual(names);
     expect(power?.tools).toContain('run_shell');
+    expect(power?.tools).toContain('move_file');
+    expect(power?.tools).toContain('delete_file');
+    expect(power?.tools).toContain('start_task');
+    expect(standard?.tools).not.toContain('move_file');
+    expect(standard?.tools).not.toContain('delete_file');
+    expect(standard?.tools).not.toContain('start_task');
   });
 
   /*

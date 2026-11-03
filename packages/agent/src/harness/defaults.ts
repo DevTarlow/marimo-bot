@@ -73,10 +73,13 @@ export const DEFAULT_HARNESS: HarnessBuiltin = {
   tools: {
     policy: {
       gates: {
-        // The two calls that can destroy something. `write_file` creates without
-        // a gate and gates the replacement; the tool's predicate decides which.
+        // The calls that can destroy something. `write_file` and `move_file`
+        // create without a gate and gate the replacement; the tool's predicate
+        // decides which. A delete and a command ask every time.
         run_shell: 'always',
         write_file: 'on-overwrite',
+        move_file: 'on-overwrite',
+        delete_file: 'always',
         save_skill: 'always',
       },
       network: 'default',

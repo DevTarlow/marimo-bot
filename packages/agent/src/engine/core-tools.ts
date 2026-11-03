@@ -10,7 +10,15 @@
  * one refusal with one sentence.
  */
 import {exec} from 'node:child_process';
-import {mkdir, open, readdir, stat, writeFile} from 'node:fs/promises';
+import {
+  mkdir,
+  open,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import {dirname} from 'node:path';
 
 import {z} from 'zod';
@@ -189,7 +197,8 @@ const writeFileTool = asAnyTool({
   description:
     'Create, edit or replace a UTF-8 text file inside the workspace; replacing ' +
     'an existing file asks the person first. Read the file when it already ' +
-    'exists, then send the complete new contents. Output is capped at 1 MiB.',
+    'exists, then send the complete new contents. Renaming is move_file: a ' +
+    'write leaves the original file in place. Output is capped at 1 MiB.',
   parameters: z.object({
     path: z.string().describe('File to write, relative to the workspace root.'),
     content: z.string().describe('The complete new contents of the file.'),
@@ -230,6 +239,129 @@ const writeFileTool = asAnyTool({
       return outcome(
         false,
         `Could not write "${candidate}": ${describeToolError(error)}`,
+      );
+    }
+  },
+});
+
+const moveFileTool = asAnyTool({
+  name: 'move_file',
+  description:
+    'Move or rename one file inside the workspace. To rename notes.txt to ' +
+    'garden.txt call it with path "notes.txt" and to "garden.txt". A rename is ' +
+    'this call: the file keeps one copy, and no text is written. The ' +
+    'destination folder is created when it is missing; replacing a file that ' +
+    'is already there asks the person first. Folders are not moved.',
+  parameters: z.object({
+    path: z
+      .string()
+      .describe('The file to move, relative to the workspace root.'),
+    to: z
+      .string()
+      .describe(
+        'Where it should end up, relative to the workspace root. Include the ' +
+          'new file name, e.g. "notes/2026.md".',
+      ),
+  }),
+  gate: 'on-overwrite',
+  requiresWorkspace: true,
+  execute: async (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolOutcome> => {
+    const candidate = typeof args.path === 'string' ? args.path : '';
+    const destination = typeof args.to === 'string' ? args.to : '';
+    if (candidate.length === 0) {
+      return outcome(false, 'move_file needs a path.');
+    }
+    if (destination.length === 0) {
+      return outcome(false, 'move_file needs a destination in "to".');
+    }
+    const source = await resolved(context, candidate);
+    if ('problem' in source) {
+      return outcome(false, source.problem);
+    }
+    const target = await resolved(context, destination);
+    if ('problem' in target) {
+      return outcome(false, target.problem);
+    }
+    if (source.path === target.path) {
+      return outcome(false, `${candidate} is already at that path.`);
+    }
+    try {
+      const info = await stat(source.path);
+      if (info.isDirectory()) {
+        return outcome(
+          false,
+          `${candidate} is a folder. move_file moves one file at a time.`,
+        );
+      }
+      if (!info.isFile()) {
+        return outcome(false, `${candidate} is not a regular file.`);
+      }
+      const existing = await stat(target.path).catch(() => undefined);
+      if (existing?.isDirectory()) {
+        return outcome(
+          false,
+          `${destination} is a folder. Give move_file a file path.`,
+        );
+      }
+      await mkdir(dirname(target.path), {recursive: true});
+      await rename(source.path, target.path);
+      return outcome(
+        true,
+        `${existing === undefined ? 'Moved' : 'Replaced'} ${candidate} → ${destination}.`,
+      );
+    } catch (error) {
+      return outcome(
+        false,
+        `Could not move "${candidate}": ${describeToolError(error)}`,
+      );
+    }
+  },
+});
+
+const deleteFileTool = asAnyTool({
+  name: 'delete_file',
+  description:
+    'Delete one file inside the workspace. The person approves every delete, ' +
+    'and it cannot be undone. Folders are not deleted.',
+  parameters: z.object({
+    path: z
+      .string()
+      .describe('The file to delete, relative to the workspace root.'),
+  }),
+  gate: 'always',
+  requiresWorkspace: true,
+  execute: async (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolOutcome> => {
+    const candidate = typeof args.path === 'string' ? args.path : '';
+    if (candidate.length === 0) {
+      return outcome(false, 'delete_file needs a path.');
+    }
+    const target = await resolved(context, candidate);
+    if ('problem' in target) {
+      return outcome(false, target.problem);
+    }
+    try {
+      const info = await stat(target.path);
+      if (info.isDirectory()) {
+        return outcome(
+          false,
+          `${candidate} is a folder. delete_file removes one file at a time.`,
+        );
+      }
+      if (!info.isFile()) {
+        return outcome(false, `${candidate} is not a regular file.`);
+      }
+      await unlink(target.path);
+      return outcome(true, `Deleted ${candidate}.`);
+    } catch (error) {
+      return outcome(
+        false,
+        `Could not delete "${candidate}": ${describeToolError(error)}`,
       );
     }
   },
@@ -303,6 +435,8 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   readFile,
   listDir,
   writeFileTool,
+  moveFileTool,
+  deleteFileTool,
   runShell,
   ...MEMORY_TOOLS,
   ...SKILL_TOOLS,

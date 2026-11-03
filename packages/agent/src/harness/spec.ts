@@ -51,7 +51,7 @@ export type GateRule = z.infer<typeof gateRuleSchema>;
 export const CAPABILITY_GUIDANCE = [
   {
     id: 'files',
-    tools: ['read_file', 'list_dir', 'write_file'],
+    tools: ['read_file', 'list_dir', 'write_file', 'move_file', 'delete_file'],
   },
   {
     id: 'shell',

@@ -36,6 +36,7 @@ import {
   grantedMcpSources,
   GateNotFoundError,
   MemoryStore,
+  nonRequestableReason,
   OpenAiCompatLlm,
   SKILLS,
   TurnBusyError,
@@ -104,6 +105,66 @@ function clip(text: string): string {
   return trimmed.length > 80 ? `${trimmed.slice(0, 77)}...` : trimmed;
 }
 
+/**
+ * A bot's name as a person says it, folded for comparison.
+ *
+ * A 2B model asked to "ask the Fern bot" wrote `agent: "Fern bot"` and the
+ * delegation failed, and a person would have said the same thing. Leading "the",
+ * a trailing "bot" or "agent", case and spacing are all how a name is spoken
+ * rather than which bot is meant, so they are folded away before matching. A name
+ * that folds to something two bots share stays ambiguous and is refused below —
+ * guessing between two bots is how work lands with the wrong one.
+ */
+function foldAgentName(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/^the\s+/, '')
+    .replace(/\s+(bot|agent)$/, '');
+}
+
+/**
+ * The bot a spoken name means, or a sentence naming the roster.
+ *
+ * Exact id and exact name win before the folded comparison, so a bot genuinely
+ * called "Fern Bot" is still reachable.
+ */
+function resolveAgent<T extends {id: string; name: string}>(
+  profiles: readonly T[],
+  spoken: string,
+): {target?: T; problem?: string} {
+  const trimmed = spoken.trim();
+  const exact = profiles.find(
+    (profile) =>
+      profile.id === trimmed ||
+      profile.name.trim().toLocaleLowerCase() === trimmed.toLocaleLowerCase(),
+  );
+  if (exact !== undefined) {
+    return {target: exact};
+  }
+  const wanted = foldAgentName(spoken);
+  const folded =
+    wanted.length === 0
+      ? []
+      : profiles.filter((profile) => foldAgentName(profile.name) === wanted);
+  if (folded.length === 1) {
+    return {target: folded[0]};
+  }
+  if (folded.length > 1) {
+    return {
+      problem:
+        `"${trimmed}" could be ${folded.map((profile) => profile.name).join(' or ')}. ` +
+        'Use the full name.',
+    };
+  }
+  return {
+    problem:
+      `There is no bot called "${trimmed}". The bots on this computer are: ` +
+      `${profiles.map((profile) => profile.name).join(', ')}. Use one of those names.`,
+  };
+}
+
 export class HarnessRuntimeError extends Error {
   constructor(message: string) {
     super(message);
@@ -124,9 +185,9 @@ export interface HarnessRuntimeOptions {
    * *which* model a turn wants; the host knows whether it is installed and where
    * it ended up. Absent is a test that never makes a request.
    */
-  ensureModel?: (modelId: LocalModelId) => Promise<
-    {ok: true; baseUrl: string} | {ok: false; problem: string}
-  >;
+  ensureModel?: (
+    modelId: LocalModelId,
+  ) => Promise<{ok: true; baseUrl: string} | {ok: false; problem: string}>;
   /** Injected by tests; the app builds a real ADK driver. */
   driverFactory?: (config: AgentConfig) => TurnDriver;
   /** Injected by tests; the app writes to the v2 log directory. */
@@ -1618,9 +1679,13 @@ export class HarnessRuntime {
       /*
        * Checked again at the write, not only when the card was drawn. The
        * catalogue can change between the proposal and the click — an upgrade, a
-       * hand-edited profile — and `run_shell` is refused by name everywhere.
+       * hand-edited profile — and the names that are never requestable are
+       * refused by name everywhere.
        */
-      if (known === undefined || known.name === 'run_shell') {
+      if (
+        known === undefined ||
+        nonRequestableReason(known.name) !== undefined
+      ) {
         await this.learning.remove(proposal.id);
         return {
           ok: false,
@@ -1693,13 +1758,9 @@ export class HarnessRuntime {
         const settings = await this.options.settings.load();
         let name = input.name.trim();
         if (input.target === 'tool') {
-          if (name === 'run_shell') {
-            return {
-              ok: false,
-              result:
-                'run_shell is never requested. Say what you would run and why, ' +
-                'and let the person decide in Settings.',
-            };
+          const refused = nonRequestableReason(name);
+          if (refused !== undefined) {
+            return {ok: false, result: refused};
           }
           const known = CORE_TOOLS.find((tool) => tool.name === name);
           if (known === undefined) {
@@ -1724,9 +1785,22 @@ export class HarnessRuntime {
               entry.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
           );
           if (server === undefined) {
+            /*
+             * Names what exists. A fresh install has no connector configured, so
+             * a model asked for "a GitHub connector" invented a name and could
+             * only repeat the refusal; the sentence it needs is the one that says
+             * where a connector comes from.
+             */
+            const known = settings.mcpServers
+              .map((entry) => entry.name)
+              .join(', ');
             return {
               ok: false,
-              result: `There is no connector called "${name}" on this computer.`,
+              result:
+                `There is no connector called "${name}" on this computer. ` +
+                (known.length === 0
+                  ? 'No connectors are configured yet: a connector is added by the person in Settings, not by you. Tell them which service you need and why.'
+                  : `The connectors configured are: ${known}. Use one of those names.`),
             };
           }
           name = server.id;
@@ -1900,11 +1974,10 @@ export class HarnessRuntime {
      * The pair is then started (or found already warm) before anything is sent,
      * because the address exists only in the process that started the engine.
      */
-    const wanted: AgentModel =
-      turn.model ?? {
-        provider: LOCAL_PROVIDER_ID,
-        model: settings.localModels.tasks[turn.task ?? 'chat'],
-      };
+    const wanted: AgentModel = turn.model ?? {
+      provider: LOCAL_PROVIDER_ID,
+      model: settings.localModels.tasks[turn.task ?? 'chat'],
+    };
     /*
      * A stored pair from before the local build, or one naming a model this
      * build no longer ships, is answered by the current Chat assignment. A
@@ -2172,17 +2245,15 @@ export class HarnessRuntime {
       }
     | {problem: string}
   > {
-    const wanted = agent.trim().toLocaleLowerCase();
-    const target = (await this.options.profiles.profiles()).find(
-      (profile) =>
-        profile.id === agent.trim() ||
-        profile.name.trim().toLocaleLowerCase() === wanted,
-    );
-    if (target === undefined) {
+    const profiles = await this.options.profiles.profiles();
+    const resolved = resolveAgent(profiles, agent);
+    if (resolved.target === undefined) {
       return {
-        problem: `There is no bot called "${agent.trim()}" on this computer.`,
+        problem:
+          resolved.problem ?? `There is no bot called "${agent.trim()}".`,
       };
     }
+    const target = resolved.target;
     try {
       const prepared = await this.prepare(
         target.id,
@@ -2254,20 +2325,19 @@ export class HarnessRuntime {
     }
     try {
       const profiles = await this.options.profiles.profiles();
-      const wanted = agent.trim().toLowerCase();
-      const target = profiles.find(
-        (profile) =>
-          profile.id !== ownerProfileId &&
-          (profile.id === agent ||
-            profile.name.trim().toLowerCase() === wanted),
+      const others = profiles.filter(
+        (profile) => profile.id !== ownerProfileId,
       );
+      const resolved = resolveAgent(others, agent);
+      const target = resolved.target;
       if (target === undefined) {
         return {
           ok: false,
-          result: `There is no bot called "${agent}". The roster has: ${profiles
-            .filter((profile) => profile.id !== ownerProfileId)
-            .map((profile) => profile.name)
-            .join(', ')}.`,
+          result:
+            resolved.problem ??
+            `There is no bot called "${agent}". The roster has: ${others
+              .map((profile) => profile.name)
+              .join(', ')}.`,
         };
       }
       const created = await this.options.createSession(target.id, task);

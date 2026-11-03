@@ -67,7 +67,8 @@ export const saveSkillTool: AnyToolDefinition = {
     'it from now on. `name` is a short kebab-case label; saving a name that ' +
     'already exists replaces that skill. `description` is the one line that says ' +
     'when to use it. `instructions` is the procedure itself. The user has to ' +
-    'approve it before it is saved.',
+    'approve it before it is saved. This is not how a skill is read: to follow ' +
+    'one that already exists, call `load_skill` with its name.',
   parameters: z.object({
     name: z
       .string()

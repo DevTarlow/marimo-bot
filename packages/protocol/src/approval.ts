@@ -59,6 +59,31 @@ export function summarizeApproval(
     };
   }
 
+  if (tool === 'move_file') {
+    const path = stringValue(record['path']);
+    const to = stringValue(record['to']);
+    return {
+      headline: 'Move this file',
+      primary: path ?? pretty(args),
+      ...(to
+        ? {
+            note:
+              `New path: ${to}. A file already there will be replaced, and ` +
+              'that cannot be undone.',
+          }
+        : {}),
+    };
+  }
+
+  if (tool === 'delete_file') {
+    const path = stringValue(record['path']);
+    return {
+      headline: 'Delete this file',
+      primary: path ?? pretty(args),
+      note: 'This cannot be undone. Folders and other files stay.',
+    };
+  }
+
   if (tool === 'save_skill') {
     /*
      * The instructions are the decision here, not the name: this text becomes

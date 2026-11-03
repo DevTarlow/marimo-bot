@@ -60,6 +60,21 @@ describe('request_tool', () => {
     expect(asked).toBe(false);
   });
 
+  it('refuses the delete by name, before it reaches the store', async () => {
+    let asked = false;
+    const result = await requestToolTool.execute(
+      {name: 'delete_file', reason: 'I need to remove the old draft.'},
+      context(async () => {
+        asked = true;
+        return {ok: true, result: 'nope'};
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.result).toContain('Settings');
+    expect(asked).toBe(false);
+  });
+
   it('needs a name and a reason', async () => {
     const result = await requestToolTool.execute(
       {name: '  ', reason: 'x'},

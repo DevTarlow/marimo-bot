@@ -13,6 +13,8 @@ describe('the built-in harness', () => {
     expect(DEFAULT_HARNESS.tools.policy.gates).toMatchObject({
       run_shell: 'always',
       write_file: 'on-overwrite',
+      move_file: 'on-overwrite',
+      delete_file: 'always',
     });
   });
 
@@ -33,6 +35,16 @@ describe('guidance follows the grant', () => {
       'files',
       'shell',
     ]);
+  });
+
+  /*
+   * A move is a file capability too, and it is the one a model reaches for when
+   * asked to rename something. A delete on its own is still the `files` note:
+   * the note is about the tools, and the profile may hold any one of them.
+   */
+  it('treats a move or a delete as a file capability on its own', () => {
+    expect(guidanceForTools(['move_file'])).toEqual(['files']);
+    expect(guidanceForTools(['delete_file'])).toEqual(['files']);
   });
 
   it('answers nothing when nothing is granted', () => {

@@ -243,7 +243,7 @@ describe('AdkDriver', () => {
     expect(system).toContain('- read_file — Read a UTF-8 text file');
     expect(system).toContain('- write_file — Create, edit or replace');
     expect(system).toContain(
-      'A request to change a file is a `write_file` call: read it first',
+      'To change what is inside a file, call `write_file`: read it first',
     );
     expect(system).not.toContain('- web_search');
     expect(system).not.toContain('- load_skill');
@@ -371,7 +371,9 @@ describe('AdkDriver', () => {
       .flatMap((content) => content.parts ?? [])
       .map((part) => part.text ?? '')
       .join('\n');
-    expect(sent).not.toContain('[App correction: the earlier answer was wrong.');
+    expect(sent).not.toContain(
+      '[App correction: the earlier answer was wrong.',
+    );
   });
 
   it('bounds a long connector description in the prompt', async () => {
@@ -452,9 +454,7 @@ describe('AdkDriver', () => {
 
     expect(model.requests[0]?.toolsDict).toHaveProperty('mcp_notes_search');
     expect(
-      systemInstructionToText(
-        model.requests[0]?.config?.systemInstruction,
-      ),
+      systemInstructionToText(model.requests[0]?.config?.systemInstruction),
     ).toContain('- mcp_notes_search — Search the notes connector.');
     expect(calls).toEqual([{q: 'x'}]);
     expect(
@@ -652,11 +652,124 @@ describe('AdkDriver', () => {
     expect(gated.map((update) => update.type)).not.toContain('tool.result');
   });
 
+  it('gates a move onto a file that is already there, and not a fresh name', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'draft.md'), 'draft', 'utf8');
+    await writeFile(join(dir, 'taken.md'), 'taken', 'utf8');
+
+    const fresh = new ScriptedLlm([
+      [call('move_file', {path: 'draft.md', to: 'archive/draft.md'})],
+      [text('Moved.')],
+    ]);
+    const freshDriver = new AdkDriver({resolveModel: () => fresh});
+    const moved = await collect(
+      freshDriver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Move it into archive',
+        harness: harness(dir, ['move_file']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(moved.map((update) => update.type)).not.toContain(
+      'approval.request',
+    );
+    expect(moved.find((update) => update.type === 'tool.result')).toMatchObject(
+      {ok: true},
+    );
+
+    const replace = new ScriptedLlm([
+      [call('move_file', {path: 'draft.md', to: 'taken.md'})],
+    ]);
+    const replaceDriver = new AdkDriver({resolveModel: () => replace});
+    const gated = await collect(
+      replaceDriver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Move it onto taken.md',
+        harness: harness(dir, ['move_file']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(
+      gated.find((update) => update.type === 'approval.request'),
+    ).toMatchObject({
+      tool: 'move_file',
+      args: {path: 'draft.md', to: 'taken.md'},
+    });
+    expect(gated.map((update) => update.type)).not.toContain('tool.result');
+  });
+
+  /*
+   * A delete is the one call that cannot be undone, so it asks every time —
+   * including for a file the model has just written in this same turn.
+   */
+  it('gates every delete', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'gone.md'), 'x', 'utf8');
+    const model = new ScriptedLlm([[call('delete_file', {path: 'gone.md'})]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    const events = await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Delete gone.md',
+        harness: harness(dir, ['delete_file']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    expect(
+      events.find((update) => update.type === 'approval.request'),
+    ).toMatchObject({tool: 'delete_file', args: {path: 'gone.md'}});
+    expect(events.map((update) => update.type)).not.toContain('tool.result');
+  });
+
+  /*
+   * The catalogue is the sentence the model reads before it decides to ask, so
+   * a tool the runtime refuses must not be in it. `run_shell` was the first;
+   * `delete_file` is the second, and it is refused in three places.
+   */
+  it('does not offer the shell or the delete in the request catalogue', async () => {
+    const dir = await workDir();
+    const model = new ScriptedLlm([[text('Hello.')]]);
+    const driver = new AdkDriver({resolveModel: () => model});
+    await collect(
+      driver.run({
+        sessionId: 's1',
+        turnId: 't1',
+        profileId: 'writer',
+        text: 'Hello.',
+        harness: harness(dir, ['current_time', 'request_tool']),
+        history: [],
+        signal: new AbortController().signal,
+      }),
+    );
+    const system = systemInstructionToText(
+      model.requests[0]?.config?.systemInstruction,
+    );
+    expect(system).toContain('Capabilities you do not have');
+    expect(system).toContain('- read_file —');
+    expect(system).not.toContain('- run_shell');
+    expect(system).not.toContain('- delete_file');
+  });
+
   it('runs a helper with tools in the parent session', async () => {
     const dir = await workDir();
     await writeFile(join(dir, 'existing.md'), 'old', 'utf8');
     const parent = new ScriptedLlm([
-      [call('ask_agent', {agent: 'Reader', task: 'What is in existing.md?'}, 'a1')],
+      [
+        call(
+          'ask_agent',
+          {agent: 'Reader', task: 'What is in existing.md?'},
+          'a1',
+        ),
+      ],
       [text('The helper answered.')],
     ]);
     const helper = new ScriptedLlm([
@@ -706,9 +819,9 @@ describe('AdkDriver', () => {
     expect(
       eventList.find((event) => event.type === 'tool.result'),
     ).toMatchObject({ok: true, result: 'It says old.'});
-    expect(
-      eventList.find((event) => event.type === 'message'),
-    ).toMatchObject({text: 'The helper answered.'});
+    expect(eventList.find((event) => event.type === 'message')).toMatchObject({
+      text: 'The helper answered.',
+    });
     /*
      * The helper is a real agent with tools, except the one that asked for it.
      * Both halves of the offer come from the same filtered definitions, so its
@@ -804,9 +917,9 @@ describe('AdkDriver', () => {
         signal: new AbortController().signal,
       }),
     );
-    expect(
-      resumed.find((event) => event.type === 'message'),
-    ).toMatchObject({text: 'The helper replaced it.'});
+    expect(resumed.find((event) => event.type === 'message')).toMatchObject({
+      text: 'The helper replaced it.',
+    });
     expect(
       await import('node:fs/promises').then((fs) =>
         fs.readFile(join(dir, 'existing.md'), 'utf8'),
@@ -914,7 +1027,9 @@ describe('AdkDriver', () => {
         signal: new AbortController().signal,
       }),
     );
-    expect(resumed.find((update) => update.type === 'tool.result')).toMatchObject({
+    expect(
+      resumed.find((update) => update.type === 'tool.result'),
+    ).toMatchObject({
       ok: true,
       callId,
     });
@@ -1036,9 +1151,9 @@ describe('AdkDriver', () => {
       .flatMap((content) => content.parts ?? [])
       .map((part) => part.text ?? '')
       .filter((value) => value.length > 0);
-    expect(texts.some((value) => value.includes('They discussed the old question.'))).toBe(
-      true,
-    );
+    expect(
+      texts.some((value) => value.includes('They discussed the old question.')),
+    ).toBe(true);
     expect(texts).toContain('The newer question.');
     expect(texts).not.toContain('The old question.');
     expect(texts).not.toContain('The old answer.');
@@ -1077,9 +1192,7 @@ describe('AdkDriver', () => {
       .flatMap((content) => content.parts ?? [])
       .map((part) => part.text ?? '');
     expect(
-      texts.some((value) =>
-        value.includes('Task result from Reader'),
-      ),
+      texts.some((value) => value.includes('Task result from Reader')),
     ).toBe(true);
     expect(texts.some((value) => value.includes('three notes'))).toBe(true);
   });

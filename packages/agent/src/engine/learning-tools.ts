@@ -6,11 +6,12 @@
  * tools do not grant: they write a proposal into the learning inbox, and the
  * person's click is the only path from there to the profile.
  *
- * **`run_shell` is not requestable.** It is the broadest capability in the app
- * and the one whose damage is not confined to a Space, so a bot asking for it is
- * a sentence the person reads in the transcript rather than a card they might
- * click. The runtime refuses the name as well as the prompt omitting it, because
- * a model can name anything.
+ * **`run_shell` and `delete_file` are not requestable.** They are the two
+ * capabilities whose damage cannot be undone — a command reaches past the Space,
+ * and a delete has no bin behind it — so a bot asking for one is a sentence the
+ * person reads in the transcript rather than a card they might click. The
+ * runtime refuses the names as well as the prompt omitting them, because a model
+ * can name anything.
  *
  * Nothing here throws. An empty name or a missing reason is a sentence the model
  * can act on; an exception would end the user's turn and turn "ask properly" into
@@ -91,10 +92,7 @@ const parameters = z.object({
     ),
 });
 
-function describeRequest(
-  target: 'tool' | 'connector',
-  name: string,
-): string {
+function describeRequest(target: 'tool' | 'connector', name: string): string {
   const label = target === 'tool' ? 'tool' : 'connector';
   return (
     `Asked the person for the ${label} "${name}". It is in the learning inbox, ` +
@@ -103,7 +101,46 @@ function describeRequest(
   );
 }
 
-function refusal(target: 'tool' | 'connector', name: string): string | undefined {
+/**
+ * The tools a bot may never ask for, in one list.
+ *
+ * Three places read it — this refusal, the catalogue the prompt advertises, and
+ * the runtime's write — because a name refused in one of them and accepted in
+ * another is a card that grants what the tool said it could not have.
+ */
+export const NON_REQUESTABLE_TOOL_NAMES: readonly string[] = [
+  'run_shell',
+  'delete_file',
+];
+
+/**
+ * Why a name is not requestable, or `undefined` when it is.
+ *
+ * The sentence is the model's, not the person's: it says what to do instead, so
+ * a refused request ends in a useful turn rather than a dead end.
+ */
+export function nonRequestableReason(name: string): string | undefined {
+  const folded = name.trim().toLocaleLowerCase();
+  if (folded === 'run_shell') {
+    return (
+      'run_shell is never requested. If the work needs a command, say what you ' +
+      'would run and why, and let the person decide in Settings.'
+    );
+  }
+  if (folded === 'delete_file') {
+    return (
+      'delete_file is never requested. Deleting a file is permanent, so it is ' +
+      'only ever granted by the person in Settings. If a file should go, say ' +
+      'which one and why, and let them decide.'
+    );
+  }
+  return undefined;
+}
+
+function refusal(
+  target: 'tool' | 'connector',
+  name: string,
+): string | undefined {
   const folded = name.trim().toLocaleLowerCase();
   if (folded.length === 0) {
     return 'A request needs a name. Use the capability name from your instructions.';
@@ -113,11 +150,8 @@ function refusal(target: 'tool' | 'connector', name: string): string | undefined
    * ask for. The prompt says so and the runtime refuses it; this is the earliest
    * of the three, and the cheapest place to say no.
    */
-  if (target === 'tool' && folded === 'run_shell') {
-    return (
-      'run_shell is never requested. If the work needs a command, say what you ' +
-      'would run and why, and let the person decide in Settings.'
-    );
+  if (target === 'tool') {
+    return nonRequestableReason(folded);
   }
   return undefined;
 }
@@ -135,7 +169,7 @@ function requestDefinition(
       `you have hit the same gap more than once and can name it — not for a ` +
       `one-off convenience. ${
         target === 'tool'
-          ? 'run_shell is never requested.'
+          ? 'run_shell and delete_file are never requested.'
           : 'A connector is a server the person has configured, not one you can add.'
       }`,
     parameters,
@@ -164,7 +198,10 @@ function requestDefinition(
           reason,
           ...(evidence.length === 0 ? {} : {evidence}),
         });
-        return outcome(answer.ok, answer.result || describeRequest(target, name));
+        return outcome(
+          answer.ok,
+          answer.result || describeRequest(target, name),
+        );
       } catch (error) {
         return outcome(
           false,
@@ -195,7 +232,9 @@ export const proposePolicyTool: ToolDefinition<Record<string, unknown>> = {
     'relevance, how much room a turn has before it is compacted, or how many ' +
     'tool calls a turn may spend. This changes nothing by itself — the person ' +
     'sees the proposal and decides. You cannot propose a change to your Role, ' +
-    'your Persona, the app’s rules, or a tool’s approval gate.',
+    'your Persona, the app’s rules, or a tool’s approval gate. Name the setting ' +
+    'and its new value — for example `memoryPolicy: "relevant"` to stop sending ' +
+    'all of memory every turn. A reason with no setting in it is refused.',
   parameters: harnessPolicySchema.extend({
     reason: z
       .string()
@@ -232,10 +271,7 @@ export const proposePolicyTool: ToolDefinition<Record<string, unknown>> = {
       );
     }
     if (Object.keys(patch).length === 0) {
-      return outcome(
-        false,
-        'A proposal needs at least one setting to change.',
-      );
+      return outcome(false, 'A proposal needs at least one setting to change.');
     }
     if (context.learning === undefined) {
       return outcome(false, 'This turn cannot propose a change.');

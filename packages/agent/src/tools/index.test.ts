@@ -17,10 +17,11 @@ import {MemoryStore} from '../memory/index.js';
  * learning inbox and this builder has no such service. They are still part of
  * what the app can offer, so the comparisons below count them.
  */
-const PROPOSAL_TOOL_NAMES = [
+const ENGINE_TOOL_NAMES = [
   'request_tool',
   'request_connector',
   'propose_policy',
+  'start_task',
 ];
 import type {RecallLookup} from './recall-tools.js';
 
@@ -98,6 +99,8 @@ describe('createTools', () => {
       'read_file',
       'list_dir',
       'write_file',
+      'move_file',
+      'delete_file',
       'search_knowledge_base',
       'read_memory',
       'update_memory',
@@ -119,8 +122,8 @@ describe('createTools', () => {
       }),
     );
     expect(withProvider).toContain('web_search');
-    expect(withProvider.indexOf('web_search')).toBe(9);
-    expect(withProvider.indexOf('run_shell')).toBe(10);
+    expect(withProvider.indexOf('web_search')).toBe(11);
+    expect(withProvider.indexOf('run_shell')).toBe(12);
     expect(
       names(
         createTools(config(), {
@@ -154,7 +157,7 @@ describe('createTools', () => {
         jobService: jobs,
       }),
     );
-    expect(withJobs.slice(10)).toEqual([
+    expect(withJobs.slice(12)).toEqual([
       'list_jobs',
       'create_job',
       'update_job',
@@ -209,7 +212,7 @@ describe('createTools', () => {
         deskService: desk,
       }),
     );
-    expect(withDesk.slice(10, 18)).toEqual([
+    expect(withDesk.slice(12, 20)).toEqual([
       'list_todos',
       'add_todo',
       'update_todo',
@@ -482,7 +485,7 @@ describe('the safe defaults', () => {
       },
     )
       .map((tool) => tool.name)
-      .concat(PROPOSAL_TOOL_NAMES);
+      .concat(ENGINE_TOOL_NAMES);
   }
 
   it('names only tools that exist', () => {
@@ -581,7 +584,7 @@ describe('the tool catalogue', () => {
       ...services(),
     })
       .map((tool) => tool.name)
-      .concat(PROPOSAL_TOOL_NAMES);
+      .concat(ENGINE_TOOL_NAMES);
   }
 
   /*
@@ -597,6 +600,9 @@ describe('the tool catalogue', () => {
         provider: 'deepseek',
         webSearch: {search: async () => []},
         delegate: true,
+        // The engine builds `start_task`, and the runtime passes `task: true`;
+        // a catalogue comparison that left it out would call it unreachable.
+        task: true,
         jobs: true,
         skills: true,
         discord: true,
@@ -621,6 +627,7 @@ describe('the tool catalogue', () => {
       provider: 'deepseek',
       webSearch: {search: async () => []},
       delegate: true,
+      task: true,
       jobs: true,
       skills: true,
       discord: true,
@@ -718,7 +725,7 @@ describe('the capability presets', () => {
         },
       )
         .map((tool) => tool.name)
-        .concat(PROPOSAL_TOOL_NAMES),
+        .concat(ENGINE_TOOL_NAMES),
     );
   }
 

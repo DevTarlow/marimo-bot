@@ -169,6 +169,33 @@ describe('summarizeApproval for the other gated tools', () => {
     expect(preview.note).toBe('Channel: #general');
   });
 
+  it('shows where a file is going, and that a file there will be replaced', () => {
+    const preview = summarizeApproval('move_file', {
+      path: 'draft.md',
+      to: 'archive/draft.md',
+    });
+
+    expect(preview.headline).toBe('Move this file');
+    expect(preview.primary).toBe('draft.md');
+    expect(preview.note).toContain('archive/draft.md');
+    expect(preview.note).toContain('cannot be undone');
+  });
+
+  it('says a delete is permanent and touches one file', () => {
+    const preview = summarizeApproval('delete_file', {path: 'draft.md'});
+
+    expect(preview.headline).toBe('Delete this file');
+    expect(preview.primary).toBe('draft.md');
+    expect(preview.note).toContain('cannot be undone');
+    expect(preview.note).toContain('Folders');
+  });
+
+  it('falls back to the arguments for a move with no path', () => {
+    const preview = summarizeApproval('move_file', {});
+    expect(preview.headline).toBe('Move this file');
+    expect(preview.primary).toContain('{');
+  });
+
   it('names the bot being handed work', () => {
     const preview = summarizeApproval('ask_agent', {
       agent: 'Writer',

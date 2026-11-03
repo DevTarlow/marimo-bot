@@ -77,7 +77,7 @@ describe('composeHarnessInstruction tool list', () => {
     const text = composeHarnessInstruction(harness(), {tools: [read, write]});
 
     expect(text).toContain(
-      'A request to change a file is a `write_file` call: read it first',
+      'To change what is inside a file, call `write_file`: read it first',
     );
     expect(text).toContain('Do not tell the person to edit it');
   });
@@ -86,7 +86,7 @@ describe('composeHarnessInstruction tool list', () => {
     const text = composeHarnessInstruction(harness(), {tools: [write]});
 
     expect(text).toContain(
-      'A request to change a file is a `write_file` call: send the',
+      'To change what is inside a file, call `write_file`: send the',
     );
     expect(text).not.toContain('read it first');
   });
@@ -94,7 +94,52 @@ describe('composeHarnessInstruction tool list', () => {
   it('never adds the write note without write_file', () => {
     const text = composeHarnessInstruction(harness(), {tools: [read]});
 
-    expect(text).not.toContain('A request to change a file');
+    expect(text).not.toContain('To change what is inside a file');
+  });
+
+  /*
+   * The rule is above the write rule on purpose. A model told first that a
+   * change is a write reads a rename as a change and writes a copy under the new
+   * name, which is the failure `move_file` exists to prevent.
+   */
+  it('puts the rename rule before the write rule', () => {
+    const text = composeHarnessInstruction(harness(), {
+      tools: [
+        read,
+        write,
+        {name: 'move_file', description: 'Move one file inside the workspace.'},
+      ],
+    });
+
+    expect(text).toContain('To rename or move a file, call `move_file`');
+    expect(text).toContain('leaves the old file where it was');
+    expect(text.indexOf('To rename or move a file')).toBeLessThan(
+      text.indexOf('To change what is inside a file'),
+    );
+  });
+
+  it('says removing a file is a delete_file call, not a shell command', () => {
+    const text = composeHarnessInstruction(harness(), {
+      tools: [
+        read,
+        {
+          name: 'delete_file',
+          description: 'Delete one file inside the workspace.',
+        },
+      ],
+    });
+
+    expect(text).toContain(
+      'A request to remove a file is a `delete_file` call',
+    );
+    expect(text).toContain('Do not use a shell command to delete');
+  });
+
+  it('never adds the move or delete note without its tool', () => {
+    const text = composeHarnessInstruction(harness(), {tools: [read, write]});
+
+    expect(text).not.toContain('To rename or move a file');
+    expect(text).not.toContain('A request to remove a file');
   });
 
   /*

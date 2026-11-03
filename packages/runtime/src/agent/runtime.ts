@@ -61,7 +61,12 @@ import {
   LOCAL_PROVIDER_ID,
   MAIN_AGENT_NAME,
 } from '@marimo/protocol';
-import type {BotDraft, LocalModelId, ProviderId, SessionPurpose} from '@marimo/protocol';
+import type {
+  BotDraft,
+  LocalModelId,
+  ProviderId,
+  SessionPurpose,
+} from '@marimo/protocol';
 import type {
   AgentProfile,
   AgentUiEvent,
@@ -131,9 +136,9 @@ export interface AgentRuntimeOptions {
    * Passed through to the v2 turn path; the app's host owns the engine. Absent
    * in a test that never makes a request.
    */
-  ensureModel?: (modelId: LocalModelId) => Promise<
-    {ok: true; baseUrl: string} | {ok: false; problem: string}
-  >;
+  ensureModel?: (
+    modelId: LocalModelId,
+  ) => Promise<{ok: true; baseUrl: string} | {ok: false; problem: string}>;
   /**
    * The rest of the app's tools, resolved per profile and folder.
    *
@@ -397,6 +402,13 @@ export class AgentRuntime {
        * about, in the direction that hides it.
        */
       delegate: true,
+      /*
+       * And the task seam, which is the same fact one step further: a bot can
+       * hand a job to another bot in its own conversation. It is built by the
+       * engine rather than by `tools/`, so the catalogue has to be told it
+       * exists or the switch for it would not.
+       */
+      task: true,
       /*
        * And every service this app wires, named explicitly. A tool the host
        * builds but the catalogue omits can never be granted — the switch for

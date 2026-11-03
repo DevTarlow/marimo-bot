@@ -13,8 +13,9 @@
  * the app can read skills, and the library it reads refuses every name outside
  * the profile's grant.
  *
- * Gating is declared by the tools themselves: `run_shell` always, and
- * `write_file` only when it would replace an existing file. `web_search` appears
+ * Gating is declared by the tools themselves: `run_shell` and `delete_file`
+ * always, and `write_file` and `move_file` only when they would replace an
+ * existing file. `web_search` appears
  * only when the host injected a provider, and `GOOGLE_SEARCH` only for a model
  * that supports the built-in. The scheduling, Discord and desk tools appear only
  * when the app injected the service behind them, because a tool the app cannot
@@ -31,6 +32,7 @@ import {
   requestConnectorTool,
   requestToolTool,
 } from '../engine/learning-tools.js';
+import {startTaskTool} from '../engine/task-tools.js';
 import {ASK_AGENT_TOOL, createAskAgentTool} from './ask-agent-tool.js';
 import type {AgentDelegation} from './ask-agent-tool.js';
 import {createDraftBotTool} from './bot-tools.js';
@@ -40,7 +42,9 @@ import {discordTools} from './discord-tools.js';
 import type {DiscordService} from './discord-tools.js';
 import {
   createCurrentTimeTool,
+  createDeleteFileTool,
   createListDirTool,
+  createMoveFileTool,
   createReadFileTool,
   createWriteFileTool,
 } from './fs-tools.js';
@@ -144,14 +148,16 @@ export const CAPABILITY_PRESETS: readonly CapabilityPreset[] = [
     id: 'capable',
     label: 'Do things for me',
     blurb:
-      'Everything above, plus writing files, fetching a page you name, ' +
-      'keeping lists and setting up jobs that run on a schedule. A new file ' +
-      'is written straight away; replacing one that is already there asks you ' +
-      'first, and so does running a command.',
+      'Everything above, plus writing and moving files, fetching a page you ' +
+      'name, keeping lists and setting up jobs that run on a schedule. A new ' +
+      'file is written straight away; replacing one that is already there asks ' +
+      'you first, and so does running a command. It cannot delete a file.',
     tools: [
       ...SAFE_DEFAULT_TOOLS,
       'write_file',
+      'move_file',
       'http_fetch',
+      'start_task',
       /*
        * The constant rather than the string: the window offers this one tool by
        * name in the setup flow, and one spelling of it in the package that owns
@@ -237,9 +243,10 @@ export function controlPresets(
       id: 'power',
       label: 'Power user',
       blurb:
-        'It gains every tool this app has: writing files, running commands, ' +
-        'scheduling jobs, and handing work to your other bots. It still asks ' +
-        'before replacing a file or running a command.',
+        'It gains every tool this app has: writing, moving and deleting ' +
+        'files, running commands, scheduling jobs, and handing work to your ' +
+        'other bots. It still asks before replacing a file, deleting one, or ' +
+        'running a command.',
       tools: names,
       recommended: false,
     },
@@ -301,6 +308,14 @@ export function describeTools(options: {
    * this list was written about.
    */
   recall?: boolean;
+  /**
+   * Whether this install can start a task in another conversation.
+   *
+   * `start_task` is built by the v2 engine rather than by `createTools`, so it
+   * has to be named here for the same reason as the request tools: a tool the
+   * host offers and the catalogue omits is a switch that does not exist.
+   */
+  task?: boolean;
 }): CatalogTool[] {
   const built = createTools(
     {
@@ -354,18 +369,19 @@ export function describeTools(options: {
 
   const granted = new Set<string>(SAFE_DEFAULT_TOOLS);
   /*
-   * The two request tools are built by the v2 engine rather than by this
-   * builder, because they write to the learning inbox and the old tool set has
-   * no such service. They still belong on this screen: a capability the person
-   * cannot see is one they cannot grant, and these are the tools that make the
-   * rest of the learning loop reachable. The descriptions are the v2 definitions
-   * themselves, so the switch and the tool cannot describe themselves
-   * differently.
+   * These are built by the v2 engine rather than by this builder: the request
+   * tools write to the learning inbox and the old tool set has no such service,
+   * and `start_task` needs the task seam. They still belong on this screen: a
+   * capability the person cannot see is one they cannot grant, and the request
+   * tools are what make the rest of the learning loop reachable. The
+   * descriptions are the v2 definitions themselves, so the switch and the tool
+   * cannot describe themselves differently.
    */
-  const proposed = [
+  const engineOnly = [
     requestToolTool,
     requestConnectorTool,
     proposePolicyTool,
+    ...(options.task === true ? [startTaskTool] : []),
   ].map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -379,7 +395,7 @@ export function describeTools(options: {
       blurb: blurbFor(tool.name),
       byDefault: granted.has(tool.name),
     })),
-    ...proposed,
+    ...engineOnly,
   ];
 }
 
@@ -418,6 +434,12 @@ const TOOL_BLURBS: Record<string, string> = {
     'Search your space for a word or phrase and show the lines it appears on.',
   write_file:
     'Create, edit or overwrite a file. It asks before replacing a file that already exists.',
+  move_file:
+    'Rename a file, or move it into another folder in your space. It asks ' +
+    'before moving onto a file that is already there.',
+  delete_file:
+    'Delete a file from your space, for good. There is no bin to get it back ' +
+    'from, so it asks every single time.',
   run_shell:
     'Run a command on your computer. This is the broadest thing on this list — ' +
     'it asks every time, and it is worth leaving off unless you want it.',
@@ -429,6 +451,9 @@ const TOOL_BLURBS: Record<string, string> = {
   ask_agent:
     'Hand a piece of work to one of your other bots by name, and get its ' +
     'answer back. It cannot see this chat, so the task has to stand alone.',
+  start_task:
+    'Give one of your other bots a job in its own conversation and carry on ' +
+    'here. The work continues there, and any approval it needs waits there too.',
   draft_bot:
     'Draft a new bot for you to review. It never creates one on its own: you ' +
     'see the name, character and abilities in a card and decide.',
@@ -562,6 +587,8 @@ function baseTools(config: AgentConfig, deps: ToolDependencies): BaseTool[] {
     createReadFileTool({workspaceRoot: config.workspaceRoot}),
     createListDirTool({workspaceRoot: config.workspaceRoot}),
     createWriteFileTool({workspaceRoot: config.workspaceRoot}),
+    createMoveFileTool({workspaceRoot: config.workspaceRoot}),
+    createDeleteFileTool({workspaceRoot: config.workspaceRoot}),
     createSearchKnowledgeBaseTool({workspaceRoot: config.workspaceRoot}),
   ];
 

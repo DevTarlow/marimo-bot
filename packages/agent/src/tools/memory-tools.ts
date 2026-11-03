@@ -241,9 +241,20 @@ export function createReadMemoryTool(context: MemoryToolContext) {
         );
         const suffix = sizeWarning ? `\n\n${sizeWarning}` : '';
         if (text.trim().length === 0) {
-          return `Memory is empty (${context.memory.location}). Use update_memory to record durable facts.`;
+          return 'Memory is empty. Use update_memory to record durable facts.';
         }
-        return `${context.memory.location} (${String(bytes)} bytes)\n\n${text}${suffix}`;
+        /*
+         * The facts first and the file note last. It used to lead with two
+         * absolute paths, and a small model read that as an instruction: it
+         * spent the turn calling `read_file` on them (refused, outside the
+         * workspace) and then told the person it remembered nothing that was
+         * right there in the text below.
+         */
+        return (
+          `${text}\n\n(${String(bytes)} bytes. This is the app's memory file, ` +
+          'not a workspace file: edit it with the memory tools, not the file ' +
+          `tools.)${suffix}`
+        );
       } catch (error) {
         return `Could not read memory: ${describeError(error)}`;
       }
@@ -255,7 +266,7 @@ export function createUpdateMemoryTool(context: MemoryToolContext) {
   return new FunctionTool({
     name: 'update_memory',
     description:
-      "Add, correct or replace a fact in long-term memory. Use it for durable " +
+      'Add, correct or replace a fact in long-term memory. Use it for durable ' +
       'things a future session should know: who the user is, how they want to be ' +
       'talked to, what they have asked you never to do — and, separately, this ' +
       "project's conventions, paths and quirks. When the user corrects something " +
@@ -430,7 +441,10 @@ export function createPruneMemoryTool(context: MemoryToolContext) {
        * that is the largest batch this app ever sends inside a turn's deadline.
        */
       warmRecall(context.recall);
-      const indexMessage = await indexNote(context, bulletCount(report.content));
+      const indexMessage = await indexNote(
+        context,
+        bulletCount(report.content),
+      );
       const tail = indexMessage.length > 0 ? `\n\n${indexMessage}` : '';
       return `Pruned memory (${byteLength(before)} → ${byteLength(report.content)} bytes). Previous contents kept as memory.md.bak.${suffix}${kept}${tail}`;
     },

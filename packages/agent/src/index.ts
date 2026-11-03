@@ -276,8 +276,10 @@ export type {AnyToolDefinition} from './engine/core-tools.js';
 export {describeToolError, outcome} from './engine/tool-contract.js';
 export {
   LEARNING_TOOLS,
+  NON_REQUESTABLE_TOOL_NAMES,
   REQUEST_CONNECTOR,
   REQUEST_TOOL,
+  nonRequestableReason,
   requestConnectorTool,
   requestToolTool,
 } from './engine/learning-tools.js';

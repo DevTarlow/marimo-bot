@@ -4,7 +4,7 @@
 
 <h1 align="center">Marimo Bot</h1>
 
-<p align="center">A desktop AI assistant that works in a folder you choose.</p>
+<p align="center">A desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text, pictures and speech.</p>
 
 > [!WARNING]
 > Marimo Bot is under construction. It changes often, and some changes are breaking. Keep your own copies of anything you care about.
@@ -28,6 +28,7 @@ The chat window and the moss ball share one conversation, so a question you ask 
 - Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
 - Keep a memory that follows you between folders.
 - Let a bot ask for a tool or a change, and decide each request yourself.
+- Move files around the folder, and delete one when you turn that on.
 - Find a file by what it was about, not the exact words.
 - Schedule a job and close the window.
 - Ask the moss ball when you do not want the window.
@@ -63,6 +64,10 @@ The app can read and write the files in it, and nowhere else. Load a folder and 
 On a fresh install the app creates `Marimo`, inside your home folder, and starts you there. That is a project of its own rather than your whole home directory. Load another folder whenever your work already lives somewhere else.
 
 The work lands in the same place as the rest of your project, so you can open the files with the editor or tools you already use.
+
+Marimo can move a file, including renaming it in place. A move onto a file that is already there replaces it, so it asks first.
+
+Deleting a file is a Power tool, and it is off until you turn the **`delete_file`** switch on in Settings. It removes one file per call, never a folder, and it does not use the bin: the file is gone, and the app asks before every delete. Moving a file onto an existing one and deleting one cannot be undone.
 
 ### Pictures
 
@@ -233,7 +238,7 @@ The app keeps its own data in one folder. On Linux that is `~/.config/Marimo Bot
 
 The app's own data is not your project, and the two live in different folders on purpose. A Space's files stay where you put them.
 
-A command, or a save over a file that already exists, waits for your answer. The app writes a new file without asking. A scheduled job that hits an approval stays paused, and the request survives a restart.
+A command, a save over a file that already exists, a move onto one, or any delete waits for your answer. The app writes a new file without asking. A scheduled job that hits an approval stays paused, and the request survives a restart.
 
 Every built-in tool the app offers is a switch in Settings. If a tool is off, the app does not offer it to the model at all. A connector's tools follow the connector's own switch. Above those switches, Settings also offers the same two grants the first run writes — **Standard** and **Power user**. The first run frames them as Regular and Power setup; either way they set the whole list at once, and every switch stays there to tune afterwards.
 

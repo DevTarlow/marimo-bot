@@ -19,6 +19,7 @@ import {RecallService} from './service.js';
 import {ConversationWatermarkStore} from './conversations.js';
 import type {ConversationEvent} from './conversations.js';
 import type {IndexModel} from './store.js';
+import {readIndex} from './store.js';
 
 const MODEL: IndexModel = {
   repo: 'unsloth/embeddinggemma-2-GGUF',
@@ -531,6 +532,72 @@ describe('RecallService', () => {
 
     it('has nothing to warm when the caller supplied no engine', async () => {
       await expect(service().warm()).resolves.toBeUndefined();
+    });
+  });
+
+  /*
+   * A background pass after a turn and a search from the window can ask at the
+   * same moment, and each refresh reads the index before it writes it. Two
+   * interleaved passes would decide what changed from the same stale read and
+   * the later write would win; joining the pass already running is the same
+   * answer a search that started a moment earlier would have got.
+   */
+  describe('concurrent refreshes', () => {
+    it('shares one pass between two callers who ask together', async () => {
+      let embedded = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const recall = new RecallService({
+        workspaceRoot: workspace,
+        dir: indexDir,
+        model: MODEL,
+        embed: async (texts) => {
+          embedded += 1;
+          await gate;
+          return await fakeEmbedder()(texts);
+        },
+        readMemory: async () => memory,
+      });
+
+      const first = recall.reindex();
+      const second = recall.reindex();
+      // Both are waiting on the one embedding call.
+      await Promise.resolve();
+      release();
+      const [one, two] = await Promise.all([first, second]);
+
+      expect(one).toEqual(two);
+      expect(one.records).toBe(1);
+      expect(embedded).toBe(1);
+    });
+
+    /*
+     * The runner's mode, and the guard `refresh` does not have: a read-only
+     * service that called `reindex` would write an index a scheduled run has no
+     * business writing, and the host's own gate is a second line rather than
+     * this one.
+     */
+    it('writes nothing when the service may only read', async () => {
+      let embedded = 0;
+      const recall = new RecallService({
+        workspaceRoot: workspace,
+        dir: indexDir,
+        model: MODEL,
+        embed: async (texts) => {
+          embedded += 1;
+          return await fakeEmbedder()(texts);
+        },
+        readMemory: async () => memory,
+        readOnly: true,
+      });
+
+      const status = await recall.reindex();
+
+      expect(status.records).toBe(0);
+      expect(embedded).toBe(0);
+      expect(await readIndex(indexDir, MODEL)).toBeUndefined();
     });
   });
 });

@@ -291,7 +291,7 @@ export function Recall({
 
           <p className="settings-muted">
             {index === undefined || index.records === 0
-              ? 'Nothing is indexed in this space yet. It gets indexed the first time you search.'
+              ? 'Nothing is indexed in this space yet. It fills in as you work, and the first time you search.'
               : `${String(index.records)} ${index.records === 1 ? 'item' : 'items'} indexed: ${describeIndex(index)}.` +
                 (index.changed > 0
                   ? ` ${String(index.changed)} ${index.changed === 1 ? 'file has' : 'files have'} changed since.`

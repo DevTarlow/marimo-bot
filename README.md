@@ -225,6 +225,8 @@ The first time you turn it on, the app downloads the engine and the model it run
 
 What does it search? You choose files, memory, past chats and media. When a Space is loaded, the index, a list of numbers the app can search, stays inside it.
 
+The index keeps itself current. It catches up in the background after each answer and when you search, in small slices, so a conversation you have just had can be found without indexing it by hand. `Index now` forces a pass when you want one.
+
 A result shows how close the match is and whether the file has changed since it was indexed. After the download, Recall runs on your machine, so your searches stay local.
 
 ### Jobs

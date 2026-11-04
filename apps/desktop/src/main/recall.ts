@@ -48,6 +48,19 @@ import type {
 } from '@marimo/runtime';
 import type {RecallModelStatus, StoredSettings} from '@marimo/protocol';
 
+import {Soon} from './soon.js';
+
+/**
+ * How long after a turn ends before the index catches up.
+ *
+ * Long enough that a burst of turns, and the approval that resumes one, is a
+ * single pass; short enough that the card has moved by the time the person
+ * looks at it. It is a quiet period rather than a delay from the first event:
+ * a second turn arriving resets it, which is what makes the pass cover the
+ * conversation as it ended rather than as it was halfway through.
+ */
+const RECALL_REFRESH_MS = 2_000;
+
 export interface RecallHostOptions {
   /** Where the user-data directory is, so the model and the pid file agree. */
   userData: string;
@@ -123,6 +136,33 @@ export class RecallHost {
   private progress: RecallModelStatus['installing'];
   /** The media switch the running engine was last seen under; see `serviceFor`. */
   private lastMedia: boolean | undefined;
+  /**
+   * Queued background catch-ups, debounced and single-flight per key.
+   *
+   * A schedule rather than a service, which is why it is cancellable from two
+   * places: `stop` when the machine is going away, and `forget` because a pass
+   * queued before the user deleted the index would rebuild it behind them.
+   */
+  private readonly refreshes = new Soon({
+    delayMs: RECALL_REFRESH_MS,
+    run: async (key) => {
+      await this.catchUp(key);
+    },
+  });
+  /** What a queued key is for; the scheduler itself knows only the key. */
+  private readonly refreshTargets = new Map<
+    string,
+    {profileId: string; workspaceRoot?: string}
+  >();
+  /**
+   * Set by `stop`, so a pass scheduled as the app quits cannot start an engine.
+   *
+   * The turn hook resolves the conversation's folder asynchronously, so a turn
+   * that ended a moment before quit can reach `refreshSoon` after `cancelAll`
+   * has run. Without this the timer would arm behind the shutdown and start an
+   * engine for a window that is already gone.
+   */
+  private stopped = false;
 
   constructor(private readonly options: RecallHostOptions) {
     this.engine = new RecallEngine({
@@ -395,11 +435,98 @@ export class RecallHost {
     return counts;
   }
 
+  /**
+   * Schedules a background catch-up, soon and at most once at a time.
+   *
+   * The turn path's way in, and deliberately not `reindex`: a turn that has
+   * just ended must not wait for an embedding pass, and a burst of turns should
+   * be one pass rather than one per message. `reindex` stays the forced path the
+   * button calls.
+   *
+   * Only the read-only refusal is decided here, because it is a fact about the
+   * host rather than about the moment. Everything else — the switch, the files
+   * on disk — is read when the pass starts, since a queued pass must obey the
+   * switch as it is now, not as it was two seconds ago.
+   */
+  refreshSoon(profileId: string, workspaceRoot?: string): void {
+    if (this.stopped || this.options.readOnly === true) {
+      return;
+    }
+    const key = refreshKey(profileId, workspaceRoot);
+    this.refreshTargets.set(key, {
+      profileId,
+      ...(workspaceRoot === undefined ? {} : {workspaceRoot}),
+    });
+    this.refreshes.soon(key);
+  }
+
+  /**
+   * The pass `refreshSoon` asked for.
+   *
+   * Wrapped rather than passed straight to the scheduler because the decisions
+   * belong to the host: whether the user still has recall on, whether the engine
+   * and the text model are actually on disk, and what a failure means. A failure
+   * here is a stale index and a log line, never `onFailed` — that event is the
+   * download card's problem, and this was nobody's click.
+   */
+  private async catchUp(key: string): Promise<void> {
+    const target = this.refreshTargets.get(key);
+    if (target === undefined) {
+      return;
+    }
+    try {
+      if (!(await this.canRefresh())) {
+        return;
+      }
+      await this.reindex(target.profileId, target.workspaceRoot);
+    } catch (failure) {
+      console.warn(
+        `[marimo] the recall index did not catch up: ${describe(failure)}`,
+      );
+    }
+  }
+
+  /**
+   * Whether a background pass has anything to run against.
+   *
+   * The two questions `status` asks about the install, and for the same reason
+   * they are asked before an engine call rather than inside one: `serviceFor`
+   * builds a service whether or not the engine can start, and a pass that tried
+   * anyway would either download what the user did not ask for or fail with a
+   * sentence about a missing file. Neither is something a background pass is
+   * allowed to do.
+   */
+  private async canRefresh(): Promise<boolean> {
+    if (this.stopped || this.options.readOnly === true) {
+      return false;
+    }
+    const settings = await this.options.readSettings();
+    if (!settings.recall.enabled) {
+      return false;
+    }
+    const files = resolveRecallFiles({
+      dir: this.dir,
+      manifest: EMBEDDING_PINS,
+      media: settings.recall.media,
+    });
+    const installed = recallPiecesInstalled({
+      dir: this.dir,
+      manifest: EMBEDDING_PINS,
+    });
+    return files.enginePresent && installed.includes('text');
+  }
+
   /** Throws this folder's index away. The files are untouched. */
   async forget(
     profileId: string,
     workspaceRoot?: string,
   ): Promise<{forgotten: boolean}> {
+    /*
+     * Before the delete, so a pass queued a moment earlier cannot rebuild what
+     * the user just asked to be forgotten. `refreshSoon` keys by the same pair,
+     * so this is that schedule and no other.
+     */
+    this.refreshes.cancel(refreshKey(profileId, workspaceRoot));
     const service = await this.serviceFor(profileId, workspaceRoot);
     if (service === undefined) {
       return {forgotten: false};
@@ -410,6 +537,8 @@ export class RecallHost {
 
   /** Stops the engine. Called as the app goes away. */
   async stop(): Promise<void> {
+    this.stopped = true;
+    this.refreshes.cancelAll();
     await this.engine.stop();
   }
 
@@ -502,4 +631,15 @@ export class RecallHost {
 
 function describe(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
+}
+
+/**
+ * The pair a scheduled pass belongs to.
+ *
+ * The folder is part of it because the index is per folder: a pass for the
+ * folder a conversation ran in must not replace a queued pass for the folder
+ * the window is showing, and the two have different index directories anyway.
+ */
+function refreshKey(profileId: string, workspaceRoot?: string): string {
+  return `${profileId}\u0000${workspaceRoot ?? ''}`;
 }

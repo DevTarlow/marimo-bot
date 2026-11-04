@@ -260,6 +260,19 @@ export class AgentService {
       },
       onInstalled: (piece) => {
         options.sendEvent({type: 'recall.installed', piece});
+        /*
+         * A person who has just downloaded recall should not then have to ask a
+         * question, or press a button, before the folder is counted. The pass is
+         * the same scheduled one a finished turn asks for; nothing is awaited
+         * here because this callback sits inside the download.
+         */
+        void this.recallScope()
+          .then((scope) => {
+            this.recall.refreshSoon(scope.profileId, scope.workspaceRoot);
+          })
+          .catch(() => {
+            // The next turn, or a search, indexes it.
+          });
       },
       onFailed: (message) => {
         options.sendEvent({type: 'recall.failed', message});
@@ -621,12 +634,18 @@ export class AgentService {
   }
 
   /**
-   * Queues a look at what was just said, once things go quiet.
+   * Queues the best-effort work that follows a turn.
    *
-   * Idle rather than immediate, and it is not a nicety: a review costs a model
-   * call, and running one at the end of every turn would spend a second request
-   * per message and propose things from a conversation that is still going. A
-   * minute of silence means the exchange has finished.
+   * Two jobs, both only worth doing once the exchange has stopped moving: the
+   * delayed memory review, and bringing the recall index forward. The index one
+   * lives here rather than in `pump` because it needs the same three answers the
+   * review needs — which agent, which conversation, whether the turn ended — and
+   * because `busyProfileId` has exactly one reader, which is this method.
+   *
+   * **The review is idle rather than immediate**, and it is not a nicety: a
+   * review costs a model call, and running one at the end of every turn would
+   * spend a second request per message and propose things from a conversation
+   * that is still going. A minute of silence means the exchange has finished.
    *
    * The timer is reset by each new turn, so a conversation in progress is never
    * reviewed halfway through — and a turn the user is still having is not a
@@ -637,8 +656,14 @@ export class AgentService {
    * short delay once enough of the conversation has gone unread. Which of the two
    * applies is `reviewDelay`, decided from the watermark rather than from how
    * long the conversation is — see `review-cadence.ts`.
+   *
+   * **The index does not wait for the review.** Its quiet period is a couple of
+   * seconds and it belongs to the recall host rather than to a timer here: a
+   * burst of turns becomes one pass, and a pass already running is not joined by
+   * a second. Memory the review writes later is picked up by the next turn or
+   * search, which is how the index has always handled a file changing.
    */
-  private noteForReview(event: AgentUiEvent): void {
+  private noteAfterTurn(event: AgentUiEvent): void {
     if (
       event.type !== 'turn.completed' &&
       event.type !== 'turn.failed' &&
@@ -661,6 +686,22 @@ export class AgentService {
     if (sessionId.length === 0 || profileId === undefined) {
       return;
     }
+
+    /*
+     * The index, brought forward only now: a pass mid-turn would embed a
+     * conversation that is still being written and then embed its tail again.
+     * The folder is the one the turn ran in rather than the one the window
+     * happens to be showing, because that is the index the turn's own tools
+     * read and wrote.
+     */
+    void this.runtime
+      .conversationFolder(profileId, sessionId)
+      .then((workspaceRoot) => {
+        this.recall.refreshSoon(profileId, workspaceRoot);
+      })
+      .catch(() => {
+        // The index catches up on the next turn, or on a search.
+      });
 
     this.idleReview = this.clearIdle(this.idleReview);
     /*
@@ -1822,7 +1863,7 @@ export class AgentService {
               ? {...event, origin: this.turnOrigin}
               : event;
           this.options.sendEvent(outgoing);
-          this.noteForReview(event);
+          this.noteAfterTurn(event);
           if (
             event.type === 'turn.completed' ||
             event.type === 'turn.failed' ||

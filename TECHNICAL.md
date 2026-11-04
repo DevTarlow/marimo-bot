@@ -284,11 +284,14 @@ cannot ask for something the service would answer "nothing" about.
 **The index holds no text.** It holds vectors and a digest per record, so a hit is
 read back from its source and checked before it is shown; a file that changed
 since it was indexed comes back marked changed, with no text, rather than quoted
-from a copy that is no longer there. The index refreshes when a question is asked
-rather than on a timer, in bounded slices that report what they covered. And there
-is a floor below which a nearest vector is not an answer — measured at 0.68 rather
-than chosen, because a list of the least-unrelated things in a folder reads as a
-list of answers. The window can ask for the withheld ones when the phrasing, and
+from a copy that is no longer there. The index refreshes after each turn and when
+a question is asked, never on a timer, in bounded slices that report what they
+covered. A debounced, single-flight scheduler in the app layer turns a burst of
+turns into one pass, and the service joins a pass already running rather than
+starting a second write. And there is a floor below which a nearest vector is not
+an answer — measured at 0.68 rather than chosen, because a list of the
+least-unrelated things in a folder reads as a list of answers. The window can ask
+for the withheld ones when the phrasing, and
 not the corpus, was the problem; a tool call cannot, and should not.
 
 **It runs on the processor, and the index lives with the folder it describes.**

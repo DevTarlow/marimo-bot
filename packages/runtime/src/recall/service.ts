@@ -219,6 +219,17 @@ export interface RecallServiceOptions {
 }
 
 export class RecallService {
+  /**
+   * The pass in flight, shared by everyone who asks for a refresh.
+   *
+   * A background catch-up after a turn and a search from the window can arrive
+   * together, and each refresh reads the index before writing it. Two passes
+   * interleaved would each decide what changed from the same stale read and the
+   * last write would win. Joining the running pass gives the second caller the
+   * same answer a search already gets, one index write instead of two.
+   */
+  private refreshing: Promise<IndexCoverage> | undefined;
+
   constructor(private readonly options: RecallServiceOptions) {}
 
   /**
@@ -470,6 +481,16 @@ export class RecallService {
    * with a count at the end instead of a result list.
    */
   async reindex(): Promise<RecallIndexStatus> {
+    if (this.options.readOnly === true) {
+      /*
+       * Read-only is the runner's mode, and it is refused the write for the
+       * reason the option documents: a scheduled run has nobody watching it,
+       * can be killed mid-write, and must not fight the window over the same
+       * files. Answered as a status rather than an error, because "there is
+       * nothing for this service to write" is not a failure to report.
+       */
+      return await this.status();
+    }
     await this.refresh();
     return await this.status();
   }
@@ -544,7 +565,29 @@ export class RecallService {
     await this.options.watermark?.forget([...ids]);
   }
 
+  /**
+   * One refresh at a time, shared by whoever asks for one.
+   *
+   * The reason is a race rather than a speed: `refreshOnce` reads the index,
+   * decides what changed, and writes it back. Two of those interleaved would
+   * both decide from the same stale read. A caller who arrives during a pass
+   * gets that pass's answer, which is what a search that started a moment
+   * earlier would have got anyway.
+   */
   private async refresh(): Promise<IndexCoverage> {
+    if (this.refreshing !== undefined) {
+      return await this.refreshing;
+    }
+    const run = this.refreshOnce();
+    this.refreshing = run;
+    try {
+      return await run;
+    } finally {
+      this.refreshing = undefined;
+    }
+  }
+
+  private async refreshOnce(): Promise<IndexCoverage> {
     const memory =
       this.options.readMemory === undefined
         ? ''

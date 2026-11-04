@@ -528,6 +528,7 @@ describe('the catalogue', () => {
      * unreachable before.
      */
     expect(names).toContain('move_file');
+    expect(names).toContain('rename_file');
     expect(names).toContain('delete_file');
     expect(names).toContain('start_task');
     // Every entry has to carry a description, or the settings screen offers a
@@ -545,6 +546,21 @@ describe('the catalogue', () => {
   it('lists tools the profile has not been granted', async () => {
     const catalog = await runtime().catalog();
     expect(catalog.tools.map((tool) => tool.name)).toContain('run_shell');
+  });
+
+  /*
+   * The Settings screen draws its two groups from `byDefault` and nothing else,
+   * so this is the fact that puts renaming under "Off until you turn it on". It
+   * also has to carry words: a switch with a blank line beside it is one nobody
+   * can decide about.
+   */
+  it('lists renaming off by default, with words for the switch', async () => {
+    const catalog = await runtime().catalog();
+    const entry = catalog.tools.find((tool) => tool.name === 'rename_file');
+
+    expect(entry).toBeDefined();
+    expect(entry?.byDefault).toBe(false);
+    expect(entry?.blurb).toContain('Rename');
   });
 
   /*
@@ -599,6 +615,7 @@ describe('the catalogue', () => {
      * the switch on in Settings.
      */
     expect(capable?.tools).toContain('move_file');
+    expect(capable?.tools).toContain('rename_file');
     expect(capable?.tools).toContain('start_task');
     expect(capable?.tools).not.toContain('delete_file');
 
@@ -627,6 +644,7 @@ describe('the catalogue', () => {
     expect(power?.tools).toContain('delete_file');
     expect(power?.tools).toContain('start_task');
     expect(standard?.tools).not.toContain('move_file');
+    expect(standard?.tools).not.toContain('rename_file');
     expect(standard?.tools).not.toContain('delete_file');
     expect(standard?.tools).not.toContain('start_task');
   });

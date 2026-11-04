@@ -100,6 +100,7 @@ describe('createTools', () => {
       'list_dir',
       'write_file',
       'move_file',
+      'rename_file',
       'delete_file',
       'search_knowledge_base',
       'read_memory',
@@ -122,8 +123,8 @@ describe('createTools', () => {
       }),
     );
     expect(withProvider).toContain('web_search');
-    expect(withProvider.indexOf('web_search')).toBe(11);
-    expect(withProvider.indexOf('run_shell')).toBe(12);
+    expect(withProvider.indexOf('web_search')).toBe(12);
+    expect(withProvider.indexOf('run_shell')).toBe(13);
     expect(
       names(
         createTools(config(), {
@@ -157,7 +158,7 @@ describe('createTools', () => {
         jobService: jobs,
       }),
     );
-    expect(withJobs.slice(12)).toEqual([
+    expect(withJobs.slice(13)).toEqual([
       'list_jobs',
       'create_job',
       'update_job',
@@ -212,7 +213,7 @@ describe('createTools', () => {
         deskService: desk,
       }),
     );
-    expect(withDesk.slice(12, 20)).toEqual([
+    expect(withDesk.slice(13, 21)).toEqual([
       'list_todos',
       'add_todo',
       'update_todo',

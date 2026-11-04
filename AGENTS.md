@@ -244,6 +244,17 @@ same reason: without it a model asked to rename writes a copy and leaves the
 original. A move asks only when a file is already at the target, since that is
 the case it replaces.
 
+**Renaming has its own switch, and it is the narrower one.** `rename_file` takes a
+`path` and a `name`, keeps the file in the folder it was already in, and refuses a
+name that is taken rather than replacing what is there. That refusal is why it
+carries no gate: it has nothing to warn about, and a card on it would only train
+the person to click through the one on `delete_file`. It is off by default, so it
+sits in the Settings group that says so; `capable` grants it beside `move_file`,
+and Standard grants neither, so a person who wants tidying without granting a
+replacement has a switch that is exactly that. The prompt names whichever of the
+two the turn has, never both on the assumption of the other — a rename rule
+naming a tool the turn was not given is a call the model cannot make.
+
 **The goals after the direction are a plan, not a grant.** They are held in the
 renderer and never written; they choose which steps appear (a bot step, the
 voice preference, the jobs step), the suggested starter role, and nothing about

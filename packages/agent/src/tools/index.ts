@@ -14,8 +14,9 @@
  * the profile's grant.
  *
  * Gating is declared by the tools themselves: `run_shell` and `delete_file`
- * always, and `write_file` and `move_file` only when they would replace an
- * existing file. `web_search` appears
+ * always, `write_file` and `move_file` only when they would replace an existing
+ * file, and `rename_file` never — it refuses a name that is taken rather than
+ * replacing what is there. `web_search` appears
  * only when the host injected a provider, and `GOOGLE_SEARCH` only for a model
  * that supports the built-in. The scheduling, Discord and desk tools appear only
  * when the app injected the service behind them, because a tool the app cannot
@@ -46,6 +47,7 @@ import {
   createListDirTool,
   createMoveFileTool,
   createReadFileTool,
+  createRenameFileTool,
   createWriteFileTool,
 } from './fs-tools.js';
 import {
@@ -148,14 +150,16 @@ export const CAPABILITY_PRESETS: readonly CapabilityPreset[] = [
     id: 'capable',
     label: 'Do things for me',
     blurb:
-      'Everything above, plus writing and moving files, fetching a page you ' +
-      'name, keeping lists and setting up jobs that run on a schedule. A new ' +
-      'file is written straight away; replacing one that is already there asks ' +
-      'you first, and so does running a command. It cannot delete a file.',
+      'Everything above, plus writing and renaming files, moving them between ' +
+      'folders, fetching a page you name, keeping lists and setting up jobs that ' +
+      'run on a schedule. A new file is written straight away; replacing one ' +
+      'that is already there asks you first, and so does running a command. It ' +
+      'cannot delete a file.',
     tools: [
       ...SAFE_DEFAULT_TOOLS,
       'write_file',
       'move_file',
+      'rename_file',
       'http_fetch',
       'start_task',
       /*
@@ -437,6 +441,9 @@ const TOOL_BLURBS: Record<string, string> = {
   move_file:
     'Rename a file, or move it into another folder in your space. It asks ' +
     'before moving onto a file that is already there.',
+  rename_file:
+    'Rename a file in place. It keeps its folder and its contents, never ' +
+    'replaces another file, and asks you nothing.',
   delete_file:
     'Delete a file from your space, for good. There is no bin to get it back ' +
     'from, so it asks every single time.',
@@ -588,6 +595,7 @@ function baseTools(config: AgentConfig, deps: ToolDependencies): BaseTool[] {
     createListDirTool({workspaceRoot: config.workspaceRoot}),
     createWriteFileTool({workspaceRoot: config.workspaceRoot}),
     createMoveFileTool({workspaceRoot: config.workspaceRoot}),
+    createRenameFileTool({workspaceRoot: config.workspaceRoot}),
     createDeleteFileTool({workspaceRoot: config.workspaceRoot}),
     createSearchKnowledgeBaseTool({workspaceRoot: config.workspaceRoot}),
   ];

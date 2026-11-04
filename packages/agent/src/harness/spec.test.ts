@@ -15,6 +15,7 @@ describe('the built-in harness', () => {
       write_file: 'on-overwrite',
       move_file: 'on-overwrite',
       delete_file: 'always',
+      rename_file: 'never',
     });
   });
 
@@ -42,8 +43,9 @@ describe('guidance follows the grant', () => {
    * asked to rename something. A delete on its own is still the `files` note:
    * the note is about the tools, and the profile may hold any one of them.
    */
-  it('treats a move or a delete as a file capability on its own', () => {
+  it('treats a move, a rename or a delete as a file capability on its own', () => {
     expect(guidanceForTools(['move_file'])).toEqual(['files']);
+    expect(guidanceForTools(['rename_file'])).toEqual(['files']);
     expect(guidanceForTools(['delete_file'])).toEqual(['files']);
   });
 

@@ -1,15 +1,16 @@
 /**
- * Filesystem tools: `read_file`, `list_dir`, `write_file`, `move_file` and
- * `delete_file`.
+ * Filesystem tools: `read_file`, `list_dir`, `write_file`, `move_file`,
+ * `rename_file` and `delete_file`.
  *
- * All five are confined to the workspace root through `resolveInsideWorkspace`,
+ * All six are confined to the workspace root through `resolveInsideWorkspace`,
  * and the readers cap what they return so one large file cannot consume the
  * whole context window.
  *
  * Three of them can destroy something, and each is gated by what it would
  * actually destroy. `write_file` and `move_file` pause only when the target
- * already exists, so ordinary creation and renaming do not turn into a wall of
+ * already exists, so ordinary creation and moving do not turn into a wall of
  * dialogs. `delete_file` has no trash and no undo, so it pauses every time.
+ * `rename_file` pauses never, because it refuses to replace anything at all.
  */
 import {
   mkdir,
@@ -330,6 +331,105 @@ export function createMoveFileTool(context: FileToolContext) {
       return existing
         ? `Replaced ${target} with ${source}.`
         : `Moved ${source} → ${target}.`;
+    },
+  });
+}
+
+/**
+ * `rename_file`: change a file's name in the folder it is already in.
+ *
+ * Deliberately smaller than `move_file`, and that is the reason it exists as a
+ * switch of its own: it cannot overwrite (a name that is taken is a refusal) and
+ * it cannot leave the folder, so it is safe to offer with no card at all. The
+ * wording is shared with the v2 definition in `engine/core-tools.ts`, which is
+ * the copy a turn actually calls; this one is what the Settings screen shows and
+ * what `describeTools` builds.
+ */
+export function createRenameFileTool(context: FileToolContext) {
+  return new FunctionTool({
+    name: 'rename_file',
+    description:
+      "Rename one file inside its own folder. It keeps the file's contents and " +
+      'its folder, and it refuses a name that is already taken, so nothing is ' +
+      'replaced. Give the new name on its own, with no folder in it. Folders ' +
+      'are not renamed.',
+    parameters: z.object({
+      path: z.string().describe('The file to rename, e.g. "notes/draft.md".'),
+      name: z
+        .string()
+        .describe(
+          'The new name on its own, e.g. "2026-draft.md". It cannot name a ' +
+            'folder.',
+        ),
+    }),
+    execute: async ({path: candidate, name: raw}) => {
+      const name = raw.trim();
+      if (name.length === 0) {
+        return 'rename_file needs the new name in "name".';
+      }
+      if (name === '.' || name === '..' || /[/\\]/.test(name)) {
+        return (
+          `"${name}" is a path, not a name. rename_file keeps the file in its ` +
+          'folder: give just the new file name.'
+        );
+      }
+
+      let source: string;
+      let target: string;
+      try {
+        source = await resolveInsideWorkspace(context.workspaceRoot, candidate);
+        target = await resolveInsideWorkspace(
+          context.workspaceRoot,
+          join(dirname(source), name),
+        );
+      } catch (error) {
+        if (error instanceof PathOutsideWorkspaceError) {
+          return error.message;
+        }
+        return `Could not resolve the rename: ${describeError(error)}`;
+      }
+      if (source === target) {
+        return `"${candidate}" is already named that.`;
+      }
+
+      let info: Awaited<ReturnType<typeof stat>>;
+      try {
+        info = await stat(source);
+      } catch (error) {
+        return `Could not inspect "${candidate}": ${describeError(error)}`;
+      }
+      if (info.isDirectory()) {
+        return `"${candidate}" is a directory. rename_file renames one file at a time.`;
+      }
+      if (!info.isFile()) {
+        return `"${candidate}" is not a regular file.`;
+      }
+
+      let existing: Awaited<ReturnType<typeof stat>> | undefined;
+      try {
+        existing = await stat(target);
+      } catch (error) {
+        if (!isNotFound(error)) {
+          return `Could not inspect "${name}": ${describeError(error)}`;
+        }
+      }
+      if (existing?.isDirectory()) {
+        return `"${name}" is a directory. Give rename_file a file name.`;
+      }
+      if (existing !== undefined) {
+        return (
+          `"${name}" already exists in that folder. rename_file will not ` +
+          'replace it: choose another name, or move the existing file out of ' +
+          'the way.'
+        );
+      }
+
+      try {
+        await rename(source, target);
+      } catch (error) {
+        return `Could not rename "${candidate}": ${describeError(error)}`;
+      }
+      return `Renamed ${source} → ${target}.`;
     },
   });
 }

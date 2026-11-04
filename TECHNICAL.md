@@ -769,20 +769,28 @@ it belongs to the install: two agents asked about the same project work in the
 same folder, under the same confinement, with the same
 `<folder>/.marimo/<agent>/` memory.
 
-**The file tools are five, and the ones that destroy something ask every time.**
+**The file tools are six, and the ones that destroy something ask every time.**
 `read_file`, `list_dir` and `write_file` cover the ordinary work; `write_file` asks
 only when the path is already a file, because a new file costs nothing. `move_file`
 is the rename, kept separate because a small model told to rename a file will
 otherwise write a second copy and leave the first behind — it takes a `path` and a
 `to`, creates the destination's parent, and asks only when a file is already at the
-target, which is the case it replaces. `delete_file` is one file per call, no
+target, which is the case it replaces. `rename_file` is the smaller promise and
+gets its own switch for that reason: a `path` and a `name`, no folder in the name,
+the file stays where it is, and a name that is already taken is a refusal rather
+than a replacement. That refusal is what lets it carry no gate at all — there is
+nothing it can destroy, so a card would be a click with nothing to decide, and
+cards that ask nothing train the person to click through the one that asks about
+`delete_file`. `delete_file` is one file per call, no
 folder and no recursion, and it asks on every call: there is no bin to restore
 from, so the gate is the only chance to stop it. Both refusals are made after
 resolution like every other path (`..`, outside the Space, a symlink that leaves
 it), and both refuse a directory rather than emptying one. `delete_file` is
 Power-only, and `request_tool` refuses it by name, in the catalogue and again at
 the proposal write, for the same reason as `run_shell`: a bot that can ask for it
-could talk its way past the switch the person never turned on.
+could talk its way past the switch the person never turned on. `rename_file` is
+not in that refused pair: it can neither overwrite nor leave the folder, so it is
+a capability a bot may *ask* for, and the person's click is still the grant.
 
 **A fresh install starts in a folder the app made, not in the home directory.**
 `defaultWorkspace` is `<home>/Marimo`, and `WorkspaceStore` creates it when it

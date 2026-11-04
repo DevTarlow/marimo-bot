@@ -295,7 +295,7 @@ describe('Discord tools', () => {
         jobService: jobs,
         discordService: harness().service,
       });
-      expect(tools.map((tool) => tool.name).slice(12)).toEqual([
+      expect(tools.map((tool) => tool.name).slice(13)).toEqual([
         'list_jobs',
         'create_job',
         'update_job',

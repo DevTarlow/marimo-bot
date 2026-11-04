@@ -116,6 +116,9 @@ describe('gateFor', () => {
     expect(gateFor(spec, 'move_file')).toBe('on-overwrite');
     expect(gateFor(spec, 'delete_file')).toBe('always');
     expect(gateFor(spec, 'read_file')).toBe('never');
+    // Renaming asks nothing, because it refuses a taken name rather than
+    // replacing what is there: there is nothing for a card to warn about.
+    expect(gateFor(spec, 'rename_file')).toBe('never');
   });
 });
 
@@ -287,6 +290,94 @@ describe('the core tools', () => {
     );
     expect(result.ok).toBe(false);
     expect(String(result.result)).toContain('already at that path');
+  });
+
+  it('renames a file in the folder it is already in', async () => {
+    const dir = await workDir();
+    await mkdir(join(dir, 'notes'));
+    await writeFile(join(dir, 'notes/draft.md'), 'hello', 'utf8');
+    const result = await tool('rename_file').execute(
+      {path: 'notes/draft.md', name: 'garden.md'},
+      context(dir),
+    );
+    expect(result.ok).toBe(true);
+    expect(String(result.result)).toContain(
+      'Renamed notes/draft.md → garden.md',
+    );
+    expect(await readFile(join(dir, 'notes/garden.md'), 'utf8')).toBe('hello');
+    await expect(stat(join(dir, 'notes/draft.md'))).rejects.toThrow();
+    // The folder stays where it was: that is the whole difference from move_file.
+    expect((await stat(join(dir, 'notes'))).isDirectory()).toBe(true);
+  });
+
+  it('refuses a name that is already taken instead of replacing it', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'draft.md'), 'draft', 'utf8');
+    await writeFile(join(dir, 'final.md'), 'final', 'utf8');
+    const result = await tool('rename_file').execute(
+      {path: 'draft.md', name: 'final.md'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('will not replace');
+    // Both files survive with their own contents: a refusal writes nothing.
+    expect(await readFile(join(dir, 'draft.md'), 'utf8')).toBe('draft');
+    expect(await readFile(join(dir, 'final.md'), 'utf8')).toBe('final');
+  });
+
+  it('refuses a new name that is a path rather than a name', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'draft.md'), 'x', 'utf8');
+    for (const name of ['archive/draft.md', '../draft.md', '..']) {
+      const result = await tool('rename_file').execute(
+        {path: 'draft.md', name},
+        context(dir),
+      );
+      expect(result.ok).toBe(false);
+      expect(String(result.result)).toContain('is a path, not a name');
+    }
+  });
+
+  it('refuses to rename a folder', async () => {
+    const dir = await workDir();
+    await mkdir(join(dir, 'notes'));
+    const result = await tool('rename_file').execute(
+      {path: 'notes', name: 'archive'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('folder');
+  });
+
+  it('refuses to rename a file that is not there', async () => {
+    const dir = await workDir();
+    const result = await tool('rename_file').execute(
+      {path: 'missing.md', name: 'other.md'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('no such file');
+  });
+
+  it('refuses a rename that leaves the Space', async () => {
+    const dir = await workDir();
+    const result = await tool('rename_file').execute(
+      {path: '../outside.md', name: 'inside.md'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('outside the workspace');
+  });
+
+  it('says when a file already has that name', async () => {
+    const dir = await workDir();
+    await writeFile(join(dir, 'draft.md'), 'x', 'utf8');
+    const result = await tool('rename_file').execute(
+      {path: 'draft.md', name: 'draft.md'},
+      context(dir),
+    );
+    expect(result.ok).toBe(false);
+    expect(String(result.result)).toContain('already named that');
   });
 
   it('lists a folder and marks a directory', async () => {

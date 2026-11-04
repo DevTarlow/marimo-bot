@@ -32,7 +32,7 @@ The chat window and the moss ball share one conversation. A question you ask fro
 - Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
 - Keep a memory that follows you between folders.
 - Let a bot ask for a tool or a change, and decide each request yourself.
-- Move files around the folder, and delete one when you turn that on.
+- Rename and move files around the folder, and delete one when you turn that on.
 - Find a file by what it was about, not the exact words.
 - Schedule a job and close the window.
 - Ask the moss ball when you do not want the window.
@@ -69,9 +69,13 @@ On a fresh install the app creates `Marimo`, inside your home folder, and starts
 
 The work lands in the same place as the rest of your project, so you can open the files with the editor or tools you already use.
 
-Marimo can move a file, including renaming it in place. A move onto a file that is already there replaces it, so it asks first.
+Renaming a file is **`rename_file`**, and the file stays in the folder it is already in. It changes the name and nothing else, and it will not replace a file that already has that name: it says so instead.
 
-Deleting a file is a Power tool, and it is off until you turn the **`delete_file`** switch on in Settings. It removes one file per call, never a folder, and it does not use the bin.
+Moving a file into another folder, or onto a name that is already there, is **`move_file`**. A move onto an existing file replaces it, so it asks first.
+
+Both are in the **Off until you turn it on** group in Settings, and both are off on a fresh install. **Power user** turns them on, and so does the "Do things for me" bot card.
+
+Deleting a file is a Power tool as well, and it is off until you turn the **`delete_file`** switch on in Settings. It removes one file per call, never a folder, and it does not use the bin.
 
 The file is gone, and the app asks before every delete. Moving a file onto an existing one and deleting one cannot be undone.
 

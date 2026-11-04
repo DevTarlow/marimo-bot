@@ -148,7 +148,7 @@ describe('scheduling tools', () => {
         provider: 'deepseek',
         jobService: fakeJobs(),
       });
-      expect(tools.map((tool) => tool.name).slice(11)).toEqual([
+      expect(tools.map((tool) => tool.name).slice(12)).toEqual([
         'run_shell',
         'list_jobs',
         'create_job',

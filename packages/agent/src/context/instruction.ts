@@ -141,6 +141,7 @@ export function composeHarnessInstruction(
     const canWrite = tools.some((tool) => tool.name === 'write_file');
     const canRead = tools.some((tool) => tool.name === 'read_file');
     const canMove = tools.some((tool) => tool.name === 'move_file');
+    const canRename = tools.some((tool) => tool.name === 'rename_file');
     const canDelete = tools.some((tool) => tool.name === 'delete_file');
     sections.push(
       [
@@ -156,7 +157,34 @@ export function composeHarnessInstruction(
             ? `- ${tool.name}`
             : `- ${tool.name} — ${tool.description.trim()}`,
         ),
-        ...(canMove
+        ...(canRename && canMove
+          ? [
+              '',
+              'To rename a file, call `rename_file` with the path it has now ' +
+                'and the new name on its own. To move one into another folder, ' +
+                'call `move_file` with the path it has now and the path it ' +
+                'should have. Either way the file keeps one copy: writing the ' +
+                'text under the new name leaves the old file where it was, so ' +
+                'that is not a rename even when the person used the word.',
+            ]
+          : []),
+        /*
+         * Before the write rule, and on its own when there is no move: a model
+         * told first that a change is a write reads a rename as a change and
+         * writes a copy under the new name, which is the failure these two rules
+         * exist to prevent.
+         */
+        ...(canRename && !canMove
+          ? [
+              '',
+              'To rename a file, call `rename_file` with the path it has now ' +
+                'and the new name on its own. This is the only way to rename: ' +
+                'writing the text under the new name leaves the old file where ' +
+                'it was, so that is not a rename even when the person used the ' +
+                'word.',
+            ]
+          : []),
+        ...(canMove && !canRename
           ? [
               '',
               'To rename or move a file, call `move_file` with the path it has ' +

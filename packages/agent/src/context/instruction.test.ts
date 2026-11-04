@@ -130,6 +130,43 @@ describe('composeHarnessInstruction tool list', () => {
     );
   });
 
+  /*
+   * A switch for renaming and a switch for moving are separate, so a turn can
+   * have one without the other. A prompt that named the one it did not have is
+   * the failure invariant 22 exists for, and here it would be worse than noise:
+   * the model would call a tool that is not in the turn.
+   */
+  it('names rename_file when that is the rename tool it was given', () => {
+    const text = composeHarnessInstruction(harness(), {
+      tools: [
+        read,
+        write,
+        {name: 'rename_file', description: 'Rename one file in place.'},
+      ],
+    });
+
+    expect(text).toContain('To rename a file, call `rename_file`');
+    expect(text).toContain('leaves the old file where it was');
+    expect(text).not.toContain('call `move_file`');
+    expect(text.indexOf('To rename a file')).toBeLessThan(
+      text.indexOf('To change what is inside a file'),
+    );
+  });
+
+  it('names both when the turn has both', () => {
+    const text = composeHarnessInstruction(harness(), {
+      tools: [
+        read,
+        write,
+        {name: 'rename_file', description: 'Rename one file in place.'},
+        {name: 'move_file', description: 'Move one file inside the workspace.'},
+      ],
+    });
+
+    expect(text).toContain('To rename a file, call `rename_file`');
+    expect(text).toContain('To move one into another folder, call `move_file`');
+  });
+
   it('says removing a file is a delete_file call, not a shell command', () => {
     const text = composeHarnessInstruction(harness(), {
       tools: [
@@ -151,6 +188,7 @@ describe('composeHarnessInstruction tool list', () => {
     const text = composeHarnessInstruction(harness(), {tools: [read, write]});
 
     expect(text).not.toContain('To rename or move a file');
+    expect(text).not.toContain('To rename a file, call `rename_file`');
     expect(text).not.toContain('A request to remove a file');
   });
 

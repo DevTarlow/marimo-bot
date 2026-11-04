@@ -1,8 +1,9 @@
 /**
  * The tools a turn can be offered in v2, before any profile grant is applied.
  *
- * This is the Phase 1 set: enough to read, create and replace a file, list a
- * folder, ask the time, and run a command behind the strongest gate. The
+ * This is the Phase 1 set: enough to read, create and replace a file, rename one
+ * in place, move one, delete one, list a folder, ask the time, and run a command
+ * behind the strongest gate. The
  * memory, skill, job, recall and connector tools follow with their stores.
  *
  * Every file path goes through `resolveInsideWorkspace`, the same guard the v1
@@ -19,7 +20,7 @@ import {
   unlink,
   writeFile,
 } from 'node:fs/promises';
-import {dirname} from 'node:path';
+import {dirname, join} from 'node:path';
 
 import {z} from 'zod';
 
@@ -321,6 +322,114 @@ const moveFileTool = asAnyTool({
   },
 });
 
+/**
+ * `rename_file`: change a file's name, and nothing else.
+ *
+ * A separate tool rather than a second way to spell `move_file`, because it is a
+ * smaller promise: the file stays in the folder it is already in, keeps its
+ * contents, and a name that is taken is a refusal instead of a replacement.
+ *
+ * That is also why it carries no gate. The card exists for the thing that cannot
+ * be undone, and this call has none: it cannot overwrite (it refuses instead) and
+ * it cannot leave the folder, so the worst outcome is a name the person can type
+ * back. A person who wants renaming without also granting the right to replace a
+ * file at a destination has a switch that grants exactly that.
+ */
+const renameFileTool = asAnyTool({
+  name: 'rename_file',
+  description:
+    'Rename one file inside its own folder. It keeps its contents and its ' +
+    'folder, and it refuses a new name that is already taken, so nothing is ' +
+    'replaced. Give the new name on its own, with no folder in it. Folders are ' +
+    'not renamed.',
+  parameters: z.object({
+    path: z
+      .string()
+      .describe('The file to rename, relative to the workspace root.'),
+    name: z
+      .string()
+      .describe(
+        'The new name on its own, e.g. "garden.txt". It cannot name a folder.',
+      ),
+  }),
+  requiresWorkspace: true,
+  execute: async (
+    args: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolOutcome> => {
+    const candidate = typeof args.path === 'string' ? args.path : '';
+    const name = typeof args.name === 'string' ? args.name.trim() : '';
+    if (candidate.length === 0) {
+      return outcome(false, 'rename_file needs a path.');
+    }
+    if (name.length === 0) {
+      return outcome(false, 'rename_file needs the new name in "name".');
+    }
+    /*
+     * A name with a separator is a move wearing the wrong word. Refused here
+     * rather than quietly folded into a path, because the folder is the whole
+     * difference between this tool and `move_file`, and a tool that silently
+     * widens what it does is not the narrower switch the person turned on.
+     */
+    if (name === '.' || name === '..' || /[/\\]/.test(name)) {
+      return outcome(
+        false,
+        `"${name}" is a path, not a name. rename_file keeps the file in its ` +
+          'folder: give just the new file name.',
+      );
+    }
+    const source = await resolved(context, candidate);
+    if ('problem' in source) {
+      return outcome(false, source.problem);
+    }
+    const target = await resolved(context, join(dirname(source.path), name));
+    if ('problem' in target) {
+      return outcome(false, target.problem);
+    }
+    if (source.path === target.path) {
+      return outcome(false, `${candidate} is already named that.`);
+    }
+    try {
+      const info = await stat(source.path);
+      if (info.isDirectory()) {
+        return outcome(
+          false,
+          `${candidate} is a folder. rename_file renames one file at a time.`,
+        );
+      }
+      if (!info.isFile()) {
+        return outcome(false, `${candidate} is not a regular file.`);
+      }
+      const existing = await stat(target.path).catch(() => undefined);
+      if (existing?.isDirectory()) {
+        return outcome(
+          false,
+          `${name} is a folder. Give rename_file a file name.`,
+        );
+      }
+      if (existing !== undefined) {
+        /*
+         * Named as a refusal rather than described as an overwrite, and it never
+         * names the tool that *could* overwrite: that tool may not be granted,
+         * and a description that promises it is one the model repeats.
+         */
+        return outcome(
+          false,
+          `${name} already exists in that folder. rename_file will not replace ` +
+            'it: choose another name, or move the existing file out of the way.',
+        );
+      }
+      await rename(source.path, target.path);
+      return outcome(true, `Renamed ${candidate} → ${name}.`);
+    } catch (error) {
+      return outcome(
+        false,
+        `Could not rename "${candidate}": ${describeToolError(error)}`,
+      );
+    }
+  },
+});
+
 const deleteFileTool = asAnyTool({
   name: 'delete_file',
   description:
@@ -436,6 +545,7 @@ export const CORE_TOOLS: readonly AnyToolDefinition[] = [
   listDir,
   writeFileTool,
   moveFileTool,
+  renameFileTool,
   deleteFileTool,
   runShell,
   ...MEMORY_TOOLS,

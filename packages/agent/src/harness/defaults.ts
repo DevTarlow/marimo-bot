@@ -81,6 +81,11 @@ export const DEFAULT_HARNESS: HarnessBuiltin = {
         move_file: 'on-overwrite',
         delete_file: 'always',
         save_skill: 'always',
+        // Stated rather than left to the default, because "does renaming ask?"
+        // is a question a person will have about a switch beside a delete. It
+        // never asks, and the reason is in the tool: it refuses a taken name
+        // instead of replacing the file, so it has nothing to warn about.
+        rename_file: 'never',
       },
       network: 'default',
     },

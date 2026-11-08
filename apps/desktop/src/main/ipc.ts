@@ -543,6 +543,19 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         : await disable(dependencies.service),
 
     /*
+     * The scheduled jobs, across every bot.
+     *
+     * A read and two writes the person makes from Settings. The agent's own
+     * `update_job` and `delete_job` tools go through the same store from inside
+     * a turn; these are the same operations with the person doing the asking,
+     * which is why they do not need an approval card of their own.
+     */
+    'jobs.list': async () => await agent().jobsForSettings(),
+    'jobs.update': async (params) =>
+      await agent().updateJob(params.jobId, params.patch),
+    'jobs.remove': async (params) => await agent().removeJob(params.jobId),
+
+    /*
      * The local models.
      *
      * A read and five buttons. `install` returns as soon as the download has

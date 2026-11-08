@@ -6,11 +6,11 @@
  * part of the Power grant, a Regular setup has neither the tools nor a reason
  * to install an OS service.
  *
- * The switch is `KeepRunning`, the same component the Jobs rail draws, so there
- * is one behaviour and one set of failure messages rather than a first-run
- * version that can drift. The two facts the step adds are the ones a first run
- * knows and the rail assumes: a job that hits an approval stays paused, and the
- * runner can only read a connector secret that was stored for it.
+ * The switch is `KeepRunning`, the same component the Jobs card in Settings
+ * draws, so there is one behaviour and one set of failure messages rather than a
+ * first-run version that can drift. The two facts the step adds are the ones a
+ * first run knows and the card assumes: a job that hits an approval stays paused,
+ * and the runner can only read a connector secret that was stored for it.
  */
 import {KeepRunning} from './KeepRunning.js';
 
@@ -37,8 +37,8 @@ export function SetupJobs({
       <KeepRunning showUnavailable />
 
       <p className="onboarding-note">
-        You can turn this on later from the Jobs rail. Turning it on installs an
-        OS timer for this app; turning it off removes it.
+        You can turn this on later from the Jobs card in Settings. Turning it on
+        installs an OS timer for this app; turning it off removes it.
       </p>
 
       <div className="onboarding-actions">

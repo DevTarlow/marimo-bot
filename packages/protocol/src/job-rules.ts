@@ -1,33 +1,34 @@
 /**
- * The jobs rail's pure reading of a job: which ones show, in what order, and how
- * each one's state is named.
+ * A job's pure reading: which ones show, in what order, and how each one's state
+ * is named.
  *
- * Kept out of the panel so it can be tested without React. The *times* on a card
- * are not worked out here — the scheduler owns those and answers with them in
- * the document — so this only decides the words and the ordering.
+ * Kept in the protocol rather than in the window so it can be tested without
+ * React, and so the process that sorts the Settings list and the card that draws
+ * it cannot disagree about the order or the words. The *times* on a card are not
+ * worked out here — the scheduler owns those and answers with them in the
+ * document — so this only decides the labels and the ordering.
  */
-import type {Job, Jobs} from '@marimo/protocol';
-
-import {PLACEHOLDER_JOB_NAME} from './jobs.js';
+import type {Job, Jobs} from './index.js';
 
 /** How loud a card's status is, which is all the styling needs to know. */
 export type JobTone = 'active' | 'paused' | 'waiting' | 'error';
 
-/*
- * `PLACEHOLDER_JOB_NAME` used to be declared here as well, with a comment asking
- * the reader to keep it in step with the copy in the store. Now that both files
- * are in one package and one of them can simply import the other, the rule lives
- * in one place: there is at most one unnamed job per agent, because clicking
- * "New job" twice is one intention rather than two jobs.
+/**
+ * The name a job wears between "New job" and the agent proposing a real one.
+ *
+ * It lives here rather than in the store because two readers need it: the store
+ * that names a draft, and the list that must not draw a nameless card. One
+ * constant, so a draft can never be shown as a job.
  */
-export {PLACEHOLDER_JOB_NAME};
+export const PLACEHOLDER_JOB_NAME = '—';
 
 /**
  * The jobs of the agent being looked at.
  *
- * A job belonging to another agent is not listed: its conversation, its memory
- * and the identity that would answer it all belong to that agent, so a card here
- * could not be run or even opened honestly.
+ * A job belonging to another agent is not listed *here*: its conversation, its
+ * memory and the identity that would answer it all belong to that agent. The
+ * Settings card lists across bots and therefore does not call this — it shows
+ * the owner beside every card instead. This remains for a per-bot view.
  *
  * Neither is a job the agent has not named yet. It exists from the moment "New
  * job" is clicked, and it is what the conversation is about — but a card reading
@@ -61,7 +62,7 @@ export function sortJobs(jobs: Job[]): Job[] {
   });
 }
 
-/** "active" / "paused" / "waiting" / "errored", as a bare word. */
+/** "active" / "paused" / "waiting" / "error", as a bare word. */
 export function jobTone(job: Job): JobTone {
   if (!job.enabled) {
     return 'paused';

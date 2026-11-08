@@ -1,13 +1,13 @@
 /**
- * The jobs rail's reading of a job: which ones show, in what order, and how each
- * one's state is named.
+ * The job's reading: which ones show, in what order, and how each one's state is
+ * named.
  *
  * These are the decisions a user makes sense of at a glance, so they are pinned
  * as strings and orders rather than left to the component.
  */
 import {describe, expect, it} from 'vitest';
 
-import type {Job, Jobs} from '@marimo/protocol';
+import type {Job, Jobs} from './index.js';
 
 import {
   jobBadge,

@@ -2219,6 +2219,43 @@ async function main() {
       }
 
       /*
+       * One seeded job, written before Settings opens.
+       *
+       * The Jobs card is the only place a person can see what a bot has
+       * scheduled, and a fresh install has nothing scheduled. Writing the
+       * document directly seeds the card without asking the model to make a job
+       * — which is the half of the feature that cannot be proven by a unit test
+       * here.
+       */
+      await writeFile(
+        join(userData, 'jobs.json'),
+        `${JSON.stringify(
+          {
+            version: 1,
+            jobs: {
+              jobs: [
+                {
+                  id: 'smoke-job',
+                  name: 'Smoke reminder',
+                  description: 'Say hello in the smoke conversation.',
+                  schedules: ['0 9 1 1 *'],
+                  enabled: true,
+                  profileId: activeBotId,
+                  sessionId: openId,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+              open: false,
+              openJobId: null,
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        'utf8',
+      );
+
+      /*
        * Settings, opened the way a person opens it.
        *
        * Everything below reaches *into* this dialog: which sections each screen
@@ -2272,6 +2309,8 @@ async function main() {
         fail('the settings screen cannot reach the connectors it has');
       } else if (!settingsScreen.titles.includes('Commands')) {
         fail('the settings screen does not draw the command switches');
+      } else if (!settingsScreen.titles.includes('Jobs')) {
+        fail('the settings screen cannot reach the scheduled jobs');
       } else if (
         !settingsScreen.titles.some((title) => title.endsWith('can do'))
       ) {
@@ -2338,6 +2377,62 @@ async function main() {
           fail(`the ${title} section could not be opened`);
         }
       };
+
+      /*
+       * The Jobs card, seeded above. It has to list the job under its bot with
+       * the schedule in words, and its Pause button has to go through the same
+       * store a turn's `update_job` does.
+       */
+      await openSection('Jobs');
+      const jobCard = await until('the Jobs card to show the seeded job', async () => {
+        const value = await evaluate(`(() => {
+        const card = document.querySelector('.settings-job');
+        if (card === null) return undefined;
+        return JSON.stringify({
+          name: card.querySelector('.settings-job-name')?.textContent ?? '',
+          badge: card.querySelector('.settings-job-badge')?.textContent ?? '',
+          when: card.querySelector('.settings-job-when')?.textContent ?? '',
+          instruction: card.querySelector('.settings-job-instruction')?.textContent ?? '',
+          owner:
+            card.closest('.settings-job-group')?.querySelector('.settings-job-owner')
+              ?.textContent?.trim() ?? '',
+          pause: [...card.querySelectorAll('.settings-job-head button')].some(
+            (button) => button.textContent.trim() === 'Pause',
+          ),
+        });
+      })()`);
+        return value === undefined ? undefined : JSON.parse(value);
+      });
+
+      if (jobCard.name !== 'Smoke reminder') {
+        fail(`the Jobs card drew "${jobCard.name}", not the seeded job`);
+      } else if (jobCard.owner.length === 0) {
+        fail('the Jobs card did not say which bot owns the job');
+      } else if (!jobCard.when.includes('at 09:00')) {
+        fail(`the Jobs card did not describe the schedule: ${jobCard.when}`);
+      } else if (!jobCard.instruction.includes('Say hello')) {
+        fail('the Jobs card did not show the instruction the job runs');
+      } else if (jobCard.badge !== 'Active' || jobCard.pause !== true) {
+        fail(`the Jobs card drew the seeded job as "${jobCard.badge}"`);
+      } else {
+        ok('the Jobs card lists a scheduled job under its bot, with its words');
+      }
+
+      await evaluate(`(() => {
+        const button = document.querySelector('.settings-job-head button');
+        button?.click();
+      })()`);
+      const jobPaused = await until('the seeded job to pause', async () => {
+        const tone = await evaluate(
+          `document.querySelector('.settings-job')?.getAttribute('data-tone')`,
+        );
+        return tone === 'paused' ? true : undefined;
+      });
+      if (jobPaused !== true) {
+        fail('the Jobs card did not pause the job');
+      } else {
+        ok('the Jobs card pauses a job through the same store a tool uses');
+      }
 
       /*
        * The control choice in Settings writes the same grant the first run did.

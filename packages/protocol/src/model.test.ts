@@ -218,7 +218,6 @@ function settingsShape(): Record<string, unknown> {
     companion: defaultCompanionSettings(),
     sidebarWidth: 272,
     todosWidth: 288,
-    jobsWidth: 288,
     notesWidth: 288,
     filesWidth: 320,
     documentsWidth: 420,

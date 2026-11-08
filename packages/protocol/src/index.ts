@@ -50,6 +50,24 @@ export type {BotDraft, BotTemplate} from './bots.js';
 
 export {describeCron, nextCronRun, nextRunAfter, parseCron} from './cron.js';
 export type {CronSpec} from './cron.js';
+/*
+ * The pure reading of a job — its badge, its relative times, its order.
+ *
+ * In this package rather than in the window because two readers need one answer:
+ * the main process sorts the Settings list and the card draws the words from the
+ * same functions. It imports no Node and no React, which is what lets both.
+ */
+export {
+  PLACEHOLDER_JOB_NAME,
+  jobBadge,
+  jobTone,
+  lastRunLabel,
+  relativeWhen,
+  sortJobs,
+  visibleJobs,
+  weekdayName,
+} from './job-rules.js';
+export type {JobTone} from './job-rules.js';
 
 /*
  * The attachment block a message carries: how it is spelled, how it is read
@@ -846,8 +864,6 @@ export const settingsSchema = z.object({
    */
   sidebarWidth: z.number().int().min(200).max(560),
   todosWidth: z.number().int().min(200).max(560),
-  /** The jobs rail's width. Separate from `todosWidth` so each is remembered. */
-  jobsWidth: z.number().int().min(200).max(560),
   /** Notes and Files have their own widths for the same reason. */
   notesWidth: z.number().int().min(200).max(560),
   filesWidth: z.number().int().min(200).max(560),
@@ -874,10 +890,10 @@ export const settingsSchema = z.object({
   /**
    * Whether the Files rail is open.
    *
-   * The to-do and jobs rails keep this in their own documents, because each of
-   * those *is* a document. The file tree is a view of whatever the active
-   * workspace happens to hold, so there is nothing of its own to keep it beside
-   * and it lives here with the rest of the layout.
+   * A rail that owns a document keeps this beside that document. The file tree
+   * is a view of whatever the active workspace happens to hold, so there is
+   * nothing of its own to keep it beside and it lives here with the rest of the
+   * layout.
    */
   filesOpen: z.boolean(),
   /**
@@ -2232,6 +2248,27 @@ export const jobsFileSchema = z.object({
   jobs: jobsSchema,
 });
 
+/**
+ * One job as the Settings card draws it.
+ *
+ * The card is deliberately cross-bot, so this is the one place that joins the
+ * three facts it needs: the stored job, the bot that answers it, and the
+ * conversation it reports into. Resolving any of them in the window would make
+ * three reads that can disagree, and the window would have to invent a meaning
+ * for an id that no longer resolves.
+ *
+ * `sessionTitle` is `null` when the conversation was deleted. The job survives
+ * that — its next run starts a fresh conversation — so the card must be able to
+ * say so rather than offering a chat that cannot open.
+ */
+export interface JobSummary {
+  job: Job;
+  /** The bot that owns the job and answers when it runs. */
+  profileName: string;
+  /** The conversation it reports into, or `null` when that chat was deleted. */
+  sessionTitle: string | null;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Memory proposals                                                            */
 /* -------------------------------------------------------------------------- */
@@ -3418,6 +3455,32 @@ export const agentCallSchemas = {
   'service.disable': z.object({}),
 
   /*
+   * The scheduled jobs, as one list across every bot.
+   *
+   * A call of its own rather than a field on `settings.get`: the jobs document
+   * changes on its own schedule — a run records its outcome while Settings is
+   * open — and putting it in the settings payload would make every preference
+   * write read it too. The card reloads this on `job.changed`.
+   */
+  'jobs.list': z.object({}),
+  /*
+   * A change the person made from the card: pause, resume, or the words and
+   * times a job runs. The same patch the agent's own tool takes, so a job edited
+   * here and one edited in a conversation obey the same rules — including the
+   * one that a named draft becomes enabled.
+   */
+  'jobs.update': z.object({
+    jobId: z.string().min(1),
+    patch: jobPatchSchema,
+  }),
+  /*
+   * Removes a job. The conversation is kept, which is what the card's
+   * confirmation says: deleting the schedule is not deleting the chat, and the
+   * user can still read what it did.
+   */
+  'jobs.remove': z.object({jobId: z.string().min(1)}),
+
+  /*
    * The local models.
    *
    * Reads and buttons, for the same reason the recall card's are: a settings
@@ -3698,6 +3761,14 @@ export interface AgentCallResults {
   'service.status': ServiceStatus;
   'service.enable': ServiceChange;
   'service.disable': ServiceChange;
+  /*
+   * The whole list after a read or a write. `problem` is the jobs document's own
+   * complaint — a newer format, an unreadable file — and the card prints it
+   * rather than pretending the list is empty.
+   */
+  'jobs.list': {jobs: JobSummary[]; problem?: string};
+  'jobs.update': {jobs: JobSummary[]; found: boolean; problem?: string};
+  'jobs.remove': {jobs: JobSummary[]; removed: boolean; problem?: string};
   'models.status': LocalModelsStatus;
   'models.install': {started: boolean};
   'models.cancel': {cancelled: boolean};

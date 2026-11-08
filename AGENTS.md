@@ -234,6 +234,17 @@ PNG under `userData/avatars/`, served to the sandboxed renderer through the
 decides which settings exist; if a control is worth having, put it on the one
 screen.
 
+**Jobs are set in a conversation and read in Settings.** The **Jobs** card lists
+every bot's jobs, cross-bot on purpose: a job belongs to the bot that was asked
+to make it, and the person should not have to remember which chat that was. The
+main process joins the stored job to the bot's name and the conversation's
+title, because the window has no honest answer for an id that no longer
+resolves. Pause, resume and delete go through the same `JobStore` patch rules as
+`update_job` and `delete_job`, and every write calls `scheduler.sync()` and emits
+`job.changed`. A draft — the placeholder a "New job" leaves before a
+conversation names it — is not listed: there is no instruction and no chosen
+schedule to show.
+
 **The two control choices are not that switch back.** Standard and Power user are
 pre-built `enabledTools` grants: the first run asks the question as **Regular** or
 **Power setup**, Settings repeats it as Standard and Power user, choosing one

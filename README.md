@@ -224,7 +224,9 @@ What happens while the window is closed? A scheduled job keeps going.
 
 Schedule a task, like a summary every morning. Closing the window does not quit the app. It stays in the tray, the small icon near your clock.
 
-The sidebar has a switch called Keep jobs running when the app is closed. It installs a small background worker so a timer can wake it and run due jobs.
+The **Jobs** card in Settings has a switch called **Keep jobs running when the app is closed**. It installs a small background worker so a timer can wake it and run due jobs.
+
+The same card lists every job any bot has scheduled: the bot that owns it, the words it will run, when it next runs, and how the last run went. Pause, resume or delete one there, or open the conversation it reports into. A job is made in a chat, by asking a bot to schedule it.
 
 The worker is a small copy of the app that runs due jobs while the window is closed. It takes turns with the app so the two never write to one chat at the same time.
 
@@ -334,7 +336,7 @@ If you have the app, the first run asks a few questions and then shows only the 
 5. **Make a bot, if a goal calls for one.** Start from the suggested role, build it step by step or talk it through with Marimo. Some goals (files or pictures on their own) do not need a bot and skip this step. The `+` beside Bots makes one later.
 6. **Make it yours.** Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
 7. **Add more bots, or move on.**
-8. **Jobs, if Power and scheduling were chosen.** Turn on the background service so jobs keep running when the window is closed. A job that hits an approval stays paused. This is optional, and the same switch is in the Jobs rail.
+8. **Jobs, if Power and scheduling were chosen.** Turn on the background service so jobs keep running when the window is closed. A job that hits an approval stays paused. This is optional, and the same switch is in the Jobs card in Settings.
 9. **Review and start.** The last step says what was actually configured: the model, the Space, the bots, and any pictures or jobs. Then it opens a new chat in the Space you picked, or leaves you in the chat the starting folder already had if you kept it.
 
 Every step has a Back button, so you can change an earlier answer without starting over.
@@ -415,6 +417,7 @@ See the next section for the short answer: Windows and macOS installers, automat
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
 - The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. It offloads every layer when it finds a device and falls back to the processor when it does not. NVIDIA users can switch to the CUDA build in Settings → Models. It is faster, but it adds about 776 MB on Linux or 671 MB on Windows and is tied to the driver versions above. The switch is opt-in rather than automatic so a laptop does not spend that download by default.
 - The background worker has no browser, so a scheduled job that needs a web search runs only while the app is open.
+- A job repeats on a cron schedule, in your local time. There is no one-off reminder that fires once and stops; "in two minutes" has to be expressed as a recurring schedule, and the Jobs card shows the schedule that was actually stored.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
 - The app checks every model download against a fingerprint, but there is no signature to prove where it came from.
 

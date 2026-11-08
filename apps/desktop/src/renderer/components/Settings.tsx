@@ -50,6 +50,7 @@ import type {
   CompanionAnswerLength,
   McpStatus,
   HarnessReport,
+  JobSummary,
   ProfileCatalog,
   PublicSettings,
   SkillDraft,
@@ -75,6 +76,7 @@ import {BotIconGrid} from './BotIconGrid.js';
 import {BotMenu} from './BotMenu.js';
 import {Connectors} from './Connectors.js';
 import {ControlChoice} from './ControlChoice.js';
+import {Jobs} from './Jobs.js';
 import {Learning} from './Learning.js';
 import {Memory} from './Memory.js';
 import {ModelsSection} from './ModelsSection.js';
@@ -133,6 +135,7 @@ export function Settings({
   openSection,
   userDataFolder,
   onStartBotBuilder,
+  onOpenJobConversation,
 }: {
   onClose: () => void;
   /**
@@ -140,6 +143,16 @@ export function Settings({
    * success; a refusal comes back here as a sentence under the dialog.
    */
   onStartBotBuilder?: () => Promise<{ok: boolean; problem?: string}>;
+  /**
+   * Opens a job's conversation and leaves Settings for it.
+   *
+   * A job can belong to another bot, so the App is the only layer that can move
+   * the rail and the transcript together. Absent in a window that cannot
+   * navigate; the card then leaves the button off.
+   */
+  onOpenJobConversation?: (
+    entry: JobSummary,
+  ) => Promise<{ok: boolean; problem?: string}>;
   /** What the last background look read and remembered, for the Learning card. */
   lastReview?: {events: number; remembered: number} | null;
   /**
@@ -1122,6 +1135,24 @@ export function Settings({
             }
           />
         </SettingsSection>
+
+        {/*
+          Every bot's scheduled work, in one place.
+
+          It sits after Skills because a job is something a bot does rather than
+          something it is, and before the companion because the list can be long
+          and the cards below are short. The card reads across bots by design:
+          a job belongs to the bot that was asked to make it, and the person
+          should not have to remember which conversation that was.
+        */}
+        <Jobs
+          opened={opened}
+          onToggle={fold}
+          profiles={loaded.settings.profiles}
+          {...(onOpenJobConversation === undefined
+            ? {}
+            : {onOpenConversation: onOpenJobConversation})}
+        />
 
         <SettingsSection
           title="Desktop companion"

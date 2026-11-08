@@ -720,6 +720,32 @@ export function App(): React.JSX.Element {
         {...(settingsSection === null ? {} : {openSection: settingsSection})}
         lastReview={agent.lastReview}
         onStartBotBuilder={startBuilderFromSettings}
+        onOpenJobConversation={async (entry) => {
+          if (entry.job.sessionId === null) {
+            return {
+              ok: false,
+              problem:
+                'That job has no conversation yet. The next run will start one.',
+            };
+          }
+          const outcome = await agent.openConversation(
+            entry.job.profileId,
+            entry.job.sessionId,
+          );
+          if (outcome.ok) {
+            /*
+             * Leaving the dialog is part of opening the conversation: the
+             * person asked to see the chat, and a panel that stayed over it
+             * would make them close it themselves to read the answer. The
+             * active bot may have changed, so the window's copy of settings is
+             * read again rather than left pointing at the bot it left.
+             */
+            setShowSettings(false);
+            setSettingsSection(null);
+            void loadSettings();
+          }
+          return outcome;
+        }}
         {...(info === null ? {} : {userDataFolder: info.userData})}
       />
     );

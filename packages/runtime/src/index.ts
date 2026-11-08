@@ -328,14 +328,19 @@ export type {
 } from './agent/mcp-manager.js';
 
 /* Scheduled jobs. */
-export {DEFAULT_SCHEDULE, isPlaceholder, JobStore} from './jobs.js';
+export {
+  DEFAULT_SCHEDULE,
+  isPlaceholder,
+  JobStore,
+  PLACEHOLDER_JOB_NAME,
+} from './jobs.js';
 export type {JobRunRecord, JobStoreOptions, NewJob} from './jobs.js';
 
 /* The thing that runs them. */
 export {JobScheduler} from './scheduler.js';
 export type {JobRunner, JobSchedulerOptions} from './scheduler.js';
 
-/* The jobs rail's pure reading of a job, shared with the window. */
+/* The job's pure reading, kept in the protocol so the window can use it too. */
 export {
   jobBadge,
   jobTone,
@@ -344,8 +349,8 @@ export {
   sortJobs,
   visibleJobs,
   weekdayName,
-} from './job-rules.js';
-export type {JobTone} from './job-rules.js';
+} from '@marimo/protocol';
+export type {JobTone} from '@marimo/protocol';
 
 /* Agents. */
 export {

@@ -57,8 +57,8 @@ export function KeepRunning({
   if (status === null) {
     return showUnavailable ? (
       <p className="settings-muted">
-        Could not read the background service. You can turn it on in the Jobs
-        rail later.
+        Could not read the background service. The switch in Settings will try
+        again the next time it is opened.
       </p>
     ) : null;
   }

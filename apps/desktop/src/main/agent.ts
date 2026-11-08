@@ -21,11 +21,13 @@ import {
   mcpSecretFile,
   createJobRunner,
   holdProcessLock,
+  isPlaceholder,
   JobScheduler,
   JobStore,
   LocalModelHost,
   McpManager,
   secretReaderFor,
+  sortJobs,
   turnInstruction,
   BOT_BUILDER_INSTRUCTION,
 } from '@marimo/runtime';
@@ -48,6 +50,8 @@ import type {
   DocumentWrite,
   HarnessReport,
   Job,
+  JobPatch,
+  JobSummary,
   LocalModelId,
   LocalModelsStatus,
   LocalModelVariant,
@@ -432,6 +436,105 @@ export class AgentService {
         return removed;
       },
     };
+  }
+
+  /**
+   * Every scheduled job, across every bot, as the Settings card reads it.
+   *
+   * The card is the one place a person can see what any bot has set to happen
+   * without opening each bot's conversation, so the list is deliberately not
+   * filtered by the active profile. The names and titles are joined here rather
+   * than left to the window: the window would have to ask each bot for its
+   * conversations and decide for itself what a missing id means, and those are
+   * facts about this install's stores rather than about a card.
+   *
+   * A draft — the placeholder a "New job" leaves while its conversation names
+   * it — is not listed. There is nothing to read yet: no instruction, no
+   * schedule the person chose, and a card called "—" would say otherwise.
+   */
+  async jobsForSettings(): Promise<{jobs: JobSummary[]; problem?: string}> {
+    const read = await this.jobsStore.loadChecked();
+    const {profiles} = await this.profiles();
+    const names = new Map(profiles.map((profile) => [profile.id, profile.name]));
+
+    /*
+     * Only the owners and conversations the list actually names are read. A
+     * profile with no jobs has nothing to contribute, and walking every bot's
+     * index to answer a card about two jobs would be work nobody asked for.
+     *
+     * Session titles are looked up per profile because the runtime's listing is
+     * scoped that way. One unreadable index costs the titles, not the jobs: a
+     * card can still say what runs and when, and the conversation button is
+     * simply absent when the title is unknown.
+     */
+    const owners = new Set(read.jobs.jobs.map((job) => job.profileId));
+    const wantedSessions = new Set(
+      read.jobs.jobs
+        .map((job) => job.sessionId)
+        .filter((sessionId): sessionId is string => sessionId !== null),
+    );
+    const titles = new Map<string, string>();
+    for (const profile of profiles) {
+      if (!owners.has(profile.id)) {
+        continue;
+      }
+      try {
+        for (const session of await this.runtime.listSessions(profile.id)) {
+          if (wantedSessions.has(session.id)) {
+            titles.set(session.id, session.title);
+          }
+        }
+      } catch {
+        // The jobs still list; `sessionTitle` below stays `null`.
+      }
+    }
+
+    const jobs = sortJobs(
+      read.jobs.jobs.filter((job) => !isPlaceholder(job)),
+    ).map((job) => ({
+      job,
+      profileName: names.get(job.profileId) ?? 'A bot that is no longer here',
+      sessionTitle:
+        job.sessionId === null ? null : (titles.get(job.sessionId) ?? null),
+    }));
+
+    return {
+      jobs,
+      ...(read.problem === undefined ? {} : {problem: read.problem}),
+    };
+  }
+
+  /**
+   * Applies a change the person made from the Settings card.
+   *
+   * The store's patch rules are the tool's patch rules, which is the point: a
+   * job paused here is paused the same way `update_job` pauses it, and a job
+   * whose schedule changed starts a new story the same way. `sync` tells the
+   * scheduler to look now rather than at its next idle tick; the event is what
+   * tells every other window — and the tray — that the list moved.
+   */
+  async updateJob(
+    jobId: string,
+    patch: JobPatch,
+  ): Promise<{jobs: JobSummary[]; found: boolean; problem?: string}> {
+    const job = await this.jobsStore.update(jobId, patch);
+    if (job !== null) {
+      this.scheduler.sync();
+      this.options.sendEvent({type: 'job.changed', jobId});
+    }
+    return {...(await this.jobsForSettings()), found: job !== null};
+  }
+
+  /** Removes a job from the card, keeping the conversation it reported into. */
+  async removeJob(
+    jobId: string,
+  ): Promise<{jobs: JobSummary[]; removed: boolean; problem?: string}> {
+    const removed = await this.jobsStore.remove(jobId);
+    if (removed) {
+      this.scheduler.sync();
+      this.options.sendEvent({type: 'job.changed', jobId});
+    }
+    return {...(await this.jobsForSettings()), removed};
   }
 
   /** The settings as they are on disk, for the callers that need to read them. */

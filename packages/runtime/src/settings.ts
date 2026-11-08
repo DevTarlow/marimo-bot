@@ -72,7 +72,6 @@ export function defaultStoredSettings(): StoredSettings {
     // it should, and a later drag starts from wherever the user left it.
     sidebarWidth: 272,
     todosWidth: 288,
-    jobsWidth: 288,
     notesWidth: 288,
     filesWidth: 320,
     // The drawer's default, and the width the stylesheet uses before the stored

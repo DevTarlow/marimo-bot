@@ -64,7 +64,7 @@ export function SetupFinish({
       })
       .catch(() => {
         // The row says it could not read the service rather than claiming on or
-        // off; the Jobs rail is where the switch actually lives.
+        // off; the Jobs card in Settings is where the switch actually lives.
       });
     return () => {
       live = false;
@@ -79,11 +79,11 @@ export function SetupFinish({
   const jobsValue =
     service === null
       ? wantsJobs
-        ? 'Could not read the service — see the Jobs rail.'
+        ? 'Could not read the service — see the Jobs card in Settings.'
         : undefined
       : service.installed
         ? 'Runs while the window is closed.'
-        : 'Only while the window is open — turn it on in the Jobs rail.';
+        : 'Only while the window is open — turn it on in Settings → Jobs.';
 
   return (
     <div className="setup-body">
@@ -151,7 +151,7 @@ export function SetupFinish({
 
       <p className="onboarding-note">
         Every switch is in Settings: the tools, the Models card, the companion,
-        the connectors, and the background service in the Jobs rail.
+        the connectors, and the background service in Settings → Jobs.
       </p>
 
       <div className="onboarding-actions">

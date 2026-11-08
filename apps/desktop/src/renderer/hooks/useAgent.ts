@@ -241,6 +241,19 @@ export interface AgentController {
    * the transcript are all wrong until the active bot's list is read again.
    */
   selectProfile: (profileId: string) => Promise<void>;
+  /**
+   * Opens one conversation, switching bots first when it belongs to another.
+   *
+   * Settings' Jobs card is the caller. A job can belong to a bot the window is
+   * not looking at, and opening its chat has to move the rail and the transcript
+   * to that bot too — `open` alone would load one bot's conversation under
+   * another bot's profile. A deleted conversation is a refusal the card can show
+   * rather than a blank chat.
+   */
+  openConversation: (
+    profileId: string,
+    sessionId: string,
+  ) => Promise<{ok: boolean; problem?: string}>;
   dismissError: () => void;
   /** The spaces every agent works in, and which one is current. */
   workspaces: Workspace[];
@@ -368,6 +381,14 @@ export function useAgent(
 
   const open = useCallback(
     async (id: string): Promise<void> => {
+      /*
+       * The ref is updated here rather than only on the next render. A read
+       * started below checks it, and a state update that has not been painted
+       * yet would make that read believe it belongs to the conversation being
+       * left — the same check the transcript loader uses to discard a slow
+       * answer.
+       */
+      openSession.current = id;
       setSessionId(id);
       setLive(null);
       setDelegations({});
@@ -586,6 +607,57 @@ export function useAgent(
       }
     },
     [profile, boot],
+  );
+
+  /**
+   * Opens a conversation that belongs to a named bot.
+   *
+   * The switch is written here rather than by calling `selectProfile` and then
+   * `open`: `selectProfile` lands on that bot's newest chat, which is the right
+   * answer for clicking a bot and the wrong one for opening a particular job.
+   * The state it clears is the same state `open` clears, so a delta from the
+   * conversation being left cannot land in the new one while the transcript is
+   * being read.
+   */
+  const openConversation = useCallback(
+    async (
+      profileId: string,
+      targetSessionId: string,
+    ): Promise<{ok: boolean; problem?: string}> => {
+      try {
+        if (profile?.id !== profileId) {
+          await window.marimo.call('profiles.select', {profileId});
+          const listed = await window.marimo.call('profiles.list', {});
+          const next = listed.profiles.find((entry) => entry.id === profileId);
+          if (next === undefined) {
+            throw new Error(`Unknown bot: ${profileId}`);
+          }
+          setProfile(next);
+          setAgents(listed.profiles);
+          applyWorkspaceState(await window.marimo.call('workspaces.list', {}));
+          const {sessions: existing} = await window.marimo.call(
+            'sessions.list',
+            {profileId},
+          );
+          setSessions(existing);
+        }
+        openSession.current = targetSessionId;
+        setSessionId(targetSessionId);
+        setLive(null);
+        setDelegations({});
+        helperAtWork.current = null;
+        setStoredPending([]);
+        setMessages([]);
+        setOutbox(null);
+        await loadTranscript(profileId, targetSessionId);
+        return {ok: true};
+      } catch (failure) {
+        const problem = describe(failure);
+        setError(problem);
+        return {ok: false, problem};
+      }
+    },
+    [profile, applyWorkspaceState, loadTranscript],
   );
 
   /* The stream. Registered once; everything it needs is read from refs. */
@@ -1299,6 +1371,7 @@ export function useAgent(
     startBotBuilder,
     sessionPurpose,
     selectProfile,
+    openConversation,
     dismissError: () => {
       setError(null);
     },

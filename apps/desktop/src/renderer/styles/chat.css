@@ -2014,6 +2014,125 @@ body.resizing-rail * {
   color: var(--text-muted);
 }
 
+/*
+ * One job in the Jobs card.
+ *
+ * A card rather than a table row: a job has a name, a badge, a sentence about
+ * what it runs, a sentence about when, and three actions. The left rule carries
+ * the state so the badge is not the only thing a fast look has to read.
+ */
+.settings-job-group {
+  margin-top: var(--space-3);
+}
+
+.settings-job-owner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-job {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.settings-job[data-tone='active'] {
+  border-left-color: var(--accent);
+}
+
+.settings-job[data-tone='waiting'] {
+  border-left-color: var(--warning);
+}
+
+.settings-job[data-tone='error'] {
+  border-left-color: var(--danger);
+}
+
+.settings-job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.settings-job-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.settings-job-name {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.settings-job-badge {
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.settings-job-badge[data-tone='active'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-job-badge[data-tone='waiting'] {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.settings-job-badge[data-tone='error'] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.settings-job-when {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.settings-job-instruction {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-job-meta {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.settings-job-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
 .settings-agents {
   display: flex;
   flex-wrap: wrap;

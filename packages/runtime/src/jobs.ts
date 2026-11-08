@@ -17,7 +17,12 @@ import {randomUUID} from 'node:crypto';
 import {mkdir, rename, writeFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
 
-import {emptyJobs, jobsFileSchema, nextCronRun} from '@marimo/protocol';
+import {
+  emptyJobs,
+  jobsFileSchema,
+  nextCronRun,
+  PLACEHOLDER_JOB_NAME,
+} from '@marimo/protocol';
 import type {Job, JobPatch, JobStatus, Jobs} from '@marimo/protocol';
 
 import {withFileLock} from './lock.js';
@@ -59,12 +64,12 @@ export const DEFAULT_SCHEDULE = '0 9 * * *';
 /**
  * The name a job wears between "New job" and the agent proposing a real one.
  *
- * The panel does not show a job with this name, so clicking **New job** opens a
- * chat without leaving a nameless card behind; the agent's `create_job` renames
- * this job rather than making a second one, which is what keeps one click one
- * job.
+ * The constant lives in the protocol, beside the list that must hide a draft and
+ * the store that names one, so those three cannot disagree about the character.
+ * It is re-exported here because every caller that knows a job knows it through
+ * the store.
  */
-export const PLACEHOLDER_JOB_NAME = '—';
+export {PLACEHOLDER_JOB_NAME};
 
 /** Whether a job is still waiting for the agent to give it a name. */
 export function isPlaceholder(job: Job): boolean {

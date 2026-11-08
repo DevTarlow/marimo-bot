@@ -52,8 +52,6 @@ import type {
   HarnessReport,
   ProfileCatalog,
   PublicSettings,
-  SpeechLanguage,
-  SpeechVoice,
   SkillDraft,
   SkillHistoryEntry,
   StoredSkill,
@@ -66,8 +64,6 @@ import {
   COMMANDS,
   COMPANION_ANSWER_LENGTHS,
   defaultBotAvatarFor,
-  LOCAL_MODELS,
-  SPEECH_LANGUAGES,
   SKILL_DESCRIPTION_MAX,
   SKILL_INSTRUCTIONS_MAX,
 } from '@marimo/protocol';
@@ -459,15 +455,6 @@ export function Settings({
 
   const granted = new Set(loaded.profile?.enabledTools ?? []);
   const opened = new Set(openSections ?? []);
-  /*
-   * Whether the voice model is on disk. The switch is refused before the
-   * download rather than after the first click: a toggle that turns on and then
-   * fails at the first sentence is worse than one that says what to fetch.
-   */
-  const voiceModelInstalled =
-    loaded.settings.localModels.models[
-      loaded.settings.localModels.tasks.voice
-    ]?.installed ?? false;
   /*
    * The bot an open menu belongs to, looked up rather than held in the state: a
    * menu left open while another window removed that bot would otherwise offer
@@ -1193,83 +1180,6 @@ export function Settings({
               </option>
             ))}
           </select>
-
-          <h4 className="settings-group">Talking</h4>
-          <p className="settings-muted">
-            While this is on, the voice model listens, answers and speaks. It is
-            the same model for all three so a spoken turn never needs two loaded
-            at once — which also means it answers with the voice model rather
-            than the text one. Turn it off for harder work.
-          </p>
-          <label className="settings-check">
-            <input
-              type="checkbox"
-              checked={loaded.settings.companion.speakReplies}
-              disabled={saving || (!voiceModelInstalled && !loaded.settings.companion.speakReplies)}
-              onChange={(event) => {
-                const speakReplies = event.target.checked;
-                void change(async () => {
-                  await window.marimo.call('settings.set', {
-                    patch: {companion: {speakReplies}},
-                  });
-                });
-              }}
-            />
-            <span>
-              Talk to Marimo
-              <em className="settings-why">
-                A microphone button appears in the window and on the moss. The
-                answer is spoken aloud, so it is kept short and read as prose.
-              </em>
-            </span>
-          </label>
-          {!voiceModelInstalled && (
-            <p className="settings-muted">
-              Voice needs {LOCAL_MODELS[loaded.settings.localModels.tasks.voice].label}{' '}
-              — download it in Models above to turn this on.
-            </p>
-          )}
-          <label className="settings-field">
-            <span>Voice</span>
-            <select
-              className="settings-input"
-              value={loaded.settings.companion.speechVoice}
-              disabled={saving || !loaded.settings.companion.speakReplies}
-              onChange={(event) => {
-                const speechVoice = event.target.value as SpeechVoice;
-                void change(async () => {
-                  await window.marimo.call('settings.set', {
-                    patch: {companion: {speechVoice}},
-                  });
-                });
-              }}
-            >
-              <option value="female">Female</option>
-              <option value="male">Male</option>
-            </select>
-          </label>
-          <label className="settings-field">
-            <span>Language</span>
-            <select
-              className="settings-input"
-              value={loaded.settings.companion.speechLanguage}
-              disabled={saving || !loaded.settings.companion.speakReplies}
-              onChange={(event) => {
-                const speechLanguage = event.target.value as SpeechLanguage;
-                void change(async () => {
-                  await window.marimo.call('settings.set', {
-                    patch: {companion: {speechLanguage}},
-                  });
-                });
-              }}
-            >
-              {SPEECH_LANGUAGES.map((language) => (
-                <option key={language.code} value={language.code}>
-                  {language.label}
-                </option>
-              ))}
-            </select>
-          </label>
 
           <h4 className="settings-group">How much it shows</h4>
           <label className="settings-field">

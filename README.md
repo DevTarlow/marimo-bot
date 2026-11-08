@@ -4,16 +4,16 @@
 
 <h1 align="center">Marimo Bot</h1>
 
-<p align="center">A desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text, pictures and speech.</p>
+<p align="center">A desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model answers text and pictures.</p>
 
 > [!WARNING]
 > Marimo Bot is under construction. It changes often, and some changes are breaking. Keep your own copies of anything you care about.
 
 I built Marimo Bot to sit on your computer and work inside a folder you choose. It reads and writes the files there, remembers what matters, and keeps a few helpers, called bots, for work you repeat.
 
-Marimo Bot runs one small Liquid AI model on your own machine. There is no account, no API key, and no model service in the middle.
+Marimo Bot runs one local vision-language model, Qwen2.5 VL 7B, on your own machine. There is no account, no API key, and no model service in the middle.
 
-The first run downloads the Omni model, which answers text, sees pictures and speaks. The older dedicated models are no longer offered.
+The first run downloads the 4-bit copy of that model and its image encoder, about 6 GB. It answers text and looks at pictures; there is no speech model in this build.
 
 After that the app answers on this computer, using the graphics card when it has one. It can search the web and talk to connectors when you ask, but the everyday conversation stays on the computer.
 
@@ -24,9 +24,8 @@ The chat window and the moss ball share one conversation. A question you ask fro
 ## The short version
 
 - Work in a folder, not a chat that forgets where it is.
-- One local Omni model for text, pictures and voice.
-- Attach a picture and the Omni model looks at it.
-- Talk instead of typing, and let the answer be spoken.
+- One local model for text and pictures.
+- Attach a picture and the model looks at it.
 - Search the web when the answer is not on this machine.
 - Make bots for writing, research, code or whatever you repeat.
 - Let one bot ask another for help, with the helper's permissions and approvals kept in the same chat.
@@ -81,21 +80,11 @@ The file is gone, and the app asks before every delete. Moving a file onto an ex
 
 ### Pictures
 
-Attach a picture with the `+` beside the message box. The Omni model reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed.
+Attach a picture with the `+` beside the message box. The model reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed.
 
 The picture is shown in the chat at a size that fits the message, not as its file name. Click it for a larger view; Escape, the close button or a click outside closes it.
 
-The picture is attached to that one message. Attaching it does not copy or index it, and it is not sent anywhere: the Omni model runs on this computer. (Recall indexes a Space's media only if you turned media search on.)
-
-### Voice
-
-Turn on **Talk to Marimo** in Settings and the companion answers out loud.
-
-Hold the microphone button to speak, release it, and what you said appears in the message box before it is sent. The app transcribes with the same Omni model that speaks the answer, so a voice turn never needs two models loaded at once.
-
-The answer is kept short and read as prose. Code blocks, tables and links are for the window, not for the ear.
-
-Voice mode uses the Omni model for the whole turn, not just the speaking. That keeps one model in memory. And a question asked by voice is answered by the same model that heard it. For harder work, use the window without the microphone.
+The picture is attached to that one message. Attaching it does not copy or index it, and it is not sent anywhere: the model runs on this computer. (Recall indexes a Space's media only if you turned media search on.)
 
 ### The web
 
@@ -251,9 +240,7 @@ It has no browser, so a job that needs a web search has to run while the app is 
 
 The moss ball is another way into the same conversation. It floats above your other windows with its own chat bar.
 
-Settings lets you choose how long its answers are, how many messages float above it, and whether it stays on top. It also decides whether you can click through it to the window behind, and whether it talks.
-
-With **Talk to Marimo** on, the moss has a microphone of its own and speaks the answers it started. The window does not read the same answer a second time: the turn remembers which surface asked.
+Settings lets you choose how long its answers are, how many messages float above it, and whether it stays on top. It also decides whether you can click through it to the window behind.
 
 ### The engine
 
@@ -269,13 +256,11 @@ It deliberately leaves the model assignment, the Space, the icon and memory alon
 
 No model comes inside the app.
 
-The first run downloads **LFM3 Omni 2B** from Liquid AI: one set of weights that answers text, sees pictures and speaks. After that every turn runs it on this computer with llama.cpp.
+The first run downloads **Qwen2.5 VL 7B** from the unsloth GGUF repository: one set of weights and the image encoder it needs. It answers text and reads pictures. After that every turn runs it on this computer with llama.cpp.
 
-**Omni is the model for Chat, Images and Voice.** There is no task picker: one download answers, sees and speaks. Settings → Models owns that one model: its Q8/Q4 copy, the download, the sleep state and removal.
+**The one model is the model for Chat and Images.** There is no task picker: one download answers and sees. Settings → Models owns it: its Q8/Q4 copy, the encoder, the download, the sleep state and removal.
 
-An install from before this change may still have the dedicated **LFM3 1.7B**, **LFM3 VL 2B** or **LFM3 Audio 2B** files on disk. The same card lists them under **Other downloaded models** so they can be removed.
-
-Nothing uses them any more, and this build does not offer them as a choice.
+An install from before this change may still have the **LFM3 1.7B**, **LFM3 VL 2B**, **LFM3 Audio 2B** or **LFM3 Omni 2B** files on disk. The same card lists them under **Other downloaded files** so they can be removed. Nothing uses them any more, and this build does not offer them as a choice.
 
 One model is in memory at a time.
 
@@ -283,19 +268,17 @@ The app starts it for the turn and after three quiet minutes lets it go, so a ch
 
 The composer's badge shows whether it is awake, waking or resting. Clicking it opens the Models card.
 
-The Omni model has a Q8 copy and a Q4 copy. Q8 is the better answer and the larger download. Q4 is for a machine with less memory.
+The model has a Q8 copy and a Q4 copy, and both use the same F16 image encoder. Q4 is the default: about 4.7 GB of weights and 1.4 GB of encoder. Q8 is the better answer and the larger download, about 8.1 GB of weights plus the same encoder. The app measures the machine's RAM and suggests Q8 only at 24 GB or more.
 
-The app measures the machine's RAM and suggests the smaller copy below 8 GB.
-
-The first run downloads only Omni.
+The first run downloads only this model and its encoder.
 
 A model download starts when you press Download, and the app does not fetch a model in the background.
 
-The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows the Omni model, its installed copy and its size, and **Remove…** deletes it.
+The files live under the app's folder: on Linux, `~/.config/Marimo Bot/model/`. Settings shows the model, its installed copy and its size, and **Remove…** deletes it.
 
 Removing the model is allowed only when nothing is running, and the next message then shows the download card instead of failing with a half-loaded engine.
 
-The Omni model is licensed by Liquid AI under the [LFM Open License v1.0](https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/blob/main/LICENSE). It is downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
+The weights are released under [Apache-2.0](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct). They are downloaded from Hugging Face at a pinned revision, and every file is checked against a pinned digest before it is used. Nothing is uploaded.
 
 ### Connectors
 
@@ -309,7 +292,7 @@ A connector's token or password is stored like any other secret, and the backgro
 
 ## Privacy and control
 
-Your conversations, files and memory stay on this computer. The model, the speech recogniser and the speech synthesiser are local. A recording is turned into a WAV in memory, sent to the local engine, and never written to disk by the app.
+Your conversations, files and memory stay on this computer. The model that answers and reads pictures is local, and an attached picture is read by it on this computer.
 
 The app reaches the network only for things you ask for:
 
@@ -345,21 +328,20 @@ There is no public download yet. The Linux version builds to a single AppImage f
 If you have the app, the first run asks a few questions and then shows only the steps those answers call for.
 
 1. **Choose a setup style.** **Regular** gives Marimo Bot the Standard tools and keeps the path short. **Power** gives it every tool the app has (writing files, running commands, scheduling jobs and handing work to your other bots) and opens the extra steps, including the jobs step when you choose scheduling. Where a tool can act, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
-2. **Say what you want to do.** Pick any of: use your files, research the web, write and edit, work on code, build a team of bots, look at pictures, talk out loud, or run jobs on a schedule. These choose which steps appear and which starter bot is suggested. They do not give Marimo Bot any tools. Scheduling is part of Power setup. The other goals are available either way, and choosing a writing or coding goal suggests a bot with its own tools.
-3. **Download the Omni model.** The app offers **LFM3 Omni 2B** at Q8 (about 2.4 GB) or Q4 (about 1.4 GB), and it answers Chat, Images and Voice from that one download. This is the only required step. The download runs in the window and can be cancelled. **Set this up later** closes the flow. Settings → Models is where to download it afterwards. Once the files are in place, **Check it loads now** starts the engine once. The first message would do the same, so this is a way to watch it rather than a second requirement.
-4. **Turn spoken replies on, if you asked for voice.** The Omni model already handles pictures and speech, so there is no extra model to download. The step offers **Talk to Marimo**, which turns on the microphone and spoken answers. You can skip it and change it later in Settings.
-5. **Choose a Space.** Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
-6. **Make a bot, if a goal calls for one.** Start from the suggested role, build it step by step or talk it through with Marimo. Some goals (files, pictures, voice on their own) do not need a bot and skip this step. The `+` beside Bots makes one later.
-7. **Make it yours.** Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
-8. **Add more bots, or move on.**
-9. **Jobs, if Power and scheduling were chosen.** Turn on the background service so jobs keep running when the window is closed. A job that hits an approval stays paused. This is optional, and the same switch is in the Jobs rail.
-10. **Review and start.** The last step says what was actually configured: the model, the Space, the bots, and any pictures, voice or jobs. Then it opens a new chat in the Space you picked, or leaves you in the chat the starting folder already had if you kept it.
+2. **Say what you want to do.** Pick any of: use your files, research the web, write and edit, work on code, build a team of bots, look at pictures, or run jobs on a schedule. These choose which steps appear and which starter bot is suggested. They do not give Marimo Bot any tools. Scheduling is part of Power setup. The other goals are available either way, and choosing a writing or coding goal suggests a bot with its own tools.
+3. **Download the model.** The app offers **Qwen2.5 VL 7B** at Q4 (about 6.0 GB with its image encoder) or Q8 (about 9.5 GB), and it answers Chat and Images from that one download. This is the only required step. The download runs in the window and can be cancelled. **Set this up later** closes the flow. Settings → Models is where to download it afterwards. Once the files are in place, **Check it loads now** starts the engine once. The first message would do the same, so this is a way to watch it rather than a second requirement.
+4. **Choose a Space.** Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
+5. **Make a bot, if a goal calls for one.** Start from the suggested role, build it step by step or talk it through with Marimo. Some goals (files or pictures on their own) do not need a bot and skip this step. The `+` beside Bots makes one later.
+6. **Make it yours.** Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
+7. **Add more bots, or move on.**
+8. **Jobs, if Power and scheduling were chosen.** Turn on the background service so jobs keep running when the window is closed. A job that hits an approval stays paused. This is optional, and the same switch is in the Jobs rail.
+9. **Review and start.** The last step says what was actually configured: the model, the Space, the bots, and any pictures or jobs. Then it opens a new chat in the Space you picked, or leaves you in the chat the starting folder already had if you kept it.
 
 Every step has a Back button, so you can change an earlier answer without starting over.
 
-The setup style comes first because it is about access. The goals come next because they are what make the flow shorter for someone who only wants to chat and longer for someone who wants pictures, voice, bots or scheduled work.
+The setup style comes first because it is about access. The goals come next because they are what make the flow shorter for someone who only wants to chat and longer for someone who wants pictures, bots or scheduled work.
 
-The Omni model is the one required step because the app cannot answer without it. The rest is optional and can be changed afterwards.
+The model is the one required step because the app cannot answer without it. The rest is optional and can be changed afterwards.
 
 When you finish, the app opens a new chat in the Space you picked, so the first thing you type lands in the folder you meant. If you kept the folder the app started in, it stays in the chat it already opened.
 
@@ -375,27 +357,23 @@ No. The models run on this computer, and there is no account with us or with a m
 
 ### How big is the download?
 
-About 2.4 GB for the Q8 Omni model, or 1.4 GB for Q4. That is the one the first run downloads, and it covers Chat, Images and Voice.
+About 6.0 GB for the Q4 model plus its image encoder, or 9.5 GB for Q8. That is the one the first run downloads, and it covers Chat and Images.
 
-The dedicated text, vision and audio models are no longer offered. An older install can remove their files from Settings → Models.
+The older LFM3 models are not offered. An older install can remove their files from Settings → Models.
 
 ### Can I use it without making a bot?
 
 Yes. Marimo Bot is useful on its own, and bots are for work you repeat. The setup only offers the bot step when a goal asks for one. The `+` beside Bots makes one later.
 
-### Are my voice recordings saved?
-
-No. The microphone is captured in memory, turned into a WAV for the local engine and discarded. The app stores the transcript, which is the message you can edit before sending. The answer is stored as text too, not as audio.
-
 ### Does it work offline?
 
-Yes, once the model you want is downloaded. The first download, a web search, a connector and the update check need a network. A conversation, the memory, Recall and voice do not.
+Yes, once the model you want is downloaded. The first download, a web search, a connector and the update check need a network. A conversation and the memory do not.
 
 ### Do I need a graphics card?
 
 No, but it uses one when it can. The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. With a card it offloads every layer.
 
-A 12 GB card such as a GeForce RTX 3060 holds the Omni model, its projector and the 32K context together. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
+A 12 GB card such as a GeForce RTX 3060 holds the Q4 model, its projector and the 32K context together. Q8 wants about 12 GB of memory or more. A machine without a usable GPU runs the same engine on its processor, so the app is slower rather than broken.
 
 On an NVIDIA card, **Settings → Models** also offers a CUDA engine. It is usually faster than Vulkan, and it is opt-in because the engine and the CUDA runtime are about 776 MB on Linux or 671 MB on Windows, against 35 MB for Vulkan.
 
@@ -405,9 +383,9 @@ Recall's embedding model is the one exception: it stays on the processor because
 
 ### How much memory does it need?
 
-About 3 GB of graphics memory while the Q8 Omni model is loaded and offloaded, or 2 GB for Q4. On a machine with no GPU the same amount comes from system memory.
+About 8.5 GB of graphics or system memory for Q4 with a 32K window, or about 12 GB for Q8. On a machine with no GPU the same amount comes from system memory.
 
-The model includes its projector. The app lets the model go after three quiet minutes, so the memory comes back.
+That includes the image encoder, which is loaded with the model even on a turn that carries no picture. The app lets the model go after three quiet minutes, so the memory comes back.
 
 ### Where are my files?
 
@@ -425,7 +403,7 @@ Yes, Settings has its Role, Persona, tools, Space and icon. The Harness card can
 
 Only where you ask it to: a web search receives the query, a page fetch goes to the address it was given, and a connector receives what it is asked to do.
 
-The model, the speech recogniser and the speech synthesiser run here. The first model download and Recall's download contact Hugging Face. The update check contacts GitHub only when you press the button.
+The model runs here. The first model download and Recall's download contact Hugging Face. The update check contacts GitHub only when you press the button.
 
 ### What is not finished?
 
@@ -436,7 +414,6 @@ See the next section for the short answer: Windows and macOS installers, automat
 - The Windows and macOS installers are written but not built. The model downloads and the engine run on all three, but only the Linux AppImage has been run end to end.
 - There is no automatic updater. Settings can check for a newer release and open its notes, but downloading and installing is still a manual step, and releases are not signed yet.
 - The default engine is a Vulkan build on Linux and Windows, and a Metal build on macOS. It offloads every layer when it finds a device and falls back to the processor when it does not. NVIDIA users can switch to the CUDA build in Settings → Models. It is faster, but it adds about 776 MB on Linux or 671 MB on Windows and is tied to the driver versions above. The switch is opt-in rather than automatic so a laptop does not spend that download by default.
-- Voice mode is one microphone press and one spoken answer, not a hands-free conversation. There is no wake word and no barge-in.
 - The background worker has no browser, so a scheduled job that needs a web search runs only while the app is open.
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
 - The app checks every model download against a fingerprint, but there is no signature to prove where it came from.
@@ -446,11 +423,11 @@ See the next section for the short answer: Windows and macOS installers, automat
 Will it run on my machine?
 
 - A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
-- About 1.4 GB of free disk for the Q4 Omni model, or 2.4 GB for Q8. Recall adds about 310 MB, or 865 MB with media. The default engine adds about 35 MB. Choosing CUDA adds about 776 MB of downloads on Linux (671 MB on Windows), or about 1 GB once unpacked.
-- About 3 GB of free graphics or system memory while a Q8 model is loaded. Less for Q4.
+- About 6.0 GB of free disk for the Q4 model and its image encoder, or 9.5 GB for Q8. Recall adds about 310 MB, or 865 MB with media. The default engine adds about 35 MB. Choosing CUDA adds about 776 MB of downloads on Linux (671 MB on Windows), or about 1 GB once unpacked. An upgrade from the old model needs room for both until you remove the leftover files.
+- About 8.5 GB of free graphics or system memory for Q4 with a 32K window, or 12 GB for Q8.
 - No account and no key. A graphics card is not required. The engine falls back to the processor without one, and CUDA is an option only where NVIDIA reports a compatible driver.
 
-The app carries no hosted service. Everything it needs to answer is the Omni model, downloaded once and checked against a pinned digest.
+The app carries no hosted service. Everything it needs to answer is the one model, downloaded once and checked against a pinned digest.
 
 Go build your next thing with it.
 

@@ -1,26 +1,23 @@
 /**
  * The one model in memory, and the rules about when it is there.
  *
- * The app carries no backend any more: it downloads a small model and starts a
- * llama.cpp server on loopback, for as long as a turn (or a spoken reply) needs
- * it. This class is the part that makes that feel like a feature rather than a
- * process manager:
+ * The app carries no backend any more: it downloads one model and starts a
+ * llama.cpp server on loopback, for as long as a turn needs it. This class is
+ * the part that makes that feel like a feature rather than a process manager:
  *
- * - **One model at a time.** Four models exist, and the machine's memory is the
- *   scarce resource. A turn's model is resolved before it starts; a different
- *   one stops the warm engine and starts itself. The one deliberate exception is
- *   voice, which uses the audio model for the whole turn so listening, answering
- *   and speaking share one set of weights.
- * - **It wakes on use.** Sending a message, attaching an image or pressing the
- *   mic starts the model, and the window is told it is waking. Nothing is
- *   downloaded or started at launch.
- * - **It sleeps after a few idle minutes.** A 1.9GB model sitting in memory for
- *   a question asked yesterday is the failure this exists to prevent. The timer
+ * - **One model at a time.** The machine's memory is the scarce resource, and
+ *   the model plus its image encoder plus a 32K window is most of it. A turn's
+ *   task is resolved before it starts; the same weights answer text and
+ *   pictures, so no swap is needed between them.
+ * - **It wakes on use.** Sending a message or attaching an image starts the
+ *   model, and the window is told it is waking. Nothing is downloaded or
+ *   started at launch.
+ * - **It sleeps after a few idle minutes.** A 7B model sitting in memory for a
+ *   question asked yesterday is the failure this exists to prevent. The timer
  *   is unref'd so the headless runner can exit, and it re-arms rather than
- *   firing while a turn or a request is still using the engine.
- * - **It never stops under a request.** A swap waits for the active work to
- *   finish; the app's one-turn-at-a-time rule makes this true for turns, and the
- *   in-flight counter covers speech.
+ *   firing while a turn is still using the engine.
+ * - **It never stops under a request.** The app's one-turn-at-a-time rule makes
+ *   this true; the idle timer checks it before stopping.
  *
  * The engine itself — spawn, health poll, pid file, reap, log tail — is
  * `LocalModelService`, which already runs the recall engine. This file adds the
@@ -28,7 +25,7 @@
  * download, and the task routing.
  */
 import {spawn} from 'node:child_process';
-import {rm} from 'node:fs/promises';
+import {readdir, rm} from 'node:fs/promises';
 import {totalmem} from 'node:os';
 import {join} from 'node:path';
 
@@ -40,15 +37,14 @@ import type {
   LocalModelStatus,
   LocalModelsStatus,
   LocalModelVariant,
-  SpeechLanguage,
-  SpeechVoice,
+  RetiredModelId,
   StoredSettings,
 } from '@marimo/protocol';
 import {
   LOCAL_MODEL_IDS,
   LOCAL_MODELS,
   LOCAL_TASKS,
-  modelSupportsTask,
+  RETIRED_MODEL_IDS,
 } from '@marimo/protocol';
 
 import {localModelArgs} from './args.js';
@@ -66,12 +62,6 @@ import type {DownloadProgress} from './install.js';
 import {localModelOnDisk} from './installed.js';
 import {engineAssetFor, engineFilesFor} from './manifest.js';
 import {LocalModelService} from './service.js';
-import {
-  SpeechError,
-  synthesizeSpeech,
-  transcribeAudio,
-} from './speech.js';
-import type {SpokenAudio} from './speech.js';
 
 /** The model owner a task should reach for, or why it cannot. */
 export type EnsureModelResult =
@@ -122,15 +112,12 @@ export class LocalModelHost {
   private state: LocalModelStatus['state'] = 'off';
   private detail: string | undefined;
   private baseUrl: string | undefined;
-  private rootUrl: string | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   private idle: NodeJS.Timeout | undefined;
   private readonly failures = new Map<LocalModelId, string>();
   private downloading:
     | {modelId: LocalModelId; controller: AbortController}
     | undefined;
-  /** Requests the host itself is making (speech), so an idle stop waits. */
-  private inFlight = 0;
   /** The NVIDIA probe, run once; the driver does not change under a launch. */
   private cudaSupport: Promise<CudaSupport> | undefined;
 
@@ -160,9 +147,9 @@ export class LocalModelHost {
    * Starts the model a turn needs, or says why it cannot.
    *
    * Called from the turn's preparation, after the task has been resolved and
-   * before the first provider request. Concurrent callers share the start; a
-   * caller asking for a different model while one is being used is refused
-   * rather than allowed to pull the weights out from under a request.
+   * before the first provider request. Concurrent callers share the start. The
+   * busy guard lives in the idle timer and the sleep/remove buttons rather than
+   * here: with one model there is no second one to swap under a request.
    */
   async ensure(modelId: LocalModelId): Promise<EnsureModelResult> {
     return await this.withQueue(async () => await this.ensureNow(modelId));
@@ -179,15 +166,6 @@ export class LocalModelHost {
         baseUrl: this.baseUrl,
         modelId,
         variant: this.active.variant,
-      };
-    }
-
-    if (this.active !== undefined && this.active.modelId !== modelId && this.isBusy()) {
-      return {
-        ok: false,
-        problem:
-          `${LOCAL_MODELS[this.active.modelId].label} is still answering. ` +
-          'Finish that turn before switching models.',
       };
     }
 
@@ -243,7 +221,6 @@ export class LocalModelHost {
       return {ok: false, problem: started.problem};
     }
     this.baseUrl = started.baseUrl;
-    this.rootUrl = started.baseUrl.replace(/\/v1$/u, '');
     this.state = 'ready';
     this.detail = undefined;
     void this.armIdle().catch((failure: unknown) => {
@@ -320,6 +297,7 @@ export class LocalModelHost {
       idleMinutes: settings.localModels.idleMinutes,
       engineBackend: settings.localModels.engineBackend,
       recommendedVariant: this.recommendedVariant(),
+      retired: await this.retiredOnDisk(),
     };
   }
 
@@ -344,7 +322,7 @@ export class LocalModelHost {
      * careful about that; the button has to be too, or the answer the model is
      * halfway through writing dies with the process.
      */
-    if (this.isBusy() || this.inFlight > 0) {
+    if (this.isBusy()) {
       if (this.active !== undefined) {
         this.options.onFailed?.(
           this.active.modelId,
@@ -444,9 +422,9 @@ export class LocalModelHost {
     }
   }
 
-  /** Deletes one model's files. The shared engine stays for the others. */
+  /** Deletes one model's files, after the turn using it has finished. */
   async remove(modelId: LocalModelId): Promise<LocalModelsStatus> {
-    if (this.active?.modelId === modelId && (this.isBusy() || this.inFlight > 0)) {
+    if (this.active?.modelId === modelId && this.isBusy()) {
       this.options.onFailed?.(
         modelId,
         `${LOCAL_MODELS[modelId].label} is still answering. ` +
@@ -489,69 +467,33 @@ export class LocalModelHost {
     });
   }
 
-  /** Speech in: one WAV, one transcript. Throws `SpeechError`. */
-  async transcribe(options: {
-    wav: Buffer;
-    language?: SpeechLanguage;
-  }): Promise<string> {
-    return await this.withSpeech(async (baseUrl, modelId) => {
-      return await transcribeAudio({
-        baseUrl,
-        model: modelId,
-        wav: options.wav,
-        ...(options.language === undefined ? {} : {language: options.language}),
-        ...(this.options.fetchImpl === undefined
-          ? {}
-          : {fetchImpl: this.options.fetchImpl}),
-      });
-    });
-  }
-
-  /** Speech out: text to a 24kHz WAV. Throws `SpeechError`. */
-  async speak(options: {
-    text: string;
-    language?: SpeechLanguage;
-    voice?: SpeechVoice;
-  }): Promise<SpokenAudio> {
-    return await this.withSpeech(async (baseUrl) => {
-      return await synthesizeSpeech({
-        baseUrl,
-        text: options.text,
-        ...(options.language === undefined ? {} : {language: options.language}),
-        ...(options.voice === undefined ? {} : {voice: options.voice}),
-        ...(this.options.fetchImpl === undefined
-          ? {}
-          : {fetchImpl: this.options.fetchImpl}),
-      });
-    });
-  }
-
-  private async withSpeech<T>(
-    work: (baseUrl: string, modelId: LocalModelId) => Promise<T>,
-  ): Promise<T> {
-    const settings = await this.options.readSettings();
-    const modelId = settings.localModels.tasks.voice;
-    if (!modelSupportsTask(modelId, 'voice')) {
-      throw new SpeechError(
-        `The voice task is assigned to ${modelId}, which cannot listen and ` +
-          'speak. Choose another model in Settings → Models.',
-      );
-    }
-    const started = await this.ensure(modelId);
-    if (!started.ok) {
-      throw new SpeechError(started.problem);
-    }
-    if (this.rootUrl === undefined) {
-      throw new SpeechError('The voice model did not report an address.');
-    }
-    this.inFlight += 1;
+  /** The old model directories still on disk, in a stable order. */
+  private async retiredOnDisk(): Promise<RetiredModelId[]> {
+    let names: string[];
     try {
-      const result = await work(this.rootUrl, modelId);
-      await this.armIdle();
-      return result;
-    } finally {
-      this.inFlight -= 1;
+      names = (await readdir(this.root, {withFileTypes: true}))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+    } catch {
+      // No model directory yet is no leftovers, not a failed read.
+      return [];
     }
+    return RETIRED_MODEL_IDS.filter((id) => names.includes(id));
+  }
+
+  /**
+   * Deletes one retired model's directory.
+   *
+   * The id is checked against the fixed list before it touches the filesystem:
+   * a renderer that invented a name must not be able to ask for a path outside
+   * the model directory, and the enum is the whole of what this call accepts.
+   */
+  async removeRetired(modelId: RetiredModelId): Promise<LocalModelsStatus> {
+    return await this.withQueue(async () => {
+      await rm(join(this.root, modelId), {recursive: true, force: true});
+      await this.emitStatus();
+      return await this.status();
+    });
   }
 
   private async stopEngine(): Promise<void> {
@@ -560,7 +502,6 @@ export class LocalModelHost {
     this.service = undefined;
     this.active = undefined;
     this.baseUrl = undefined;
-    this.rootUrl = undefined;
     this.state = 'off';
     this.detail = undefined;
     if (service !== undefined) {
@@ -585,7 +526,7 @@ export class LocalModelHost {
     const ms = await this.idleMs();
     const timer = setTimeout(() => {
       void (async () => {
-        if (this.isBusy() || this.inFlight > 0) {
+        if (this.isBusy()) {
           await this.armIdle();
           return;
         }
@@ -628,10 +569,18 @@ export class LocalModelHost {
     return this.options.arch ?? process.arch;
   }
 
+  /**
+   * The copy the card suggests.
+   *
+   * Q4 is the default because it is the one that fits an ordinary 16 GB laptop
+   * beside its encoder and a 32K window. The larger copy is for a machine with
+   * room: below 24 GB of RAM the smaller file is the honest suggestion, not a
+   * downgrade.
+   */
   private recommendedVariant(): LocalModelVariant {
     const memory =
       this.options.totalMemoryMb ?? Math.round(totalmem() / (1024 * 1024));
-    return memory < 8 * 1024 ? 'q4' : 'q8';
+    return memory < 24 * 1024 ? 'q4' : 'q8';
   }
 
   /**
@@ -707,7 +656,7 @@ export class LocalModelHost {
     const {enginePresent} = await localModelOnDisk({
       root: this.root,
       manifest: CHAT_PINS,
-      modelId: 'lfm3-1.7b',
+      modelId: 'qwen2.5-vl-7b',
       ...(this.platform === undefined ? {} : {platform: this.platform}),
       arch: this.arch,
       backend,

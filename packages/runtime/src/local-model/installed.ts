@@ -117,7 +117,7 @@ export async function writeLocalModelMarker(
  *
  * `missing` is what a download button should fetch, in the order the installer
  * fetches it. The engine is first because a platform with no engine should be
- * refused before 1.9GB is spent on weights.
+ * refused before gigabytes are spent on weights.
  */
 export interface LocalModelDiskState {
   installed: boolean;

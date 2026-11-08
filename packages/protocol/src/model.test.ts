@@ -3,8 +3,8 @@
  *
  * The store that reads and writes a settings file is tested in `@marimo/runtime`;
  * what is asserted here is the shape a window and a first run agree about: a
- * local model assignment per task, the speech settings the companion carries, and
- * the recall block that was already here. A fixture built by hand would be a
+ * local model assignment per task, the companion block, and the recall block
+ * that was already here. A fixture built by hand would be a
  * second copy of the schema and would break every time a field was added
  * somewhere else, so each block is tested on its own over the defaults the app
  * ships.
@@ -40,7 +40,7 @@ describe('the local models in a settings file', () => {
     expect(settingsSchema.shape.localModels).toBeDefined();
   });
 
-  it('starts a fresh install on the Omni model for every task', () => {
+  it('starts a fresh install on the vision model for both tasks', () => {
     const parsed = settingsSchema.safeParse(settingsShape());
     expect(parsed.success).toBe(true);
     if (!parsed.success) {
@@ -48,9 +48,8 @@ describe('the local models in a settings file', () => {
     }
     expect(parsed.data.localModels).toEqual(defaultLocalModelsSettings());
     expect(parsed.data.localModels.tasks).toEqual({
-      chat: 'lfm3-omni-2b',
-      vision: 'lfm3-omni-2b',
-      voice: 'lfm3-omni-2b',
+      chat: 'qwen2.5-vl-7b',
+      vision: 'qwen2.5-vl-7b',
     });
     expect(parsed.data.localModels.idleMinutes).toBe(3);
   });
@@ -60,32 +59,30 @@ describe('the local models in a settings file', () => {
       tasks: {
         chat: 'lfm3-1.7b',
         vision: 'lfm3-1.7b',
-        voice: 'lfm3-audio-2b',
       },
       idleMinutes: 3,
     });
     expect(parsed.success).toBe(false);
   });
 
-  it('accepts the omni model for every task it can do', () => {
+  it('accepts the vision model for both tasks it can do', () => {
     const parsed = localModelsSettingsSchema.safeParse({
       tasks: {
-        chat: 'lfm3-omni-2b',
-        vision: 'lfm3-omni-2b',
-        voice: 'lfm3-omni-2b',
+        chat: 'qwen2.5-vl-7b',
+        vision: 'qwen2.5-vl-7b',
       },
       idleMinutes: 10,
     });
     expect(parsed.success).toBe(true);
   });
 
-  it('accepts a patch that moves one task and leaves the other two out', () => {
+  it('accepts a patch that moves one task and leaves the other out', () => {
     const parsed = settingsPatchSchema.safeParse({
-      localModels: {tasks: {chat: 'lfm3-vl-2b'}},
+      localModels: {tasks: {chat: 'qwen2.5-vl-7b'}},
     });
     expect(parsed.success).toBe(true);
     expect(parsed.success && parsed.data.localModels).toEqual({
-      tasks: {chat: 'lfm3-vl-2b'},
+      tasks: {chat: 'qwen2.5-vl-7b'},
     });
   });
 
@@ -104,38 +101,32 @@ describe('the local models in a settings file', () => {
 });
 
 /**
- * Speech settings live with the companion because that is what they are about.
- *
- * Off by default: turning speech on is a model download and a new way for the
- * app to answer, and a fresh install should not do either unasked.
+ * The companion keeps its answer length and layout; speech is not part of this
+ * build, so an old key is stripped rather than refused.
  */
-describe('the companion speech settings', () => {
-  it('are off, on the model defaults', () => {
+describe('the companion settings', () => {
+  it('have no speech fields any more', () => {
     const companion = defaultCompanionSettings();
-    expect(companion.speakReplies).toBe(false);
-    expect(companion.speechVoice).toBe('female');
-    expect(companion.speechLanguage).toBe('en');
+    expect(companion.answerLength).toBe('brief');
+    expect(companion).not.toHaveProperty('speakReplies');
+    expect(companion).not.toHaveProperty('speechVoice');
   });
 
-  it('accept a patch touching one of them', () => {
+  it('accept a patch touching one field', () => {
     const parsed = settingsPatchSchema.safeParse({
-      companion: {speakReplies: true},
+      companion: {answerLength: 'detailed'},
     });
     expect(parsed.success).toBe(true);
     expect(parsed.success && parsed.data.companion).toEqual({
-      speakReplies: true,
+      answerLength: 'detailed',
     });
   });
 
-  it('refuse a language or voice the audio model does not have', () => {
+  it('refuse an answer length the schema does not know', () => {
     expect(
       settingsPatchSchema.safeParse({
-        companion: {speechLanguage: 'xx'},
+        companion: {answerLength: 'essay'},
       }).success,
-    ).toBe(false);
-    expect(
-      settingsPatchSchema.safeParse({companion: {speechVoice: 'robot'}})
-        .success,
     ).toBe(false);
   });
 });

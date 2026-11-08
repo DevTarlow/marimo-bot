@@ -62,18 +62,30 @@ describe('LocalModelHost', () => {
     await rm(dir, {recursive: true, force: true, maxRetries: 5, retryDelay: 20});
   });
 
-  /** The smallest installed copy the host will believe. */
+  /** The smallest installed copy the host will believe: weights and encoder. */
   async function installTextQ4(): Promise<void> {
-    const pin = CHAT_PINS.models['lfm3-1.7b'].variants.q4.weights;
-    const modelDir = join(modelRoot, 'lfm3-1.7b');
+    const variant = CHAT_PINS.models['qwen2.5-vl-7b'].variants.q4;
+    const files = [variant.weights, variant.projector];
+    const modelDir = join(modelRoot, 'qwen2.5-vl-7b');
     await mkdir(modelDir, {recursive: true});
-    await writeFile(join(modelDir, pin.file), '');
-    await truncate(join(modelDir, pin.file), pin.bytes);
+    for (const pin of files) {
+      if (pin === undefined) {
+        continue;
+      }
+      await writeFile(join(modelDir, pin.file), '');
+      await truncate(join(modelDir, pin.file), pin.bytes);
+    }
     await writeLocalModelMarker(modelDir, {
-      modelId: 'lfm3-1.7b',
+      modelId: 'qwen2.5-vl-7b',
       variant: 'q4',
-      revision: CHAT_PINS.models['lfm3-1.7b'].revision,
-      files: [{name: pin.file, sha256: pin.sha256, bytes: pin.bytes}],
+      revision: CHAT_PINS.models['qwen2.5-vl-7b'].revision,
+      files: files
+        .filter((pin) => pin !== undefined)
+        .map((pin) => ({
+          name: pin.file,
+          sha256: pin.sha256,
+          bytes: pin.bytes,
+        })),
     });
   }
 
@@ -114,9 +126,9 @@ describe('LocalModelHost', () => {
   it('reports a model that is not downloaded, and does not start anything', async () => {
     const runtime = host();
     const status = await runtime.status();
-    expect(status.models['lfm3-1.7b'].installed).toBe(false);
-    expect(status.models['lfm3-1.7b'].missing).toContain('weights');
-    const result = await runtime.ensure('lfm3-1.7b');
+    expect(status.models['qwen2.5-vl-7b'].installed).toBe(false);
+    expect(status.models['qwen2.5-vl-7b'].missing).toContain('weights');
+    const result = await runtime.ensure('qwen2.5-vl-7b');
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.problem).toMatch(/not ready/iu);
@@ -128,20 +140,20 @@ describe('LocalModelHost', () => {
   it('starts the installed copy, reports its state and stops it', async () => {
     await installTextQ4();
     const runtime = host();
-    const result = await runtime.ensure('lfm3-1.7b');
+    const result = await runtime.ensure('qwen2.5-vl-7b');
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/v1$/u);
       expect(result.variant).toBe('q4');
     }
     let status = await runtime.status();
-    expect(status.models['lfm3-1.7b'].installed).toBe(true);
-    expect(status.models['lfm3-1.7b'].installedVariant).toBe('q4');
-    expect(status.models['lfm3-1.7b'].state).toBe('ready');
-    expect(status.active?.id).toBe('lfm3-1.7b');
+    expect(status.models['qwen2.5-vl-7b'].installed).toBe(true);
+    expect(status.models['qwen2.5-vl-7b'].installedVariant).toBe('q4');
+    expect(status.models['qwen2.5-vl-7b'].state).toBe('ready');
+    expect(status.active?.id).toBe('qwen2.5-vl-7b');
 
     status = await runtime.sleep();
-    expect(status.models['lfm3-1.7b'].state).toBe('off');
+    expect(status.models['qwen2.5-vl-7b'].state).toBe('off');
     expect(status.active).toBeUndefined();
     expect(child.signals.length).toBe(1);
     expect(statuses).toBeGreaterThan(0);
@@ -165,11 +177,11 @@ describe('LocalModelHost', () => {
     );
     const runtime = host();
     const status = await runtime.status();
-    expect(status.models['lfm3-1.7b'].installed).toBe(false);
-    expect(status.models['lfm3-1.7b'].missing).toContain('engine');
+    expect(status.models['qwen2.5-vl-7b'].installed).toBe(false);
+    expect(status.models['qwen2.5-vl-7b'].missing).toContain('engine');
     // The weights are still the Q4 copy; only the engine is stale.
-    expect(status.models['lfm3-1.7b'].installedVariant).toBe('q4');
-    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(false);
+    expect(status.models['qwen2.5-vl-7b'].installedVariant).toBe('q4');
+    expect((await runtime.ensure('qwen2.5-vl-7b')).ok).toBe(false);
   });
 
   it('offers CUDA from an NVIDIA probe without selecting it', async () => {
@@ -203,9 +215,9 @@ describe('LocalModelHost', () => {
     const status = await runtime.status();
     expect(status.engine.backend).toBe('cuda');
     // The fixture has the default one-archive engine marker, not the CUDA pair.
-    expect(status.models['lfm3-1.7b'].installed).toBe(false);
-    expect(status.models['lfm3-1.7b'].missing).toContain('engine');
-    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(false);
+    expect(status.models['qwen2.5-vl-7b'].installed).toBe(false);
+    expect(status.models['qwen2.5-vl-7b'].missing).toContain('engine');
+    expect((await runtime.ensure('qwen2.5-vl-7b')).ok).toBe(false);
   });
 
   it('falls back to Vulkan when CUDA was asked for but is not available', async () => {
@@ -225,32 +237,46 @@ describe('LocalModelHost', () => {
   it('does not stop under a request while the caller says it is busy', async () => {
     await installTextQ4();
     const runtime = host({idleMs: 5, busy: true});
-    const result = await runtime.ensure('lfm3-1.7b');
+    const result = await runtime.ensure('qwen2.5-vl-7b');
     expect(result.ok).toBe(true);
     // The idle timer has fired by now, but a busy host re-arms instead.
     await new Promise((resolve) => setTimeout(resolve, 30));
     const status = await runtime.status();
-    expect(status.models['lfm3-1.7b'].state).toBe('ready');
+    expect(status.models['qwen2.5-vl-7b'].state).toBe('ready');
     await runtime.stop();
   });
 
   it('does not sleep or remove the model under a request', async () => {
     await installTextQ4();
     const runtime = host({busy: true});
-    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(true);
+    expect((await runtime.ensure('qwen2.5-vl-7b')).ok).toBe(true);
     const slept = await runtime.sleep();
-    expect(slept.models['lfm3-1.7b'].state).toBe('ready');
-    const removed = await runtime.remove('lfm3-1.7b');
-    expect(removed.models['lfm3-1.7b'].installed).toBe(true);
+    expect(slept.models['qwen2.5-vl-7b'].state).toBe('ready');
+    const removed = await runtime.remove('qwen2.5-vl-7b');
+    expect(removed.models['qwen2.5-vl-7b'].installed).toBe(true);
     await runtime.stop();
   });
 
   it('removes a model from disk, stopping it first', async () => {
     await installTextQ4();
     const runtime = host();
-    expect((await runtime.ensure('lfm3-1.7b')).ok).toBe(true);
-    const status = await runtime.remove('lfm3-1.7b');
-    expect(status.models['lfm3-1.7b'].installed).toBe(false);
+    expect((await runtime.ensure('qwen2.5-vl-7b')).ok).toBe(true);
+    const status = await runtime.remove('qwen2.5-vl-7b');
+    expect(status.models['qwen2.5-vl-7b'].installed).toBe(false);
     expect(child.signals.length).toBe(1);
+  });
+
+  it('lists an old model directory and removes it on request', async () => {
+    await mkdir(join(modelRoot, 'lfm3-omni-2b'), {recursive: true});
+    await mkdir(join(modelRoot, 'lfm3-1.7b'), {recursive: true});
+    const runtime = host();
+
+    expect((await runtime.status()).retired).toEqual([
+      'lfm3-1.7b',
+      'lfm3-omni-2b',
+    ]);
+
+    const after = await runtime.removeRetired('lfm3-omni-2b');
+    expect(after.retired).toEqual(['lfm3-1.7b']);
   });
 });

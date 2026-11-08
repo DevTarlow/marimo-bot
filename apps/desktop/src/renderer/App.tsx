@@ -36,7 +36,6 @@ import {WorkspaceRail} from './components/WorkspaceRail.js';
 import {firstRunScreen} from './first-run.js';
 import type {FirstRunPhase} from './first-run.js';
 import {useAgent} from './hooks/useAgent.js';
-import {useSpokenReplies} from './hooks/useSpokenReplies.js';
 import {sessionMembers} from './participants.js';
 import {
   DEFAULT_DOCUMENTS_LIBRARY_SHARE,
@@ -139,18 +138,6 @@ export function App(): React.JSX.Element {
    */
   const [setupPhase, setSetupPhase] = useState<FirstRunPhase>('unknown');
   const agent = useAgent();
-  const spoken = useSpokenReplies({
-    enabled: settings?.companion.speakReplies ?? false,
-    surface: 'window',
-    turn: agent.lastTurn,
-    ...(settings === null
-      ? {}
-      : {
-          language: settings.companion.speechLanguage,
-          voice: settings.companion.speechVoice,
-        }),
-  });
-
   /*
    * Stable, because an effect below depends on it: a function rebuilt on every
    * render would re-run that effect on every render, and this one writes state.
@@ -170,22 +157,6 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
-
-  /**
-   * Starts the voice model while the microphone is open.
-   *
-   * A press is the clearest sign the next turn will be spoken, and loading the
-   * audio model is the slow part of the first one. The transcription needs the
-   * model anyway; this only makes the load overlap with the speaking. A failure
-   * is silent: `speech.transcribe` reports the real reason when it runs.
-   */
-  const warmVoice = useCallback((): void => {
-    const modelId = settings?.localModels.tasks.voice;
-    if (modelId === undefined) {
-      return;
-    }
-    void window.marimo.call('models.warm', {modelId}).catch(() => undefined);
-  }, [settings?.localModels.tasks.voice]);
 
   /*
    * The model badge is a live fact, not a copy of the last settings read. A
@@ -427,17 +398,14 @@ export function App(): React.JSX.Element {
    *
    * The badge is informational: the turn's task decides which model actually
    * answers, and the main process resolves it. What the person needs to see is
-   * which family is warm — the voice model when speech is on, the chat model
-   * otherwise — and a dot for the process state, so "why is it thinking" and
-   * "why did it go quiet" have a visible answer.
+   * which model is warm — the one that answers both text and pictures — and a
+   * dot for the process state, so "why is it thinking" and "why did it go
+   * quiet" have a visible answer.
    */
   const talkingModelId =
     settings === null
       ? undefined
-      : (settings.localModels.active?.id ??
-        (settings.companion.speakReplies
-          ? settings.localModels.tasks.voice
-          : settings.localModels.tasks.chat));
+      : (settings.localModels.active?.id ?? settings.localModels.tasks.chat);
   const talkingModel =
     talkingModelId === undefined ? undefined : LOCAL_MODELS[talkingModelId];
   const talkingStatus =
@@ -1106,13 +1074,6 @@ export function App(): React.JSX.Element {
               setSettingsSection(MODELS_SECTION);
               setShowSettings(true);
             }}
-            voiceEnabled={settings?.companion.speakReplies ?? false}
-            {...(settings === null
-              ? {}
-              : {speechLanguage: settings.companion.speechLanguage})}
-            onVoiceWarm={warmVoice}
-            speaking={spoken.speaking}
-            onStopSpeaking={spoken.stop}
             /*
              * Asked for by conversation, not by space: the main process judges
              * every picked file against the space *this* conversation works in —

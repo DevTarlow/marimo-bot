@@ -605,7 +605,7 @@ function describe(failure: unknown): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/* The LFM3 chat models                                                        */
+/* The chat models                                                             */
 /* -------------------------------------------------------------------------- */
 
 /** One model copy, and the engine it shares with the rest. */
@@ -621,7 +621,7 @@ export interface LocalModelInstallOptions extends InstallOptions {
  * Fetches the engine and one model copy, verified and resumable.
  *
  * The order is the one the engine's own install established: the cheap half
- * first, so a platform with no build is refused before 1.9GB is spent. Every
+ * first, so a platform with no build is refused before the weights are spent. Every
  * file goes through `downloadVerified`, which writes a `.part`, checks the
  * digest and renames only then — a file that looks installed but is not is worse
  * than a missing one, because the engine's failure arrives much later and says
@@ -679,11 +679,7 @@ export async function installLocalModel(
       sha256: part.pin.sha256,
       bytes: part.pin.bytes,
       label:
-        part.part === 'weights'
-          ? model.label
-          : modelId === 'lfm3-vl-2b'
-            ? 'The vision encoder'
-            : 'The audio encoder',
+        part.part === 'weights' ? model.label : 'The image encoder',
       ...(options.onProgress === undefined
         ? {}
         : {onProgress: options.onProgress}),

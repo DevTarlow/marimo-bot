@@ -15,7 +15,7 @@ import type {HarnessAppDefaults} from '../harness/spec.js';
 import {composeHarnessInstruction} from './instruction.js';
 
 const app: HarnessAppDefaults = {
-  model: {provider: 'local', model: 'lfm3-omni-2b'},
+  model: {provider: 'local', model: 'qwen2.5-vl-7b'},
   allowPrivateNetworkFetch: false,
   learning: {mode: 'propose', retainTraces: false},
 };

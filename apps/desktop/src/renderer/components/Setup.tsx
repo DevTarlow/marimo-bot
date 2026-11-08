@@ -3,7 +3,7 @@
  *
  * A fresh install is missing several things at once, and they are not all
  * worth asking about: it needs a model that answers, a folder to work in, and
- * perhaps a bot, a picture model, a voice, or a job timer. So the flow asks two
+ * perhaps a bot, pictures, or a job timer. So the flow asks two
  * questions first and then draws only the steps those answers call for. The
  * step graph itself is in `setup-nav.ts`; this component is the machine that
  * holds the answers and performs the writes.
@@ -16,15 +16,15 @@
  *   how much of the flow exists, but it is not a mode: there is no settings
  *   field for it, and every switch stays on the one Settings screen.
  * - **The goals grant nothing.** They choose the suggested starter role, the
- *   optional voice preference and the jobs step. A goal that needs a tool the
+ *   and the jobs step. A goal that needs a tool the
  *   current direction does not have is drawn and disabled rather than silently
  *   writing a grant.
- * - **The model is the only required step.** Until the Omni model is on disk
+ * - **The model is the only required step.** Until the model is on disk
  *   and the engine can load it, the window offers no message box at all.
  *   Spoken replies are optional even when a goal asked for them; the jobs
  *   service is optional even when automation asked for it.
  * - **The bot step is conditional.** A person who only wants chat, files,
- *   pictures or voice is not asked to make a bot. The finish step says where
+ *   pictures is not asked to make a bot. The finish step says where
  *   the `+` is.
  * - **It writes as it goes.** Every control writes the moment it is used,
  *   exactly as Settings does, so quitting mid-flow loses only the answers that
@@ -48,7 +48,7 @@
  *   window opens a new chat when the flow closes; `landingSpaceAfterSetup` is
  *   the rule.
  *
- * The model step, the optional extras, the jobs switch and the review are their
+ * The model step, the jobs switch and the review are their
  * own components; the two bot-creation forms are in `SetupBots.tsx`.
  */
 import {useCallback, useEffect, useState} from 'react';
@@ -86,7 +86,6 @@ import {BotIconGrid} from './BotIconGrid.js';
 import {PersonaForm} from './PersonaForm.js';
 import {BotForm, TemplateBotForm} from './SetupBots.js';
 import {SetupDirection} from './SetupDirection.js';
-import {SetupExtras} from './SetupExtras.js';
 import {SetupFinish} from './SetupFinish.js';
 import {SetupGoals} from './SetupGoals.js';
 import {SetupJobs} from './SetupJobs.js';
@@ -643,7 +642,7 @@ export function Setup({
               First choose <strong>Regular</strong> or <strong>Power</strong>{' '}
               setup, then tell it what you want to get done. That decides which
               steps are worth showing: the model that answers, the folder it
-              works in, a bot if one fits, and the optional pictures, voice or
+              works in, a bot if one fits, and the optional pictures or
               scheduled jobs.
             </p>
             <p className="onboarding-note">
@@ -710,15 +709,6 @@ export function Setup({
             onBack={back}
             onNext={advance}
             onLater={finish}
-          />
-        )}
-
-        {screen === 'extras' && (
-          <SetupExtras
-            settings={settings}
-            onSettings={onSettings}
-            onBack={back}
-            onNext={advance}
           />
         )}
 

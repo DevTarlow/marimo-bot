@@ -1,15 +1,14 @@
 /**
  * The first-run model step.
  *
- * This is the one step the app cannot do for the person: it downloads the Omni
- * model that answers, sees and speaks. Everything else in the flow is a choice;
- * this is a wait, and the screen has to say how long, how big, and what happens
- * if it fails.
+ * This is the one step the app cannot do for the person: it downloads the model
+ * that answers and sees pictures. Everything else in the flow is a choice; this
+ * is a wait, and the screen has to say how long, how big, and what happens if
+ * it fails.
  *
- * There is no second model download. The optional voice step only decides
- * whether answers are spoken, and the Omni model already handles pictures.
- * This step stays the one required download, and the one place the flow refuses
- * to continue past a download that has not finished.
+ * There is no second model download: the weights and their image encoder are
+ * the same card. This step stays the one required download, and the one place
+ * the flow refuses to continue past a download that has not finished.
  *
  * Two principles are unchanged from the version that owned the card directly:
  *

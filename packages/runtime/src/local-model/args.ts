@@ -14,6 +14,7 @@
  */
 import type {EmbeddingPooling} from './manifest.js';
 import type {LocalModelSpec} from './files.js';
+import {QWEN_VL_CHAT_TEMPLATE} from './qwen-vl-template.js';
 
 /**
  * The id the recall engine answers to, as `--alias` and as the request's `model`.
@@ -118,18 +119,21 @@ export interface EmbeddingSpec {
 }
 
 /**
- * The command line for one LFM3 model.
+ * The command line for one model.
  *
  * Every flag here was run against the pinned engine and the real weights before
  * it was written down, because each one fails silently in its own way:
  *
- * - `--jinja` is what makes tool calls work. The GGUF carries the model's own
- *   chat template, and the template is what renders the tools; without it the
- *   model answers prose and the harness sees no call.
- * - `--reasoning off` is the measured choice described in `files.ts`: the small
- *   model's default thinking produced 271 hidden tokens for a greeting on a
- *   laptop processor. The answer is still the answer; only the rehearsal is
- *   gone.
+ * - `--jinja` is what makes tool calls work, and `--chat-template` is what
+ *   gives the vision model a template that can describe them at all. The
+ *   template the GGUF carries renders pictures but no tools; without the
+ *   override the model answers prose and the harness sees no call. The template
+ *   is passed inline so the window and the headless runner cannot disagree
+ *   about a file path.
+ * - `--flash-attn on` turns Flash Attention on, which is what makes a 32K window
+ *   on a 7B model affordable. It is spelled with the value because the pinned
+ *   build's flag takes an optional one and a bare `-fa` swallows the next
+ *   argument (measured: the engine refused `-fa --n-gpu-layers` as a value).
  * - `--n-gpu-layers 999` asks the Vulkan or Metal build to put every layer on
  *   the card. The number is above any model family's layer count, so llama.cpp
  *   clamps it to all of them. The archive also contains the CPU backend: a
@@ -137,7 +141,7 @@ export interface EmbeddingSpec {
  *   dependency. `embeddingArgs` keeps its own zero, for the reason documented
  *   there.
  * - `--ctx-size` is the descriptor's working window, not the model's maximum.
- *   The 256K window a 1.7B model supports would cost more KV cache than the
+ *   The 128K window the GGUF advertises would cost more KV cache than the
  *   weights; the harness compacts inside the smaller one.
  * - Sampling travels here rather than in the request so every turn uses the
  *   model card's recipe, including a turn with no settings of its own.
@@ -159,14 +163,16 @@ export function localModelArgs(spec: LocalModelSpec, port: number | string): str
     String(port),
     '--ctx-size',
     String(spec.contextSize),
+    '--flash-attn',
+    'on',
     '--n-gpu-layers',
     '999',
     '--parallel',
     '1',
     '--no-ui',
     '--jinja',
-    '--reasoning',
-    spec.reasoning,
+    '--chat-template',
+    QWEN_VL_CHAT_TEMPLATE,
     '--temp',
     String(sampling.temperature),
     '--top-k',

@@ -26,17 +26,11 @@
 import {useEffect, useRef, useState} from 'react';
 
 import {defaultCompanionSettings} from '@marimo/protocol';
-import type {
-  CompanionSettings,
-  LocalModelId,
-  TranscriptMessage,
-} from '@marimo/protocol';
+import type {CompanionSettings, TranscriptMessage} from '@marimo/protocol';
 
 import {Copy, Markdown} from './components/Markdown.js';
 import {gateCopy} from './gate-copy.js';
 import {useAgent} from './hooks/useAgent.js';
-import {useRecorder} from './hooks/useRecorder.js';
-import {useSpokenReplies} from './hooks/useSpokenReplies.js';
 
 export function Pet(): React.JSX.Element {
   const agent = useAgent({surface: 'pet'});
@@ -51,7 +45,6 @@ export function Pet(): React.JSX.Element {
    * met a second later.
    */
   const [canAnswer, setCanAnswer] = useState(true);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
   /*
    * How much of the conversation floats above the moss, and how the window
    * behaves — the user's answers from Settings, which is in the *other* window.
@@ -60,15 +53,6 @@ export function Pet(): React.JSX.Element {
    */
   const [settings, setSettings] = useState<CompanionSettings>(
     defaultCompanionSettings,
-  );
-  /*
-   * The model a microphone press should start. Read with the companion
-   * settings because the press is the only moment it is useful: the audio model
-   * is the slow part of the first one, and the recording gives the load
-   * something to overlap with. Absent before the read lands.
-   */
-  const [voiceModel, setVoiceModel] = useState<LocalModelId | undefined>(
-    undefined,
   );
   const column = useRef<HTMLDivElement>(null);
   /*
@@ -81,36 +65,6 @@ export function Pet(): React.JSX.Element {
 
   const busy = agent.busy;
 
-  const spoken = useSpokenReplies({
-    enabled: settings.speakReplies,
-    surface: 'pet',
-    turn: agent.lastTurn,
-    language: settings.speechLanguage,
-    voice: settings.speechVoice,
-  });
-  const recorder = useRecorder({
-    language: settings.speechLanguage,
-    onWarm: () => {
-      if (voiceModel === undefined) {
-        return;
-      }
-      void window.marimo
-        .call('models.warm', {modelId: voiceModel})
-        .catch(() => undefined);
-    },
-    onText: (transcript) => {
-      setDraft((current) =>
-        current.trim().length === 0
-          ? transcript
-          : `${current.trim()} ${transcript}`,
-      );
-      setVoiceError(null);
-    },
-    onError: (message) => {
-      setVoiceError(message);
-    },
-  });
-
   useEffect(() => {
     let cancelled = false;
     const read = async (): Promise<void> => {
@@ -118,7 +72,6 @@ export function Pet(): React.JSX.Element {
         const {settings: loaded} = await window.marimo.call('settings.get', {});
         if (!cancelled) {
           setSettings(loaded.companion);
-          setVoiceModel(loaded.localModels.tasks.voice);
           /*
            * The one thing this window does about the app being unable to
            * answer: its ask bar goes quiet. The moss has no room for a setup
@@ -301,10 +254,6 @@ export function Pet(): React.JSX.Element {
           );
         })}
 
-        {voiceError !== null && (
-          <div className="pet-bubble pet-error">{voiceError}</div>
-        )}
-
         {agent.error !== null && (
           <div className="pet-bubble pet-error">{agent.error}</div>
         )}
@@ -380,48 +329,6 @@ export function Pet(): React.JSX.Element {
         >
           +
         </button>
-        {settings.speakReplies && (
-          <button
-            type="button"
-            className={
-              recorder.recording ? 'pet-button pet-button-go' : 'pet-button'
-            }
-            aria-label={
-              recorder.recording ? 'Stop recording' : 'Speak to Marimo'
-            }
-            title={
-              recorder.recording
-                ? 'Listening — release to transcribe'
-                : 'Speak to Marimo'
-            }
-            disabled={!canAnswer || recorder.busy}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              void recorder.start();
-            }}
-            onPointerUp={() => {
-              void recorder.stop();
-            }}
-            onPointerLeave={() => {
-              if (recorder.recording) {
-                void recorder.stop();
-              }
-            }}
-          >
-            {recorder.busy ? '…' : recorder.recording ? '■' : '🎙'}
-          </button>
-        )}
-        {spoken.speaking && (
-          <button
-            type="button"
-            className="pet-button"
-            aria-label="Stop speaking"
-            title="Stop speaking"
-            onClick={spoken.stop}
-          >
-            ■
-          </button>
-        )}
         <input
           className="pet-input"
           value={draft}

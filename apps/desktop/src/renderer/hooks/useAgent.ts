@@ -125,14 +125,6 @@ export interface AgentController {
   pending: PendingGate[];
   live: LiveTurn | null;
   /**
-   * The answer a finished turn produced, and the surface that asked.
-   *
-   * The completion event carries an origin that is not in the stored log; this
-   * is the one place it survives long enough for the speaking hook to notice.
-   * `id` is the message id, so a re-render does not speak the same answer twice.
-   */
-  lastTurn: {id: string; text: string; origin?: 'window' | 'pet'} | null;
-  /**
    * Work the lead has handed to another agent, by the parent's tool call id.
    *
    * Emptied when the turn ends, however it ends. A thread that kept spinning
@@ -305,13 +297,7 @@ export function useAgent(
   const [messages, setMessages] = useState<TranscriptMessage[]>([]);
   const [storedPending, setStoredPending] = useState<PendingGate[]>([]);
   const [live, setLive] = useState<LiveTurn | null>(null);
-  const [lastTurn, setLastTurn] = useState<{
-    id: string;
-    text: string;
-    origin?: 'window' | 'pet';
-  } | null>(null);
   /** The live answer as it streams, for the completion that clears it. */
-  const liveText = useRef('');
   const [delegations, setDelegations] = useState<Record<string, Delegation>>(
     {},
   );
@@ -656,7 +642,6 @@ export function useAgent(
       switch (event.type) {
         case 'turn.started':
           if (forUs) {
-            liveText.current = '';
             setLive({
               messageId: event.messageId,
               text: '',
@@ -669,7 +654,6 @@ export function useAgent(
 
         case 'text.delta':
           if (forUs) {
-            liveText.current += event.text;
             setLive((turn) =>
               turn === null ? turn : {...turn, text: turn.text + event.text},
             );
@@ -867,18 +851,6 @@ export function useAgent(
            */
           const id = openSession.current;
           const active = profileRef.current;
-          if (
-            forUs &&
-            event.type === 'turn.completed' &&
-            liveText.current.trim().length > 0
-          ) {
-            setLastTurn({
-              id: event.messageId,
-              text: liveText.current,
-              ...(event.origin === undefined ? {} : {origin: event.origin}),
-            });
-          }
-          liveText.current = '';
           if (forUs) {
             /*
              * The helpers go with the turn, whatever ended it. A thread is only
@@ -1047,7 +1019,6 @@ export function useAgent(
           sessionId,
           callId,
           confirmed,
-          origin: surface,
         });
       } catch (failure) {
         setError(describe(failure));
@@ -1311,7 +1282,6 @@ export function useAgent(
     messages,
     pending,
     live,
-    lastTurn,
     delegations,
     outbox,
     busy,

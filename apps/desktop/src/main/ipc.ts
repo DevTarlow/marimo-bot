@@ -27,7 +27,11 @@ import {
 import type {OpenDialogOptions} from 'electron';
 
 import {agentCallSchemas, IPC_CALL_CHANNEL} from '@marimo/protocol';
-import type {LocalModelId, LocalModelVariant} from '@marimo/protocol';
+import type {
+  LocalModelId,
+  LocalModelVariant,
+  RetiredModelId,
+} from '@marimo/protocol';
 
 import {checkForUpdates} from './updates.js';
 import type {
@@ -554,32 +558,12 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'models.remove': async (params: {modelId: LocalModelId}) => ({
       status: await agent().removeModel(params.modelId),
     }),
+    'models.removeRetired': async (params: {modelId: RetiredModelId}) => ({
+      status: await agent().removeRetiredModel(params.modelId),
+    }),
     'models.sleep': async () => ({status: await agent().sleepModels()}),
     'models.warm': async (params: {modelId: LocalModelId}) =>
       await agent().warmModel(params.modelId),
-
-    /*
-     * Speech. The WAV arrives from the renderer as base64 and is checked for a
-     * RIFF/WAVE header here rather than trusted: a recorder bug that sent JSON
-     * would otherwise reach the model as an audio part and fail with the
-     * engine's generic sentence. It never touches disk.
-     */
-    'speech.transcribe': async (params) => {
-      const wav = Buffer.from(params.audioBase64, 'base64');
-      if (
-        wav.length < 44 ||
-        wav.toString('ascii', 0, 4) !== 'RIFF' ||
-        wav.toString('ascii', 8, 12) !== 'WAVE'
-      ) {
-        throw new Error(
-          'The microphone recording was not a WAV file, so it could not be ' +
-            'transcribed.',
-        );
-      }
-      return await agent().transcribeSpeech(wav, params.language);
-    },
-    'speech.speak': async (params) =>
-      await agent().speak(params.text, params.language, params.voice),
 
     /* Recall: a read and four buttons. */
     'recall.status': async () => await agent().recallStatus(),
@@ -783,7 +767,6 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         params.sessionId,
         params.callId,
         params.confirmed,
-        params.origin,
       ),
 
     'chat.abort': async (params) =>

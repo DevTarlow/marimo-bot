@@ -1,13 +1,13 @@
 /**
- * The LFM3 catalogue's own invariants.
+ * The model catalogue's own invariants.
  *
  * Five facts are easy to get wrong and silent when they are: a model with no
- * descriptor (a picker that cannot name it), a task with no model (a row with an
+ * descriptor (a card that cannot name it), a task with no model (a row with an
  * empty menu), a default assigned to a model that cannot do the job (a first run
- * that downloads the wrong thing), a decoder model offered for Chat (an engine
- * that cannot hold a conversation), and a byte count that disagrees with what the
- * installer downloads. Each is asserted here, before a download or an engine
- * exists to fail later.
+ * that downloads the wrong thing), a vision model with no encoder (an engine
+ * that cannot see), and a byte count that disagrees with what the installer
+ * downloads. Each is asserted here, before a download or an engine exists to
+ * fail later.
  */
 import {describe, expect, it} from 'vitest';
 
@@ -21,7 +21,8 @@ import {
   MAX_ATTACHMENT_BYTES,
   modelSupportsTask,
   modelsForTask,
-  SPEECH_LANGUAGES,
+  RETIRED_MODEL_IDS,
+  RETIRED_MODEL_LABELS,
   TASK_CAPABILITIES,
   TASK_LABELS,
   variantBytes,
@@ -32,7 +33,7 @@ import {
   providerIdSchema,
 } from './providers.js';
 
-describe('the LFM3 catalogue', () => {
+describe('the model catalogue', () => {
   it('describes every id it names, and names every descriptor it has', () => {
     expect(Object.keys(LOCAL_MODELS).sort()).toEqual([...LOCAL_MODEL_IDS].sort());
     for (const id of LOCAL_MODEL_IDS) {
@@ -43,7 +44,7 @@ describe('the LFM3 catalogue', () => {
       expect(LOCAL_MODELS[id].params.length).toBeGreaterThan(0);
       expect(LOCAL_MODELS[id].contextTokens).toBeGreaterThan(0);
       expect(LOCAL_MODELS[id].license.name.length).toBeGreaterThan(0);
-      expect(LOCAL_MODELS[id].repo.startsWith('LiquidAI/LFM3-')).toBe(true);
+      expect(LOCAL_MODELS[id].repo.startsWith('unsloth/Qwen2.5-')).toBe(true);
     }
   });
 
@@ -57,40 +58,23 @@ describe('the LFM3 catalogue', () => {
   });
 
   it('does not offer a model for a task it cannot do', () => {
-    // The text backbone is shared by all four, so Chat may use any of them;
-    // what a task must not offer is a model that cannot do its half.
     expect(modelsForTask('chat')).toEqual([...LOCAL_MODEL_IDS]);
-    expect(modelsForTask('vision')).toEqual(['lfm3-vl-2b', 'lfm3-omni-2b']);
-    expect(modelsForTask('voice')).toEqual(['lfm3-audio-2b', 'lfm3-omni-2b']);
-    expect(TASK_CAPABILITIES.voice).toEqual(['audio', 'speech']);
+    expect(modelsForTask('vision')).toEqual([...LOCAL_MODEL_IDS]);
+    expect(TASK_CAPABILITIES.chat).toEqual(['text']);
+    expect(TASK_CAPABILITIES.vision).toEqual(['vision']);
   });
 
-  it('gives every variant a positive size, and a projector only where one exists', () => {
+  it('gives every variant a positive size and an encoder for the vision model', () => {
     for (const id of LOCAL_MODEL_IDS) {
       const model = LOCAL_MODELS[id];
       for (const variant of ['q8', 'q4'] as const) {
         expect(variantBytes(id, variant)).toBeGreaterThan(0);
         expect(model.bytes[variant].weights).toBeGreaterThan(0);
       }
-      if (model.capabilities.includes('vision') || model.capabilities.includes('audio')) {
-        expect(model.bytes.q8.projector).toBeGreaterThan(0);
-        expect(model.bytes.q4.projector).toBeGreaterThan(0);
-      } else {
-        expect(model.bytes.q8.projector).toBe(0);
-        expect(model.bytes.q4.projector).toBe(0);
-      }
-    }
-  });
-
-  it('offers the languages the audio model actually speaks', () => {
-    expect(SPEECH_LANGUAGES.length).toBeGreaterThan(10);
-    expect(SPEECH_LANGUAGES[0]?.code).toBe('en');
-    expect(SPEECH_LANGUAGES.some((language) => language.code === 'en-gb')).toBe(
-      true,
-    );
-    for (const language of SPEECH_LANGUAGES) {
-      expect(language.asr.length).toBeGreaterThan(0);
-      expect(language.tts.length).toBeGreaterThan(0);
+      // A vision model without a projector is an engine that cannot see.
+      expect(model.capabilities).toContain('vision');
+      expect(model.bytes.q8.projector).toBeGreaterThan(0);
+      expect(model.bytes.q4.projector).toBeGreaterThan(0);
     }
   });
 
@@ -98,13 +82,21 @@ describe('the LFM3 catalogue', () => {
     expect(MAX_ATTACHMENTS).toBeLessThanOrEqual(4);
     expect(MAX_ATTACHMENT_BYTES).toBeLessThanOrEqual(8 * 1024 * 1024);
   });
+
+  it('keeps the retired list out of the catalogue, with a label for each', () => {
+    for (const id of RETIRED_MODEL_IDS) {
+      expect(LOCAL_MODEL_IDS).not.toContain(id);
+      expect(RETIRED_MODEL_LABELS[id].length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('the model pair', () => {
   it('names local for every new model', () => {
     expect(LOCAL_PROVIDER_ID).toBe('local');
     expect(
-      agentModelSchema.safeParse({provider: 'local', model: 'lfm3-1.7b'}).success,
+      agentModelSchema.safeParse({provider: 'local', model: 'qwen2.5-vl-7b'})
+        .success,
     ).toBe(true);
   });
 

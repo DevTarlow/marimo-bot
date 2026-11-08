@@ -27,7 +27,6 @@ import {
   screen,
   session,
   shell,
-  systemPreferences,
 } from 'electron';
 
 import {IPC_EVENT_CHANNEL, defaultWindowState} from '@marimo/protocol';
@@ -381,57 +380,30 @@ async function refreshCompanionSettings(): Promise<void> {
 let toldAboutTray = false;
 
 /**
- * Allowing the microphone and the clipboard, and nothing else.
+ * Allowing the clipboard, and nothing else.
  *
- * Two features, both reached by pressing something in this app's own window.
- * The microphone is `getUserMedia({audio:true})`; the clipboard is every Copy
- * button, because Chromium routes `navigator.clipboard.writeText()` through
- * these same two handlers as `clipboard-sanitized-write`. Denying that was
- * silent: the button's rejection handler had nothing to show, so it looked
- * unwired.
+ * One feature, reached by pressing a Copy button in this app's own window:
+ * Chromium routes `navigator.clipboard.writeText()` through these handlers as
+ * `clipboard-sanitized-write`. Denying that was silent: the button's rejection
+ * handler had nothing to show, so it looked unwired.
  *
  * The boundary still matters: a page that is not one of this app's own windows
- * must not be able to open a microphone or write the clipboard, and a request
- * for a camera is not one this app has a feature for. macOS asks the OS for
- * the first time here; the usage description that makes its prompt meaningful
- * is in the packaged `Info.plist` (see `apps/desktop/package.json`).
+ * must not write the clipboard, and the app no longer opens a microphone or a
+ * camera at all.
  */
 function installSessionPermissions(): void {
   const ownPage = (url: string): boolean => isOwnPage(url, devServerUrl);
 
   session.defaultSession.setPermissionRequestHandler(
-    (contents, permission, callback, details) => {
-      if (!isAppPermission(permission) || !ownPage(contents.getURL())) {
-        callback(false);
-        return;
-      }
+    (contents, permission, callback) => {
       /*
-       * A clipboard write needs no further question. The microphone does: the
-       * app has a voice feature and no camera, so `video` is refused before
-       * anything reaches the OS prompt.
+       * The only permission in the set is a sanitized clipboard write, so a
+       * request that reaches here is one this app has a feature for. Anything
+       * else — a microphone, a camera — was refused by `isAppPermission`
+       * before the OS prompt.
        */
-      if (permission === 'clipboard-sanitized-write') {
-        callback(true);
-        return;
-      }
-      const mediaTypes =
-        (details as {mediaTypes?: string[]}).mediaTypes ?? [];
-      if (mediaTypes.includes('video')) {
-        callback(false);
-        return;
-      }
-      if (process.platform === 'darwin') {
-        void systemPreferences.askForMediaAccess('microphone').then(
-          (granted) => {
-            callback(granted);
-          },
-          () => {
-            callback(false);
-          },
-        );
-        return;
-      }
-      callback(true);
+      void permission;
+      callback(isAppPermission(permission) && ownPage(contents.getURL()));
     },
   );
 

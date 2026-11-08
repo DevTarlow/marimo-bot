@@ -131,7 +131,7 @@ describe('SettingsStore', () => {
     expect('providers' in settings).toBe(false);
   });
 
-  it('moves a version 1 install to Omni for every task, once', async () => {
+  it('moves a version 1 install through Omni to the current model, once', async () => {
     await writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({
@@ -151,26 +151,52 @@ describe('SettingsStore', () => {
 
     const settings = await store.load();
     expect(settings.localModels.tasks).toEqual({
-      chat: 'lfm3-omni-2b',
-      vision: 'lfm3-omni-2b',
-      voice: 'lfm3-omni-2b',
+      chat: 'qwen2.5-vl-7b',
+      vision: 'qwen2.5-vl-7b',
     });
     expect(settings.localModels.idleMinutes).toBe(5);
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(2);
+    expect(raw['version']).toBe(3);
+  });
+
+  it('keeps the useful preferences when a version 2 file moves', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 2,
+        setupSeen: true,
+        localModels: {
+          tasks: {
+            chat: 'lfm3-omni-2b',
+            vision: 'lfm3-omni-2b',
+            voice: 'lfm3-omni-2b',
+          },
+          idleMinutes: 10,
+          engineBackend: 'cuda',
+        },
+      }),
+      'utf8',
+    );
+
+    const settings = await store.load();
+    expect(settings.localModels.tasks).toEqual({
+      chat: 'qwen2.5-vl-7b',
+      vision: 'qwen2.5-vl-7b',
+    });
+    expect(settings.localModels.idleMinutes).toBe(10);
+    expect(settings.localModels.engineBackend).toBe('cuda');
   });
 
   it('merges a task patch one task at a time', async () => {
     await store.load();
-    await store.patch({localModels: {tasks: {chat: 'lfm3-vl-2b'}}});
+    await store.patch({localModels: {tasks: {chat: 'qwen2.5-vl-7b'}}});
 
     const settings = await store.load();
-    expect(settings.localModels.tasks.chat).toBe('lfm3-vl-2b');
-    // The other two are still the defaults, not whatever a stale window sent.
-    expect(settings.localModels.tasks.vision).toBe('lfm3-omni-2b');
-    expect(settings.localModels.tasks.voice).toBe('lfm3-omni-2b');
+    expect(settings.localModels.tasks.chat).toBe('qwen2.5-vl-7b');
+    // The other task is still the default, not whatever a stale window sent.
+    expect(settings.localModels.tasks.vision).toBe('qwen2.5-vl-7b');
   });
 
   it('stores the idle timeout and keeps every other preference', async () => {
@@ -186,21 +212,20 @@ describe('SettingsStore', () => {
 
   /*
    * A block that does not validate costs the block, not the document. This is
-   * the hand-edited case: Chat pointed at the audio model cannot answer, and the
-   * safe answer is the defaults rather than a turn whose prompt is wrong for the
-   * weights.
+   * the hand-edited case: a model id this build does not ship cannot answer, and
+   * the safe answer is the defaults rather than a turn whose prompt is wrong for
+   * the weights.
    */
   it('falls back on a local models block that cannot do its tasks', async () => {
     await writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({
-        version: 2,
+        version: 3,
         sidebarWidth: 333,
         localModels: {
           tasks: {
             chat: 'lfm3-1.7b',
             vision: 'lfm3-1.7b',
-            voice: 'lfm3-audio-2b',
           },
           idleMinutes: 3,
         },
@@ -219,42 +244,44 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(2);
+    expect(raw['version']).toBe(3);
     expect(raw['setupSeen']).toBe(true);
     expect(raw['providers']).toBeUndefined();
     expect(raw['availableModels']).toBeUndefined();
     expect(raw['localModels']).toBeDefined();
   });
 
-  it('keeps the default companion speech settings in an old file', async () => {
+  it('keeps the companion block of an old file, without the speech keys', async () => {
     await writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({
         version: 1,
         companion: {
-          answerLength: 'brief',
+          answerLength: 'detailed',
           visibleMessages: 6,
           alwaysOnTop: true,
           clickThrough: true,
+          speakReplies: true,
+          speechVoice: 'male',
+          speechLanguage: 'en-gb',
         },
       }),
       'utf8',
     );
     const settings = await store.load();
-    expect(settings.companion.speakReplies).toBe(false);
-    expect(settings.companion.speechVoice).toBe('female');
-    expect(settings.companion.speechLanguage).toBe('en');
+    expect(settings.companion.answerLength).toBe('detailed');
+    expect(settings.companion).not.toHaveProperty('speakReplies');
+    expect(settings.companion).not.toHaveProperty('speechVoice');
   });
 });
 
 describe('mergeLocalModels', () => {
   it('keeps every task a patch does not name', () => {
     const current = defaultLocalModelsSettings();
-    expect(mergeLocalModels(current, {tasks: {voice: 'lfm3-omni-2b'}})).toEqual({
+    expect(mergeLocalModels(current, {tasks: {chat: 'qwen2.5-vl-7b'}})).toEqual({
       tasks: {
-        chat: 'lfm3-omni-2b',
-        vision: 'lfm3-omni-2b',
-        voice: 'lfm3-omni-2b',
+        chat: 'qwen2.5-vl-7b',
+        vision: 'qwen2.5-vl-7b',
       },
       idleMinutes: 3,
       engineBackend: 'vulkan',

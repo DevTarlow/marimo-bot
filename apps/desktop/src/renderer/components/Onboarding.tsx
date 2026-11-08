@@ -105,7 +105,7 @@ export function Onboarding({
     modelId,
     status.installedVariant ?? settings.localModels.recommendedVariant,
   );
-  const sizeLabel = `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  const sizeLabel = `${(size / 1_000_000_000).toFixed(1)} GB`;
 
   return (
     <div className="onboarding">

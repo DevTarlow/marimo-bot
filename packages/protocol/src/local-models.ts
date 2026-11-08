@@ -1,10 +1,11 @@
 /**
- * The LFM3 family, as data.
+ * The one model this build runs, as data.
  *
- * This app no longer asks which service answers. It downloads one of four small
- * Liquid AI models and runs it on the machine, so the catalogue here is the whole
- * of what can answer: the labels a picker shows, which task each model is able
- * to do, how large each copy is, and the licence the weights arrive under.
+ * This app no longer asks which service answers. It downloads one
+ * vision-language model and runs it on the machine, so the catalogue here is
+ * the whole of what can answer: the labels a card shows, which tasks each model
+ * is able to do, how large each copy is, and the licence the weights arrive
+ * under.
  *
  * **The model is not the same thing as the file.** A model has two quantized
  * copies — an 8-bit one for quality and a 4-bit one for small machines — and
@@ -13,10 +14,10 @@
  * recorded beside the files by the installer. That split is what keeps a
  * settings file from claiming a 4-bit copy that was never downloaded.
  *
- * **A task is a capability, not a name.** Chat needs text, images need vision,
- * and voice needs audio input *and* speech output. A model that cannot do the
- * thing is not an option for that task, and the schema refuses a hand-edited
- * assignment rather than letting a turn fail at the engine.
+ * **A task is a capability, not a name.** Chat needs text and images need
+ * vision. A model that cannot do the thing is not an option for that task, and
+ * the schema refuses a hand-edited assignment rather than letting a turn fail
+ * at the engine.
  *
  * The file names, digests and exact byte counts live in
  * `packages/runtime/src/local-model/chat-pins.ts`, where both the window and the
@@ -26,34 +27,23 @@
  */
 import {z} from 'zod';
 
-export const LOCAL_MODEL_IDS = [
-  'lfm3-1.7b',
-  'lfm3-vl-2b',
-  'lfm3-audio-2b',
-  'lfm3-omni-2b',
-] as const;
+export const LOCAL_MODEL_IDS = ['qwen2.5-vl-7b'] as const;
 export const localModelIdSchema = z.enum(LOCAL_MODEL_IDS);
 export type LocalModelId = z.infer<typeof localModelIdSchema>;
 
 /**
  * What a model can do.
  *
- * `audio` is the input half and `speech` the output half, deliberately separate:
- * a transcription-only model would have the first without the second, and a
- * voice turn needs both. The two are not one flag because the failure of a
- * model that can hear but not speak is different from one that can do neither.
+ * `text` is required by every task. `vision` is what makes an attached picture
+ * an input rather than a file name, and it is separate because the engine
+ * needs a second download — the image projector — before it can see at all.
  */
-export const LOCAL_MODEL_CAPABILITIES = [
-  'text',
-  'vision',
-  'audio',
-  'speech',
-] as const;
+export const LOCAL_MODEL_CAPABILITIES = ['text', 'vision'] as const;
 export const localModelCapabilitySchema = z.enum(LOCAL_MODEL_CAPABILITIES);
 export type LocalModelCapability = z.infer<typeof localModelCapabilitySchema>;
 
-/** The three jobs a model can be assigned to. */
-export const LOCAL_TASKS = ['chat', 'vision', 'voice'] as const;
+/** The two jobs a model can be assigned to. */
+export const LOCAL_TASKS = ['chat', 'vision'] as const;
 export const localTaskSchema = z.enum(LOCAL_TASKS);
 export type LocalTask = z.infer<typeof localTaskSchema>;
 
@@ -65,7 +55,6 @@ export type LocalModelVariant = z.infer<typeof localModelVariantSchema>;
 export const TASK_LABELS: Record<LocalTask, string> = {
   chat: 'Chat',
   vision: 'Images',
-  voice: 'Voice',
 };
 
 /** What each task needs from its model, in the order the rows are drawn. */
@@ -75,7 +64,6 @@ export const TASK_CAPABILITIES: Record<
 > = {
   chat: ['text'],
   vision: ['vision'],
-  voice: ['audio', 'speech'],
 };
 
 /**
@@ -105,7 +93,7 @@ export interface LocalModelDescriptor {
   /**
    * The window the app runs the model at, in tokens.
    *
-   * Not the model's maximum: LFM3-1.7B supports 256K, and a 1.7B model's KV
+   * Not the model's maximum: the GGUF advertises 128K, and a 7B model's KV
    * cache at that length costs more memory than the weights. The app runs a
    * working window small enough for a laptop and compacts within it.
    */
@@ -119,84 +107,53 @@ export interface LocalModelDescriptor {
   repo: string;
 }
 
-const LFM_LICENSE = {
-  name: 'LFM Open License v1.0',
-  url: 'https://huggingface.co/LiquidAI/LFM3-1.7B/blob/main/LICENSE',
-} as const;
-
 export const LOCAL_MODELS: Record<LocalModelId, LocalModelDescriptor> = {
-  'lfm3-1.7b': {
-    id: 'lfm3-1.7b',
-    label: 'LFM3 1.7B',
-    shortLabel: 'LFM3 1.7B',
+  'qwen2.5-vl-7b': {
+    id: 'qwen2.5-vl-7b',
+    label: 'Qwen2.5 VL 7B',
+    shortLabel: 'Qwen VL',
     blurb:
-      'The everyday model: reads, writes, calls tools and remembers what it ' +
-      'is told. Small enough for a laptop processor.',
-    params: '1.73B',
-    contextTokens: 32_768,
-    capabilities: ['text'],
-    defaultVariant: 'q8',
-    bytes: {
-      q8: {weights: 1_846_238_496, projector: 0},
-      q4: {weights: 1_049_615_680, projector: 0},
-    },
-    license: LFM_LICENSE,
-    repo: 'LiquidAI/LFM3-1.7B-GGUF',
-  },
-  'lfm3-vl-2b': {
-    id: 'lfm3-vl-2b',
-    label: 'LFM3 VL 2B',
-    shortLabel: 'LFM3 VL',
-    blurb:
-      'Looks at pictures: screenshots, documents, charts and photographs. ' +
-      'Used only on turns that carry an image.',
-    params: '1.92B',
+      'One model for text and pictures: reads screenshots, documents and ' +
+      'charts, calls tools and answers from the files in its Space. The 4-bit ' +
+      'copy plus its image encoder is the first download.',
+    params: '7.6B',
     contextTokens: 32_768,
     capabilities: ['text', 'vision'],
-    defaultVariant: 'q8',
-    bytes: {
-      q8: {weights: 1_846_238_496, projector: 203_031_872},
-      q4: {weights: 1_049_615_648, projector: 203_031_872},
-    },
-    license: LFM_LICENSE,
-    repo: 'LiquidAI/LFM3-VL-2B-GGUF',
-  },
-  'lfm3-audio-2b': {
-    id: 'lfm3-audio-2b',
-    label: 'LFM3 Audio 2B',
-    shortLabel: 'LFM3 Audio',
-    blurb:
-      'Listens and speaks. Voice mode uses it for the whole turn so listening, ' +
-      'answering and speaking need one model, not three.',
-    params: '2B',
-    contextTokens: 32_768,
-    capabilities: ['text', 'audio', 'speech'],
     defaultVariant: 'q4',
     bytes: {
-      q8: {weights: 1_846_236_704, projector: 303_811_840},
-      q4: {weights: 1_099_626_016, projector: 172_418_048},
+      q8: {weights: 8_098_524_032, projector: 1_354_163_040},
+      q4: {weights: 4_683_072_384, projector: 1_354_163_040},
     },
-    license: LFM_LICENSE,
-    repo: 'LiquidAI/LFM3-Audio-2B-GGUF',
-  },
-  'lfm3-omni-2b': {
-    id: 'lfm3-omni-2b',
-    label: 'LFM3 Omni 2B',
-    shortLabel: 'LFM3 Omni',
-    blurb:
-      'One model for text, pictures and speech. The smallest total install, ' +
-      'and the one to choose on a machine with little memory.',
-    params: '2.17B',
-    contextTokens: 32_768,
-    capabilities: ['text', 'vision', 'audio', 'speech'],
-    defaultVariant: 'q4',
-    bytes: {
-      q8: {weights: 1_846_240_768, projector: 506_842_528},
-      q4: {weights: 1_099_630_080, projector: 291_586_720},
+    license: {
+      name: 'Apache-2.0',
+      url: 'https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct',
     },
-    license: LFM_LICENSE,
-    repo: 'LiquidAI/LFM3-Omni-2B-GGUF',
+    repo: 'unsloth/Qwen2.5-VL-7B-Instruct-GGUF',
   },
+};
+
+/**
+ * The models an older build installed, kept so their files can be removed.
+ *
+ * They are not in the catalogue: no pin, no status card, no download. Settings
+ * → Models lists whichever of their directories is still on disk, and deleting
+ * one is a button the person presses — never a migration that removes files on
+ * its own.
+ */
+export const RETIRED_MODEL_IDS = [
+  'lfm3-1.7b',
+  'lfm3-vl-2b',
+  'lfm3-audio-2b',
+  'lfm3-omni-2b',
+] as const;
+export const retiredModelIdSchema = z.enum(RETIRED_MODEL_IDS);
+export type RetiredModelId = z.infer<typeof retiredModelIdSchema>;
+
+export const RETIRED_MODEL_LABELS: Record<RetiredModelId, string> = {
+  'lfm3-1.7b': 'LFM3 1.7B',
+  'lfm3-vl-2b': 'LFM3 VL 2B',
+  'lfm3-audio-2b': 'LFM3 Audio 2B',
+  'lfm3-omni-2b': 'LFM3 Omni 2B',
 };
 
 /** The bytes one model variant asks the disk for. */
@@ -284,17 +241,15 @@ export type EngineBackend = z.infer<typeof engineBackendSchema>;
  * window's task rows have to agree about which model is the default for a new
  * install, and a default written twice is a default that can disagree.
  *
- * Every task starts on Omni. It is one download that can see, hear and speak,
- * so a person does not have to choose a model before the app can answer; the
- * dedicated text, vision and audio models remain available in Settings for a
- * machine that wants a smaller copy or a different trade-off.
+ * Chat and Images start on the one model. A picture is answered by the same
+ * weights that answer text, so the assignment is not a choice between two
+ * downloads.
  */
 export function defaultLocalModelsSettings(): LocalModelsSettings {
   return {
     tasks: {
-      chat: 'lfm3-omni-2b',
-      vision: 'lfm3-omni-2b',
-      voice: 'lfm3-omni-2b',
+      chat: 'qwen2.5-vl-7b',
+      vision: 'qwen2.5-vl-7b',
     },
     idleMinutes: 3,
     engineBackend: 'vulkan',
@@ -305,15 +260,15 @@ export function defaultLocalModelsSettings(): LocalModelsSettings {
  * Which model each task runs on.
  *
  * A model that cannot do the task is refused here rather than at the engine: a
- * hand-edited document with Chat pointed at the audio model is a settings file
- * that looks valid and produces a turn whose prompt is wrong for the weights.
+ * hand-edited document with Chat pointed at a text-only model is a settings
+ * file that looks valid and produces a turn whose prompt is wrong for the
+ * weights.
  */
 export const localModelsSettingsSchema = z
   .object({
     tasks: z.object({
       chat: localModelIdSchema,
       vision: localModelIdSchema,
-      voice: localModelIdSchema,
     }),
     /**
      * How long the engine stays warm after its last request.
@@ -352,17 +307,16 @@ export type LocalModelsSettings = z.infer<typeof localModelsSettingsSchema>;
  * A patch of the block.
  *
  * `tasks` is partial one level down so moving Chat does not mean sending the
- * other two back from a window whose copy is older, exactly like the provider
+ * other task back from a window whose copy is older, exactly like the provider
  * block it replaces. The capability check runs after the store has merged this
  * over what it holds; a patch that names only Chat is not asked to prove the
- * other two.
+ * other one.
  */
 export const localModelsPatchSchema = z.object({
   tasks: z
     .object({
       chat: localModelIdSchema.optional(),
       vision: localModelIdSchema.optional(),
-      voice: localModelIdSchema.optional(),
     })
     .optional(),
   idleMinutes: z.number().int().min(1).max(30).optional(),
@@ -380,7 +334,7 @@ export const localModelStateSchema = z.enum([
 ]);
 export type LocalModelState = z.infer<typeof localModelStateSchema>;
 
-/** Which piece of a model is not on disk. `engine` is shared by all four. */
+/** Which piece of a model is not on disk. `engine` is shared by both tasks. */
 export const LOCAL_MODEL_PARTS = ['engine', 'weights', 'projector'] as const;
 export const localModelPartSchema = z.enum(LOCAL_MODEL_PARTS);
 export type LocalModelPart = z.infer<typeof localModelPartSchema>;
@@ -448,8 +402,15 @@ export interface LocalModelsStatus {
   idleMinutes: number;
   /** The engine the settings ask for, before the availability fallback. */
   engineBackend: EngineBackend;
-  /** Q8 on a machine with room; Q4 where the first run should not spend 1.9GB. */
+  /** Q4 on an ordinary machine; Q8 where there is room for the larger copy. */
   recommendedVariant: LocalModelVariant;
+  /**
+   * Old model directories still on disk, in catalogue-ish order.
+   *
+   * They are not models this build can run. The card lists them so a person can
+   * reclaim the space; removing one is an explicit action.
+   */
+  retired: RetiredModelId[];
 }
 
 /** The hardware facts a first run needs to choose a variant and explain itself. */
@@ -458,62 +419,3 @@ export interface HostHardware {
   platform: string;
   arch: string;
 }
-
-/**
- * Speech languages the audio model supports.
- *
- * `asr` is the name put in the transcription prompt and `tts` is the code the
- * `/tts` endpoint takes. English has two locale codes for synthesis but one
- * language name for recognition, which is why the two fields are not derived
- * from the same string.
- */
-export const SPEECH_LANGUAGES = [
-  {code: 'en', label: 'English (US)', asr: 'English', tts: 'en'},
-  {code: 'en-gb', label: 'English (UK)', asr: 'English', tts: 'en-gb'},
-  {code: 'ar', label: 'Arabic', asr: 'Arabic', tts: 'ar'},
-  {code: 'da', label: 'Danish', asr: 'Danish', tts: 'da'},
-  {code: 'de', label: 'German', asr: 'German', tts: 'de'},
-  {code: 'el', label: 'Greek', asr: 'Greek', tts: 'el'},
-  {code: 'es', label: 'Spanish', asr: 'Spanish', tts: 'es'},
-  {code: 'fi', label: 'Finnish', asr: 'Finnish', tts: 'fi'},
-  {code: 'fr', label: 'French', asr: 'French', tts: 'fr'},
-  {code: 'he', label: 'Hebrew', asr: 'Hebrew', tts: 'he'},
-  {code: 'it', label: 'Italian', asr: 'Italian', tts: 'it'},
-  {code: 'ja', label: 'Japanese', asr: 'Japanese', tts: 'ja'},
-  {code: 'ko', label: 'Korean', asr: 'Korean', tts: 'ko'},
-  {code: 'nl', label: 'Dutch', asr: 'Dutch', tts: 'nl'},
-  {code: 'pl', label: 'Polish', asr: 'Polish', tts: 'pl'},
-  {code: 'pt', label: 'Portuguese', asr: 'Portuguese', tts: 'pt'},
-  {code: 'sv', label: 'Swedish', asr: 'Swedish', tts: 'sv'},
-  {code: 'tr', label: 'Turkish', asr: 'Turkish', tts: 'tr'},
-  {code: 'zh', label: 'Chinese', asr: 'Chinese', tts: 'zh'},
-] as const;
-
-export const SPEECH_LANGUAGE_CODES = SPEECH_LANGUAGES.map(
-  (language) => language.code,
-) as [string, ...string[]];
-
-export const speechLanguageSchema = z.enum(SPEECH_LANGUAGE_CODES);
-export type SpeechLanguage = z.infer<typeof speechLanguageSchema>;
-
-export function speechLanguage(code: SpeechLanguage): (typeof SPEECH_LANGUAGES)[number] {
-  return (
-    SPEECH_LANGUAGES.find((language) => language.code === code) ??
-    SPEECH_LANGUAGES[0]
-  );
-}
-
-export const SPEECH_VOICES = ['female', 'male'] as const;
-export const speechVoiceSchema = z.enum(SPEECH_VOICES);
-export type SpeechVoice = z.infer<typeof speechVoiceSchema>;
-
-/**
- * The most characters one spoken reply may carry.
- *
- * Shared rather than owned by the synthesizer because the window now splits a
- * reply into sentence-sized pieces so playback can start before the whole
- * answer has been generated. The pieces are bounded by the same total the host
- * would have used for one request, so a reply that was too long to speak before
- * is still too long — it just starts sooner.
- */
-export const SPEECH_MAX_CHARS = 1200;

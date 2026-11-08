@@ -1,10 +1,10 @@
 /**
  * The pins and the command line, checked as data.
  *
- * A download button that promises 1.9GB while the installer asks for 2.4GB is a
- * lie the user finds out about at 80 percent; a command line missing `--jinja` is
- * an engine that answers prose and never calls a tool. Both are cheap to assert
- * before a model ever loads.
+ * A download button that promises 4.7GB while the installer asks for 6.0GB is a
+ * lie the user finds out about at 80 percent; a command line missing `--jinja`
+ * or `--chat-template` is an engine that answers prose and never calls a tool.
+ * Both are cheap to assert before a model ever loads.
  */
 import {describe, expect, it} from 'vitest';
 
@@ -19,6 +19,7 @@ import {CHAT_PINS, defaultVariantFor} from './chat-pins.js';
 import {localModelArgs} from './args.js';
 import {localModelSpec} from './files.js';
 import type {LocalModelSpec} from './files.js';
+import {QWEN_VL_CHAT_TEMPLATE} from './qwen-vl-template.js';
 
 describe('the chat pins', () => {
   it('has the same sizes the download card shows', () => {
@@ -38,16 +39,13 @@ describe('the chat pins', () => {
   it('names the revision and the licence on every model', () => {
     for (const id of LOCAL_MODEL_IDS) {
       expect(CHAT_PINS.models[id].revision).toMatch(/^[0-9a-f]{40}$/u);
-      expect(CHAT_PINS.models[id].license).toMatch(/LFM Open License/u);
+      expect(CHAT_PINS.models[id].license).toBe('Apache-2.0');
       expect(CHAT_PINS.models[id].repo).toBe(LOCAL_MODELS[id].repo);
     }
   });
 
-  it('defaults the voice and omni models to the small copy', () => {
-    expect(defaultVariantFor('lfm3-1.7b')).toBe('q8');
-    expect(defaultVariantFor('lfm3-vl-2b')).toBe('q8');
-    expect(defaultVariantFor('lfm3-audio-2b')).toBe('q4');
-    expect(defaultVariantFor('lfm3-omni-2b')).toBe('q4');
+  it('defaults to the small copy', () => {
+    expect(defaultVariantFor('qwen2.5-vl-7b')).toBe('q4');
   });
 
   it('pins an engine build and a digest for every platform it knows', () => {
@@ -63,7 +61,7 @@ describe('the chat command line', () => {
   const base = localModelSpec({
     root: '/models',
     manifest: CHAT_PINS,
-    modelId: 'lfm3-vl-2b',
+    modelId: 'qwen2.5-vl-7b',
     variant: 'q4',
     platform: 'linux',
   });
@@ -78,29 +76,43 @@ describe('the chat command line', () => {
     const args = localModelArgs(spec, 8123);
     expect(args).toContain('--model');
     expect(args).toContain('--mmproj');
-    expect(args[args.indexOf('--alias') + 1]).toBe('lfm3-vl-2b');
+    expect(args[args.indexOf('--alias') + 1]).toBe('qwen2.5-vl-7b');
     expect(args[args.indexOf('--port') + 1]).toBe('8123');
     expect(args[args.indexOf('--ctx-size') + 1]).toBe('32768');
   });
 
-  it('turns tool calls on and thinking off', () => {
+  it('turns tool calls on with the tools-capable template', () => {
     const args = localModelArgs(spec, 8123);
     expect(args).toContain('--jinja');
-    expect(args[args.indexOf('--reasoning') + 1]).toBe('off');
+    expect(args[args.indexOf('--chat-template') + 1]).toBe(
+      QWEN_VL_CHAT_TEMPLATE,
+    );
+    expect(QWEN_VL_CHAT_TEMPLATE).toContain('<tool_call>');
+    expect(QWEN_VL_CHAT_TEMPLATE).toContain('tools');
+    expect(args).not.toContain('--reasoning');
+  });
+
+  it('asks for flash attention and every layer', () => {
+    const args = localModelArgs(spec, 8123);
+    expect(args[args.indexOf('--flash-attn') + 1]).toBe('on');
     // The pinned archive is a Vulkan or Metal build; 999 asks for every layer,
     // and llama.cpp falls back to the CPU backend when there is no device.
     expect(args[args.indexOf('--n-gpu-layers') + 1]).toBe('999');
     expect(args).toContain('--no-ui');
   });
 
-  it('omits the projector for the text model', () => {
-    const text = localModelSpec({
-      root: '/models',
-      manifest: CHAT_PINS,
-      modelId: 'lfm3-1.7b',
-      variant: 'q8',
-      platform: 'linux',
-    });
-    expect(localModelArgs(text, 8123)).not.toContain('--mmproj');
+  it('carries the sampling recipe', () => {
+    const args = localModelArgs(spec, 8123);
+    expect(args[args.indexOf('--temp') + 1]).toBe('0.2');
+    expect(args[args.indexOf('--top-k') + 1]).toBe('50');
+    expect(args[args.indexOf('--repeat-penalty') + 1]).toBe('1.05');
+  });
+
+  it('omits the projector until the encoder is downloaded', () => {
+    const noEncoder: LocalModelSpec = {
+      ...spec,
+      files: {...spec.files, projectorPresent: false},
+    };
+    expect(localModelArgs(noEncoder, 8123)).not.toContain('--mmproj');
   });
 });

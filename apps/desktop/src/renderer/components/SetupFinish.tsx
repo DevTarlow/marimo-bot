@@ -7,8 +7,8 @@
  * only decide which rows are worth showing. That is the same rule the Settings
  * cards follow — a claim about what is installed is a claim about a file.
  *
- * Omni is the one model the flow installs, so the Pictures and Voice rows say
- * what it covers rather than naming a second download.
+ * The one model the flow installs covers text and pictures, so the Pictures row
+ * says that rather than naming a second download.
  *
  * Starting the app is the flow's existing close: App marks the first run as
  * seen, opens a new chat in the Space the person picked, and reloads. This
@@ -72,13 +72,9 @@ export function SetupFinish({
   }, [wantsJobs]);
 
   const chatModel = LOCAL_MODELS[settings.localModels.tasks.chat];
-  const visionModelId = settings.localModels.tasks.vision;
-  const visionInstalled = settings.localModels.models[visionModelId].installed;
-  const voiceModelId = settings.localModels.tasks.voice;
-  const voiceModel = LOCAL_MODELS[voiceModelId];
-  const voiceInstalled = settings.localModels.models[voiceModelId].installed;
+  const visionInstalled =
+    settings.localModels.models[settings.localModels.tasks.vision].installed;
   const wantsPictures = effects.tasks.includes('vision');
-  const wantsVoice = effects.tasks.includes('voice');
 
   const jobsValue =
     service === null
@@ -107,7 +103,7 @@ export function SetupFinish({
           <dd>
             {chatModel.label}
             {settings.modelReady
-              ? ' — ready for Chat, Images and Voice'
+              ? ' — ready for Chat and Images'
               : ` — not ready${settings.modelProblem === undefined ? '' : `: ${settings.modelProblem}`}`}
           </dd>
         </div>
@@ -133,16 +129,6 @@ export function SetupFinish({
             </dd>
           </div>
         )}
-        {wantsVoice && (
-          <div className="setup-summary-row">
-            <dt>Voice</dt>
-            <dd>
-              {voiceInstalled
-                ? `${settings.companion.speakReplies ? 'On' : 'Off'} — ${voiceModel.label} handles it.`
-                : 'Not downloaded — the model row above has the download.'}
-            </dd>
-          </div>
-        )}
         {wantsJobs && jobsValue !== undefined && (
           <div className="setup-summary-row">
             <dt>Jobs</dt>
@@ -164,8 +150,8 @@ export function SetupFinish({
       )}
 
       <p className="onboarding-note">
-        Every switch is in Settings: the tools, the Models card, the companion
-        and voice, the connectors, and the background service in the Jobs rail.
+        Every switch is in Settings: the tools, the Models card, the companion,
+        the connectors, and the background service in the Jobs rail.
       </p>
 
       <div className="onboarding-actions">

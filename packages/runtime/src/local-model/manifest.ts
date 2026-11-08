@@ -344,7 +344,7 @@ function requireDigest(value: unknown, path: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/* The LFM3 chat models                                                        */
+/* The chat models                                                             */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -384,7 +384,7 @@ export interface ChatModelPin {
 }
 
 /**
- * The whole chat side: one engine, four models, two copies each.
+ * The whole chat side: one engine, one model, two copies each.
  *
  * A separate document from `EmbeddingManifest` because it is a different
  * download with a different lifecycle. It still carries the same `engine` block,

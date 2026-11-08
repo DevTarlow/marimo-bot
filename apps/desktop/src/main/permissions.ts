@@ -1,11 +1,10 @@
 /**
  * Which permissions this app's own windows may ask for.
  *
- * Two, and both are features the user pressed something to reach: the
- * microphone (a voice turn) and a sanitized clipboard write (every Copy
- * button). Everything else stays refused — a page that is not one of this
- * app's own windows must not open a microphone, and the app has no feature
- * that needs a camera, location or notifications.
+ * One, and it is a feature the user pressed something to reach: a sanitized
+ * clipboard write (every Copy button). Everything else stays refused — a page
+ * that is not one of this app's own windows must not open a microphone, and the
+ * app has no feature that needs one, a camera, location or notifications.
  *
  * Extracted from `main.ts` so the rule can be tested without booting Electron.
  * The failure it exists for is silent by nature: a permission check that
@@ -16,7 +15,6 @@
 
 /** The permission names this app answers `true` to for one of its own pages. */
 const APP_PERMISSIONS: ReadonlySet<string> = new Set([
-  'media',
   'clipboard-sanitized-write',
 ]);
 

@@ -19,25 +19,6 @@ const port = Number(portIndex >= 0 ? argv[portIndex + 1] : 0);
 const hostIndex = argv.indexOf('--host');
 const host = hostIndex >= 0 ? argv[hostIndex + 1] : '127.0.0.1';
 
-/** A tenth of a second of silence, so a spoken reply is a valid WAV. */
-function silentWav() {
-  const samples = 2400;
-  const buffer = Buffer.alloc(44 + samples * 2);
-  buffer.write('RIFF', 0, 'ascii');
-  buffer.writeUInt32LE(36 + samples * 2, 4);
-  buffer.write('WAVE', 8, 'ascii');
-  buffer.write('fmt ', 12, 'ascii');
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(1, 22);
-  buffer.writeUInt32LE(24_000, 24);
-  buffer.writeUInt32LE(48_000, 28);
-  buffer.writeUInt16LE(2, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write('data', 36, 'ascii');
-  buffer.writeUInt32LE(samples * 2, 40);
-  return buffer;
-}
 
 function json(response, status, value) {
   response.writeHead(status, {'content-type': 'application/json'});
@@ -59,7 +40,7 @@ const server = createServer((request, response) => {
         object: 'list',
         data: [
           {
-            id: 'lfm3-omni-2b',
+            id: 'qwen2.5-vl-7b',
             object: 'model',
             created: 0,
             owned_by: 'local',
@@ -70,14 +51,9 @@ const server = createServer((request, response) => {
     }
     if (url === '/props') {
       json(response, 200, {
-        modalities: {vision: true, audio: true},
+        modalities: {vision: true, audio: false},
         default_generation_settings: {},
       });
-      return;
-    }
-    if (url === '/tts') {
-      response.writeHead(200, {'content-type': 'audio/wav'});
-      response.end(silentWav());
       return;
     }
     if (url.endsWith('/chat/completions')) {
@@ -124,7 +100,7 @@ const server = createServer((request, response) => {
         id: 'smoke-1',
         object: 'chat.completion',
         created: 0,
-        model: 'lfm3-omni-2b',
+        model: 'qwen2.5-vl-7b',
         choices: [
           {
             index: 0,
@@ -134,10 +110,6 @@ const server = createServer((request, response) => {
         ],
         usage: {prompt_tokens: 4, completion_tokens: 8, total_tokens: 12},
       });
-      return;
-    }
-    if (url.endsWith('/audio/transcriptions')) {
-      json(response, 200, {text: 'smoke transcript'});
       return;
     }
     json(response, 404, {error: {message: `no route ${url}`}});

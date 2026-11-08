@@ -454,7 +454,7 @@ reply are indexed as the words they are.
 
 The companion uses the same conversation. A v2 session now carries a turn
 instruction — the length block the moss asks for — and stores it on
-`turn.started` so an approval resumed after a restart is answered in the voice
+`turn.started` so an approval resumed after a restart is answered in the manner
 that asked. The instruction is prompt text for one turn, not a property of the
 bot, which is why it lives in the log beside the harness hash rather than in the
 profile.

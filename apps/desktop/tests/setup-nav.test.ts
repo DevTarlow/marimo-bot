@@ -63,18 +63,7 @@ describe('the steps a setup produces', () => {
     ]);
   });
 
-  it('offers the voice preference before the Space when voice is chosen', () => {
-    expect(ids(stepsFor('power', ['pictures', 'voice']))).toEqual([
-      'direction',
-      'goals',
-      'model',
-      'extras',
-      'space',
-      'finish',
-    ]);
-  });
-
-  it('does not add a step for pictures alone, now that Omni handles them', () => {
+  it('does not add a step for pictures, now that the one model handles them', () => {
     expect(ids(stepsFor('power', ['pictures']))).toEqual([
       'direction',
       'goals',
@@ -150,7 +139,7 @@ describe('the steps a setup produces', () => {
 });
 
 describe('moving through the resolved steps', () => {
-  const steps = stepsFor('power', ['writing', 'pictures', 'voice'], true);
+  const steps = stepsFor('power', ['writing', 'pictures'], true);
 
   it('takes the welcome screen to the first step', () => {
     expect(nextStage(steps, 'welcome')).toBe('direction');
@@ -194,7 +183,6 @@ describe('moving through the resolved steps', () => {
   it('returns the Persona to the bot list, not a form that makes a second bot', () => {
     expect(previousStage(steps, 'persona')).toBe('bot');
     expect(previousStage(steps, 'more')).toBe('persona');
-    expect(previousStage(steps, 'extras')).toBe('model');
   });
 });
 

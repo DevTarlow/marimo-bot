@@ -39,16 +39,10 @@
  */
 import {useEffect, useRef, useState} from 'react';
 
-import type {
-  CommandId,
-  PickedFile,
-  SkippedFile,
-  SpeechLanguage,
-} from '@marimo/protocol';
+import type {CommandId, PickedFile, SkippedFile} from '@marimo/protocol';
 
 import {composeMessage, describeSkipped} from '../attachments.js';
 import {describe} from '../describe.js';
-import {useRecorder} from '../hooks/useRecorder.js';
 import {addressedAgent, mentionAt} from '../mentions.js';
 import type {Participant} from '../participants.js';
 import {Popover, PopoverItem} from './Popover.js';
@@ -75,11 +69,6 @@ export function Composer({
   modelLabel,
   modelState,
   onOpenModels,
-  voiceEnabled,
-  speechLanguage,
-  onVoiceWarm,
-  speaking,
-  onStopSpeaking,
   onPickFiles,
   commands,
   onRunCommand,
@@ -112,20 +101,6 @@ export function Composer({
   modelState?: 'awake' | 'waking' | 'resting' | 'failed';
   /** Opens Settings → Models. The badge is the route to managing them. */
   onOpenModels?: () => void;
-  /** Voice mode is on: the microphone button is offered. */
-  voiceEnabled?: boolean;
-  /** The language the voice model listens and speaks. */
-  speechLanguage?: SpeechLanguage;
-  /**
-   * Starts the voice model while the person is recording.
-   *
-   * The audio model is the slow part of the first press, and the turn needs it
-   * anyway; warming here is what overlaps that load with the speaking.
-   */
-  onVoiceWarm?: () => void;
-  /** A spoken reply is playing; the stop button is shown. */
-  speaking?: boolean;
-  onStopSpeaking?: () => void;
   /**
    * Asks for files, judged against the space this conversation works in.
    *
@@ -168,23 +143,6 @@ export function Composer({
   const [running, setRunning] = useState<CommandId | null>(null);
   const [menu, setMenu] = useState<PopoverAnchor | null>(null);
   const [mention, setMention] = useState<MentionState | null>(null);
-  /*
-   * The microphone, if voice mode is on. The transcript goes into the box rather
-   * than straight out: a misheard word should be editable before it becomes a
-   * message, and the person is looking at the text anyway.
-   */
-  const recorder = useRecorder({
-    ...(speechLanguage === undefined ? {} : {language: speechLanguage}),
-    onWarm: onVoiceWarm,
-    onText: (transcript) => {
-      setText((current) =>
-        current.trim().length === 0 ? transcript : `${current.trim()} ${transcript}`,
-      );
-    },
-    onError: (message) => {
-      setNote({text: message, failed: true});
-    },
-  });
   /**
    * Where the caret goes once a picked name is in the box.
    *
@@ -550,54 +508,6 @@ export function Composer({
           >
             <span aria-hidden="true">+</span>
           </button>
-
-          {voiceEnabled === true && (
-            <button
-              type="button"
-              className={
-                recorder.recording
-                  ? 'composer-mic is-recording'
-                  : 'composer-mic'
-              }
-              aria-label={
-                recorder.recording ? 'Stop recording' : 'Record a message'
-              }
-              title={
-                recorder.recording
-                  ? 'Listening — release to transcribe'
-                  : 'Speak to Marimo'
-              }
-              disabled={disabled || recorder.busy}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                void recorder.start();
-              }}
-              onPointerUp={() => {
-                void recorder.stop();
-              }}
-              onPointerLeave={() => {
-                if (recorder.recording) {
-                  void recorder.stop();
-                }
-              }}
-            >
-              <span aria-hidden="true">
-                {recorder.busy ? '…' : recorder.recording ? '■' : '🎙'}
-              </span>
-            </button>
-          )}
-
-          {speaking === true && onStopSpeaking !== undefined && (
-            <button
-              type="button"
-              className="composer-mic is-speaking"
-              aria-label="Stop speaking"
-              title="Stop speaking"
-              onClick={onStopSpeaking}
-            >
-              <span aria-hidden="true">■</span>
-            </button>
-          )}
 
           <span
             className={

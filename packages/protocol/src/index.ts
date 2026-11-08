@@ -20,8 +20,7 @@ import {
   localModelIdSchema,
   localModelVariantSchema,
   MAX_ATTACHMENTS,
-  speechLanguageSchema,
-  speechVoiceSchema,
+  retiredModelIdSchema,
 } from './local-models.js';
 import type {
   HostHardware,
@@ -100,10 +99,10 @@ import type {McpServer} from './mcp.js';
 /* -------------------------------------------------------------------------- */
 
 /*
- * The LFM3 family: the four models the app downloads, what each can do, and how
- * a task is assigned to one. It is its own module because it is a catalogue
- * with its own shape and its own tests, and because this file is the IPC
- * contract rather than a place for model prose.
+ * The one model the app downloads, what it can do, and how a task is assigned
+ * to it. It is its own module because it is a catalogue with its own shape and
+ * its own tests, and because this file is the IPC contract rather than a place
+ * for model prose.
  *
  * The provider id module sits beside it and is deliberately tiny: `local` is
  * the only id this build writes, and the old names survive only so yesterday's
@@ -133,13 +132,9 @@ export {
   MAX_ATTACHMENTS,
   modelSupportsTask,
   modelsForTask,
-  SPEECH_LANGUAGE_CODES,
-  SPEECH_LANGUAGES,
-  SPEECH_MAX_CHARS,
-  SPEECH_VOICES,
-  speechLanguage,
-  speechLanguageSchema,
-  speechVoiceSchema,
+  RETIRED_MODEL_IDS,
+  RETIRED_MODEL_LABELS,
+  retiredModelIdSchema,
   TASK_CAPABILITIES,
   TASK_LABELS,
   variantBytes,
@@ -163,8 +158,7 @@ export type {
   LocalModelVariant,
   LocalModelVariantBytes,
   LocalTask,
-  SpeechLanguage,
-  SpeechVoice,
+  RetiredModelId,
 } from './local-models.js';
 export {
   agentModelSchema,
@@ -456,22 +450,6 @@ export const companionSettingsSchema = z.object({
    * whatever is behind it.
    */
   clickThrough: z.boolean(),
-  /**
-   * Whether the companion talks and listens.
-   *
-   * One switch rather than a mic switch and a speaker switch, because the two
-   * are one experience and — the reason that matters here — one model. A spoken
-   * turn runs on the voice model for its whole length: it hears, thinks and
-   * speaks on the same weights. Turning speech input on while speech output
-   * stayed on the text model would need two models resident, which is the thing
-   * the local model design exists to avoid. Off returns every turn to the text
-   * model.
-   */
-  speakReplies: z.boolean(),
-  /** Which voice the audio model uses. */
-  speechVoice: speechVoiceSchema,
-  /** The language the microphone prompt and the voice ask for. */
-  speechLanguage: speechLanguageSchema,
 });
 
 export type CompanionSettings = z.infer<typeof companionSettingsSchema>;
@@ -483,12 +461,6 @@ export function defaultCompanionSettings(): CompanionSettings {
     visibleMessages: 6,
     alwaysOnTop: true,
     clickThrough: true,
-    // Speech is a model download and a new way for the app to answer, so it is
-    // off until somebody turns it on. The voice and language are the model's
-    // defaults, so turning it on is one click rather than a form.
-    speakReplies: false,
-    speechVoice: 'female',
-    speechLanguage: 'en',
   };
 }
 
@@ -797,8 +769,8 @@ export function defaultRecallSettings(): RecallSettings {
  * the user switches between.
  *
  * There is no address, key or provider here any more. The app answers with its
- * own local models; what is left to choose is which of the four does Chat,
- * Images and Voice, and how long it stays warm between turns.
+ * own local model; what is left to choose is which copy answers Chat and
+ * Images, and how long it stays warm between turns.
  */
 export const settingsSchema = z.object({
   /**
@@ -2752,15 +2724,6 @@ export type AgentUiEvent =
       sessionId: string;
       messageId: string;
       usage?: TokenUsage;
-      /**
-       * Which surface started the turn, when one did.
-       *
-       * Not stored: it is a fact about the window that asked, and its one
-       * reader is speech. A spoken reply must come out of the window the
-       * question came from, or both windows speak over each other. Absent for a
-       * job, a Discord mention, or a resume with no surface.
-       */
-      origin?: 'window' | 'pet';
     }
   | {type: 'turn.aborted'; sessionId: string; messageId: string}
   | {
@@ -3272,14 +3235,6 @@ export const agentCallSchemas = {
     sessionId: z.string().min(1),
     callId: z.string().min(1),
     confirmed: z.boolean(),
-    /**
-     * Which surface answered the card.
-     *
-     * A resumed turn speaks in the window the decision was made in, which may
-     * not be the one that started it: a card can be answered from the pet after
-     * the question was typed in the window.
-     */
-    origin: z.enum(['window', 'pet']).optional(),
   }),
   'chat.abort': z.object({
     profileId: z.string().min(1),
@@ -3477,26 +3432,12 @@ export const agentCallSchemas = {
   }),
   'models.cancel': z.object({}),
   'models.remove': z.object({modelId: localModelIdSchema}),
+  /* Delete one old model's files, from the list the status reports. */
+  'models.removeRetired': z.object({modelId: retiredModelIdSchema}),
   /* Stop the engine now rather than waiting for the idle timer. */
   'models.sleep': z.object({}),
   /* Start it and prove it loads, for a first run that should not lie. */
   'models.warm': z.object({modelId: localModelIdSchema}),
-
-  /*
-   * Speech. Both start the voice model on demand and stop it with the idle
-   * timer, so a person can talk to Marimo without having turned anything on in
-   * advance. The audio never touches disk: it is base64 in memory on the way
-   * in, and a WAV data URL on the way out.
-   */
-  'speech.transcribe': z.object({
-    audioBase64: z.string().min(1).max(12_000_000),
-    language: speechLanguageSchema.optional(),
-  }),
-  'speech.speak': z.object({
-    text: z.string().min(1).max(4000),
-    language: speechLanguageSchema.optional(),
-    voice: speechVoiceSchema.optional(),
-  }),
 
   /*
    * A Space's documents.
@@ -3761,16 +3702,9 @@ export interface AgentCallResults {
   'models.install': {started: boolean};
   'models.cancel': {cancelled: boolean};
   'models.remove': {status: LocalModelsStatus};
+  'models.removeRetired': {status: LocalModelsStatus};
   'models.sleep': {status: LocalModelsStatus};
   'models.warm': {ok: boolean; problem?: string; status: LocalModelsStatus};
-  'speech.transcribe': {text: string};
-  'speech.speak': {
-    /** `audio/wav` bytes, base64; the renderer makes a data URL from it. */
-    wavBase64: string;
-    sampleRate: number;
-    /** True when the reply was too long and the end was left unspoken. */
-    truncated: boolean;
-  };
   'sessions.setParticipants': {session: SessionSummary};
   /*
    * `notes` for the same reason `recall.query` has one: a library that hit its

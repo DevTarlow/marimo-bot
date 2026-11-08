@@ -9,14 +9,13 @@ easy to get wrong and expensive to discover.
 
 A standalone, always-on desktop agent. A chat window and a floating companion,
 an agent harness whose capabilities are opt-in, and a headless runner that keeps
-scheduled jobs going while the app is closed. It answers with **four small Liquid
-AI models** — text, vision, audio and omni — run by a pinned llama.cpp on the
-user's own computer, with the graphics card when there is one. There is no hosted
-provider, no account and no API key for
-the model. The first run downloads the Omni model, which answers text, sees
-pictures and speaks; the dedicated text, vision and audio models are no longer
-offered, and an old install can remove their leftover files in Settings. The
-folder it works
+scheduled jobs going while the app is closed. It answers with **one vision-language
+model, Qwen2.5 VL 7B**, run by a pinned llama.cpp on the user's own computer, with
+the graphics card when there is one. There is no hosted provider, no account and
+no API key for the model. The first run downloads the 4-bit copy and its F16
+image encoder, which answer text and read pictures; there is no speech model in
+this build, and an old install can remove its LFM3 files in Settings. The folder
+it works
 in is what the user calls a **Space**. Marimo Bot is the agent the person talks
 to; they also make **bots**, each with its own name, instructions, tools and
 permissions. A chat can hold more than one of them, and Marimo Bot can hand work
@@ -36,7 +35,7 @@ packages/agent      Everything ADK: the OpenAI-compatible client, tool set,
 packages/runtime    The Electron-free half of the app proper: where files live,
                     secrets with the cipher injected, the jobs/profiles/
                     workspaces/settings/skills/proposals stores, the documents
-                    service, and the chat-model installer/host/speech plus the
+                    service, and the chat-model installer/host plus the
                     recall supervisor and pins. Re-exports the version machinery
                     it uses.
 apps/desktop        The Electron app: src/main (window, IPC, tray, adapters),
@@ -67,8 +66,8 @@ Each of these is silent when it breaks. That is the whole reason they are listed
    on that turn _and every later turn of that conversation_.
 4. **Reasoning is replayed.** A reasoning model rejects a tool-carrying turn whose
    `reasoning_content` is missing from a later request. It is not decoration.
-   The local build runs with `--reasoning off` for speed, but a thought part that
-   did arrive is still preserved and replayed.
+   This model has no thinking mode and the engine is not asked for one, but a
+   thought part that did arrive is still preserved and replayed.
 5. **Gated means gated in code, not in the prompt.** Whether a call pauses the
    turn is decided before the tool is offered to the model.
 6. **A refused path is refused after resolution.** `..`, an absolute path outside
@@ -107,12 +106,13 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     connector's "let the background runner read it" box. `keysReadableIn` answers
     for every enabled connector together. There is no provider key and no
     provider address in this build.
-17. **A model is a pair, and the task chooses it.** `{provider: 'local',
-    model: '<lfm3 id>'}` is the only shape stored or sent. Chat, an image and
-    voice all use Omni; the Settings card has no task picker. A voice turn uses
-    one model for the **whole turn** — not a text model
-    with an audio model beside it. A resume uses the pair the turn started with,
-    even if the task assignment has moved since.
+17. **A model is a pair, and both tasks use the one model.** `{provider: 'local',
+    model: 'qwen2.5-vl-7b'}` is the only shape stored or sent. Chat and Images
+    both point at it; the Settings card has no task picker. A picture is an
+    `image_url` part on the same weights, not a second model. A resume uses the
+    pair the turn started with; a pair naming a model this build no longer ships
+    falls back to `tasks.chat` in `harness-runtime.ts`, which is what lets a card
+    from before an upgrade still be answered.
 18. **A delegation is a tool call in the same conversation.** `ask_agent` builds
     the helper over the parent's session service and session id — never
     `this.host(childProfileId)`. Depth is one by construction. A helper's gate is
@@ -150,13 +150,14 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `load_skill` reads the body when a task matches. `enabledSkills` is the one
     grant and three things read it — the prompt, the library behind `load_skill`,
     and the Settings switches. A grant change is not a reason to drop a host.
-24. **One model is resident at a time, and it is never stopped under a request.**
+24. **One model is resident, and it is never stopped under a request.**
     `LocalModelHost` starts the model a turn needs and stops it after the
-    configured quiet period (three minutes by default). `isBusy` and
-    `inFlight` keep the idle timer from pulling the weights out between a tool
-    call and its answer; a second model while one is in use is
-    refused rather than swapped in. A pid file under `model/local-model.pid` lets
-    the next launch reap an engine whose window crashed.
+    configured quiet period (three minutes by default). `isBusy` keeps the idle
+    timer from pulling the weights out between a tool call and its answer. The
+    encoder is loaded with the weights, so a text turn pays for it too; that is
+    the price of one model rather than two. A pid file under
+    `model/local-model.pid` lets the next launch reap an engine whose window
+    crashed.
 25. **A download is verified before it is used, and a marker is not a hint.**
     `installLocalModel` checks every file against a pinned SHA-256 and writes
     `local-model.json` only when all of them are in place. `localModelOnDisk`
@@ -165,11 +166,16 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `.pinned` marker, so a build that moves from the CPU archive to the GPU one,
     or from Vulkan to CUDA, replaces the binary instead of running the old
     engine. A half-written file is never loaded.
-26. **A spoken answer belongs to the surface that asked.** `turn.completed`
-    carries an origin that is not in the stored log; the window's speaking hook
-    and the pet's each filter on it, so two voices never read one answer. The
-    voice model is started before the turn, and the transcript is what is stored
-    — the audio is not.
+26. **The chat template is an app asset, because the model's own cannot describe
+    tools.** Qwen2.5-VL's GGUF template renders pictures but has no `tools`
+    block, no `tool_calls` rendering and no `tool` role. Started with it,
+    llama.cpp never shows the tool schemas and never parses a call, so every
+    tool-driven turn becomes prose. `qwen-vl-template.ts` carries a tools-capable
+    multimodal template and `localModelArgs` passes it inline with
+    `--chat-template`; a file path would be a second thing the window and the
+    runner could disagree about. The live check must see a real `tool_calls`
+    reply — a template that parses as content is a broken agent, not a broken
+    prompt.
 27. **A false file-tool denial is corrected in the prompt, never in the log.** A
     replayed assistant message that says it cannot edit files is replaced with a
     user-role correction when the turn actually offers `write_file`; the stored
@@ -257,7 +263,7 @@ naming a tool the turn was not given is a call the model cannot make.
 
 **The goals after the direction are a plan, not a grant.** They are held in the
 renderer and never written; they choose which steps appear (a bot step, the
-voice preference, the jobs step), the suggested starter role, and nothing about
+pictures row, the jobs step), the suggested starter role, and nothing about
 tools. Writing and coding are available on Regular because the
 Writer or Coder bot carries `write_file` on its own profile; only scheduling is
 Power-only, and a disabled goal is drawn with a switch to Power rather than
@@ -265,16 +271,17 @@ silently changing the grant.
 
 ## Models
 
-The four models, their licences and their task capabilities are in
+The one model, its licence, its task capabilities and the retired ids are in
 `packages/protocol/src/local-models.ts`. The repository revisions, file names,
 sizes and digests are in `packages/runtime/src/local-model/chat-pins.ts`. The
 default engine is a pinned llama.cpp build with one archive per platform —
 Vulkan on Linux and Windows, Metal on macOS — and each archive contains the CPU
 backend. `localModelArgs` asks for every layer, so a machine with a card offloads
 the model and one without a usable device falls back to the processor.
-`localModelArgs` is the one place the flags are written. The recall engine keeps
-its own zero: that model's card warns about float16 NaN, and the CPU backend
-accumulates in f32.
+`localModelArgs` is the one place the flags are written: `--flash-attn on` for the 32K
+window, and `--chat-template` with the tools-capable template the GGUF lacks.
+The recall engine keeps its own zero: that model's card warns about float16 NaN,
+and the CPU backend accumulates in f32.
 
 CUDA is an opt-in variant, not the default: the engine and its runtime are about
 776 MB on Linux and 671 MB on Windows, and the pinned builds require a new enough
@@ -283,32 +290,17 @@ NVIDIA driver. `cuda.ts` owns the `nvidia-smi` probe and the driver floor;
 and the host falls back to Vulkan when the probe says no. The switch lives in
 Settings → Models, and switching back to Vulkan replaces the engine again.
 
-Defaults: Chat, Images and Voice → `lfm3-omni-2b`. One download answers, sees
-and speaks, so a first run never asks which model to use. Q8 is the quality
-choice; Q4 is the small-laptop choice, and the host suggests it below 8 GB of
-RAM. The dedicated `lfm3-1.7b`, `lfm3-vl-2b` and `lfm3-audio-2b` remain in the
-catalogue and pins for the cleanup of an old install's files, not as a choice.
+Defaults: Chat and Images → `qwen2.5-vl-7b`. One download answers and sees, so
+a first run never asks which model to use. Q4 is the default: about 4.7 GB of
+weights plus 1.4 GB of encoder. Q8 is the quality choice and the host suggests
+it only at 24 GB of RAM or more. There is no speech model in this build.
 
-The surfaces are split on purpose: Settings → Models shows the one Omni model
-and owns its download, variant, removal and sleep; the composer's badge only
-reports whether it is warm and opens that card; the first run owns the required
-Omni download and a voice-preference step that appears only when the voice goal
-is chosen. The dedicated models are not offered; leftover files can be removed. Do not put a second task picker in the composer — the assignment
-is an app-wide fact, not a fact about one conversation.
-
-The speech endpoints are not the chat endpoint. Transcription is a chat
-completion with an audio part and `Perform ASR in <language>.`; synthesis is
-`POST /tts` at the server root and returns raw WAV. `speech.ts` validates the WAV
-header and fixes the seed so the companion's voice does not change between
-answers.
-
-The window does not send the whole answer to `/tts` at once. `speechChunks`
-splits the cleaned reply at sentence boundaries (160 characters a piece), plays
-the first while the next is being synthesized, and bounds the total with the
-protocol's `SPEECH_MAX_CHARS`; the host still caps one request with the same
-number. A prefetched piece the user stops before is allowed to finish in the
-background and is never played. A microphone press warms the voice model first,
-so the load overlaps with the recording rather than landing after it.
+The surfaces are split on purpose: Settings → Models shows the one model and
+owns its download, variant, removal, sleep and the cleanup list for an old
+install's LFM3 files; the composer's badge only reports whether it is warm and
+opens that card; the first run owns the required download. Do not put a second
+task picker in the composer — the assignment is an app-wide fact, not a fact
+about one conversation.
 
 **A live run needs weights.** `MARIMO_MODEL_DIR` points at a directory laid out
 the way the app uses it:
@@ -316,9 +308,9 @@ the way the app uses it:
 ```
 model/
   engine/llama-server
-  lfm3-omni-2b/LFM3-Omni-2B-Q4_K_M.gguf
-  lfm3-omni-2b/mmproj-LFM3-Omni-2B-Q4_K_M.gguf
-  lfm3-omni-2b/local-model.json
+  qwen2.5-vl-7b/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf
+  qwen2.5-vl-7b/mmproj-F16.gguf
+  qwen2.5-vl-7b/local-model.json
 ```
 
 The marker is written by the installer, not by hand in normal use; a fixture for
@@ -371,7 +363,7 @@ What counts, and where it goes:
   *What is not finished* if it was listed there.
 - **A first-run step, a Settings card or a button** is quoted by name in the
   README (`Regular`, `Power setup`, `Standard`, `Power user`, `Keep jobs running
-  when the app is closed`, `Talk to Marimo`), so renaming one is a README change.
+  when the app is closed`), so renaming one is a README change.
 - **Where data lives, or what leaves the machine** goes in *Privacy and control*
   and in the *Does it send my work anywhere?* answer. A new destination is a new
   bullet even when the tool is off by default.
@@ -543,10 +535,12 @@ else does.
   directory. The directory has to be laid out the way the app uses it — weights at
   the root or in a model's own subdirectory, engine in `engine/` — because that is
   where the supervisor takes the shared libraries from.
-- The chat models have their own live check. The repository's spike assets are
-  under `apps/desktop/.model-cache/`; a manual run of `LocalModelHost` with
+- The chat model has its own live check. The repository's spike assets are under
+  `apps/desktop/.model-cache/`; a manual run of `LocalModelHost` with
   `MARIMO_MODEL_DIR` pointing at a directory of real weights is the only thing
-  that proves the pinned engine, the projector and the speech endpoints together.
+  that proves the pinned engine, the projector and the tools-capable template
+  together — a text turn must return `tool_calls`, and an image must still reach
+  the encoder.
 
 ## Packaging
 

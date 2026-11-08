@@ -37,7 +37,6 @@ import type {
   MediaKind,
 } from '@marimo/runtime';
 
-import {modelSupportsTask} from '@marimo/protocol';
 import type {
   AgentProfile,
   AgentUiEvent,
@@ -60,13 +59,12 @@ import type {
   RecallPiece,
   RecallQueryResult,
   RecallScopeName,
+  RetiredModelId,
   SecretStorage,
   SessionSummary,
   SessionUsage,
   SkillDraft,
   SkillHistoryEntry,
-  SpeechLanguage,
-  SpeechVoice,
   StoredSkill,
   TranscriptMessage,
   Workspace,
@@ -187,13 +185,6 @@ export class AgentService {
   private readonly harnessReviews = new Map<string, NodeJS.Timeout>();
   /** Which agent the turn in flight belongs to, for the review that follows. */
   private busyProfileId: string | undefined;
-  /**
-   * Which surface started the turn in flight.
-   *
-   * Not stored: it is a fact about the window that asked, and `pump` puts it on
-   * the completion event so exactly that surface speaks the answer.
-   */
-  private turnOrigin: 'window' | 'pet' | undefined;
   private stopped = false;
 
   constructor(private readonly options: AgentServiceOptions) {
@@ -1098,6 +1089,11 @@ export class AgentService {
     return await this.models.remove(modelId);
   }
 
+  /** Deletes one old model directory the card listed. */
+  async removeRetiredModel(modelId: RetiredModelId): Promise<LocalModelsStatus> {
+    return await this.models.removeRetired(modelId);
+  }
+
   async sleepModels(): Promise<LocalModelsStatus> {
     return await this.models.sleep();
   }
@@ -1109,37 +1105,6 @@ export class AgentService {
     status: LocalModelsStatus;
   }> {
     return await this.models.warm(modelId);
-  }
-
-  /** Speech in. The WAV is never written to disk. */
-  async transcribeSpeech(
-    wav: Buffer,
-    language?: SpeechLanguage,
-  ): Promise<{text: string}> {
-    return {
-      text: await this.models.transcribe({
-        wav,
-        ...(language === undefined ? {} : {language}),
-      }),
-    };
-  }
-
-  /** Speech out, as a WAV for the window to play. */
-  async speak(
-    text: string,
-    language?: SpeechLanguage,
-    voice?: SpeechVoice,
-  ): Promise<{wavBase64: string; sampleRate: number; truncated: boolean}> {
-    const spoken = await this.models.speak({
-      text,
-      ...(language === undefined ? {} : {language}),
-      ...(voice === undefined ? {} : {voice}),
-    });
-    return {
-      wavBase64: spoken.wav.toString('base64'),
-      sampleRate: spoken.sampleRate,
-      truncated: spoken.truncated,
-    };
   }
 
   mcpStatuses(): Record<string, McpStatus> {
@@ -1582,7 +1547,6 @@ export class AgentService {
   private async useHarness(
     profileId: string,
     sessionId: string,
-    _origin: 'window' | 'pet' | undefined,
     agentId: string | undefined,
   ): Promise<boolean> {
     const hasLog = await this.harnessHasLog(sessionId);
@@ -1676,7 +1640,7 @@ export class AgentService {
       }
     }
 
-    if (await this.useHarness(profileId, sessionId, origin, agentId)) {
+    if (await this.useHarness(profileId, sessionId, agentId)) {
       const harness = this.runtime.harness();
       if (harness.isRunning(sessionId)) {
         this.options.sendEvent({
@@ -1694,32 +1658,11 @@ export class AgentService {
         (attachment) => attachment.kind === 'image',
       );
       /*
-       * Voice mode is one model for the whole turn. An image needs eyes, so it
-       * is refused rather than silently answered by the audio model, which
-       * cannot see — unless the voice model is Omni, which can.
+       * One model answers both tasks; the task still travels with the turn
+       * because it is what the settings card reports and what a resume reads
+       * back. An image turn is the Images task, not a different model.
        */
-      if (
-        settings.companion.speakReplies &&
-        saysImages &&
-        !modelSupportsTask(settings.localModels.tasks.voice, 'vision')
-      ) {
-        this.options.sendEvent({
-          type: 'turn.failed',
-          sessionId,
-          messageId: '',
-          code: 'voice',
-          message:
-            'Voice mode is on, and the audio model cannot look at pictures. ' +
-            'Turn voice off in Settings → Desktop companion, or use the omni ' +
-            'model for Voice.',
-        });
-        return {accepted: false};
-      }
-      const task = settings.companion.speakReplies
-        ? 'voice'
-        : saysImages
-          ? 'vision'
-          : 'chat';
+      const task = saysImages ? 'vision' : 'chat';
       const v2Info = (await harness.hasLog(sessionId))
         ? await harness.sessionInfo(sessionId)
         : undefined;
@@ -1727,17 +1670,15 @@ export class AgentService {
         v2Info?.purpose ??
         (await this.runtime.sessionPurpose(profileId, sessionId));
       const instruction =
-        origin === 'pet' || settings.companion.speakReplies
+        origin === 'pet'
           ? turnInstruction(
-              origin === 'pet' ? 'pet' : 'window',
+              'pet',
               settings.companion.answerLength,
               undefined,
-              settings.companion.speakReplies,
             )
           : purpose === 'bot-builder'
             ? BOT_BUILDER_INSTRUCTION
             : undefined;
-      this.turnOrigin = origin ?? 'window';
       this.pump(
         harness.run(
           profileId,
@@ -1774,7 +1715,6 @@ export class AgentService {
     sessionId: string,
     callId: string,
     confirmed: boolean,
-    origin?: 'window' | 'pet',
   ): Promise<{accepted: boolean}> {
     /*
      * Which agent is about to be busy, for the review that follows the turn.
@@ -1804,7 +1744,6 @@ export class AgentService {
         });
         return {accepted: false};
       }
-      this.turnOrigin = origin ?? 'window';
       this.pump(harness.approve(profileId, {sessionId, callId, confirmed}));
       return {accepted: true};
     }
@@ -1852,29 +1791,11 @@ export class AgentService {
           if (this.stopped) {
             return;
           }
-          /*
-           * Which surface asked rides the completion, not the stored turn: the
-           * window and the pet share a conversation, and a spoken reply that
-           * came out of both would be two voices reading one answer. The event
-           * is otherwise exactly what the projection produced.
-           */
-          const outgoing =
-            event.type === 'turn.completed' && this.turnOrigin !== undefined
-              ? {...event, origin: this.turnOrigin}
-              : event;
-          this.options.sendEvent(outgoing);
+          this.options.sendEvent(event);
           this.noteAfterTurn(event);
-          if (
-            event.type === 'turn.completed' ||
-            event.type === 'turn.failed' ||
-            event.type === 'turn.aborted'
-          ) {
-            this.turnOrigin = undefined;
-          }
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        this.turnOrigin = undefined;
         this.options.sendEvent({
           type: 'turn.failed',
           sessionId: '',

@@ -119,11 +119,11 @@ async function prepareModelFixture(userData) {
     'utf8',
   );
 
-  const pin = CHAT_PINS.models['lfm3-omni-2b'];
+  const pin = CHAT_PINS.models['qwen2.5-vl-7b'];
   const variant = pin.variants.q4;
   const weights = variant.weights;
   const projector = variant.projector;
-  const dir = join(root, 'lfm3-omni-2b');
+  const dir = join(root, 'qwen2.5-vl-7b');
   await mkdir(dir, {recursive: true});
   for (const file of [weights, projector]) {
     const handle = await open(join(dir, file.file), 'w');
@@ -134,7 +134,7 @@ async function prepareModelFixture(userData) {
     join(dir, 'local-model.json'),
     `${JSON.stringify(
       {
-        modelId: 'lfm3-omni-2b',
+        modelId: 'qwen2.5-vl-7b',
         variant: 'q4',
         revision: pin.revision,
         files: [weights, projector].map((file) => ({
@@ -701,7 +701,7 @@ async function main() {
       })()`);
       return value === undefined ? undefined : JSON.parse(value);
     });
-    if (!finishStep.text.includes('LFM3 Omni 2B')) {
+    if (!finishStep.text.includes('Qwen2.5 VL 7B')) {
       fail(
         `the setup summary does not name the model: ${JSON.stringify(finishStep)}`,
       );
@@ -2445,13 +2445,13 @@ async function main() {
         );
       } else if (
         !modelsCard.installed.some((text) => text.includes('4-bit')) ||
-        !modelsCard.installed.some((text) => text.includes('LFM3 Omni 2B'))
+        !modelsCard.installed.some((text) => text.includes('Qwen2.5 VL 7B'))
       ) {
         fail(
           `the installed model is not named in the Models card: ${JSON.stringify(modelsCard.installed)}`,
         );
       } else {
-        ok('the Models card offers Omni, with no task picker or key');
+        ok('the Models card offers Qwen2.5 VL, with no task picker or key');
       }
 
       /*

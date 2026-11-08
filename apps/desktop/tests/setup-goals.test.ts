@@ -55,7 +55,6 @@ describe('the goals a direction offers', () => {
     expect(regular).toContain('writing');
     expect(regular).toContain('coding');
     expect(regular).toContain('pictures');
-    expect(regular).toContain('voice');
   });
 
   it('guards the power-only goal itself', () => {
@@ -76,16 +75,9 @@ describe('what the chosen goals add', () => {
     });
   });
 
-  it('asks for the vision and voice models, in catalogue order', () => {
-    expect(goalEffects(['voice', 'pictures']).tasks).toEqual([
-      'vision',
-      'voice',
-    ]);
-  });
-
-  it('asks for one model at a time, from the goal that named it', () => {
+  it('asks for the vision model when pictures were chosen', () => {
     expect(goalEffects(['pictures']).tasks).toEqual(['vision']);
-    expect(goalEffects(['voice']).tasks).toEqual(['voice']);
+    expect(goalEffects(['files']).tasks).toEqual([]);
   });
 
   it('reserves jobs for the automation goal', () => {
@@ -146,8 +138,8 @@ describe('the goal list itself', () => {
   });
 
   it('lets one goal be read back by id', () => {
-    const wanted: SetupGoalId = 'voice';
-    expect(setupGoalById(wanted)?.label).toBe('Talk out loud');
+    const wanted: SetupGoalId = 'pictures';
+    expect(setupGoalById(wanted)?.label).toBe('Look at pictures');
     expect(setupGoalById('files')?.models).toBeUndefined();
   });
 });

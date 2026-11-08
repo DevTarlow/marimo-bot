@@ -236,7 +236,7 @@ function isFile(path: string): boolean {
   return sizeOf(path) >= 0;
 }
 
-/** Where one LFM3 model's files live, under the shared model directory. */
+/** Where one model's files live, under the shared model directory. */
 export function localModelDir(root: string, modelId: LocalModelId): string {
   return join(root, modelId);
 }
@@ -255,7 +255,7 @@ export function localModelMarkerFile(dir: string): string {
 /**
  * What the chat engine would be started with.
  *
- * The engine is shared by all four models, so it is resolved from the root while
+ * The engine is shared by both copies, so it is resolved from the root while
  * the weights come from the model's own directory. `projector` is `''` for the
  * text model and for an install that has not finished downloading the encoder;
  * the args builder then leaves `--mmproj` off rather than handing the engine a
@@ -315,19 +315,15 @@ export interface LocalModelSampling {
 /**
  * The command-line facts the engine needs, beyond the files.
  *
- * `reasoning: 'off'` for every model, and it is a measured decision rather than
- * a preference. On this small model, the default thinking mode answered "say
- * hello" with 271 hidden tokens and a ten-second turn on a laptop processor; the
- * tool loop is carried by the harness prompt and a visible answer, and the
- * companion's whole promise is a reply that arrives. The spike that chose this
- * also proved tool calls still work with thinking off, which is the half that
- * would have made it a bad trade.
+ * The sampling is the model card's, and it is written down rather than defaulted
+ * so a turn with no settings of its own still gets the same recipe as every
+ * other. The chat template is a fact about the engine, not a preference: see
+ * `args.ts`.
  */
 export interface LocalModelSpec extends EngineRunSpec<LocalModelFiles> {
   modelId: LocalModelId;
   variant: LocalModelVariant;
   alias: string;
-  reasoning: 'off';
   sampling: LocalModelSampling;
 }
 
@@ -351,20 +347,19 @@ export function localModelSpec(options: {
     modelId: options.modelId,
     variant: options.variant,
     alias: options.modelId,
-    reasoning: 'off',
-    sampling: samplingFor(options.modelId),
+    sampling: samplingFor(),
   };
 }
 
-function samplingFor(modelId: LocalModelId): LocalModelSampling {
-  if (modelId === 'lfm3-vl-2b') {
-    return {temperature: 0.1, topK: 50, topP: 1, repeatPenalty: 1.1};
-  }
-  if (modelId === 'lfm3-1.7b') {
-    return {temperature: 0.1, topK: 50, repeatPenalty: 1.1};
-  }
-  // The audio and omni cards both ask for greedy text; the acoustic sampling
-  // for `/tts` is stored in the GGUF and is not this flag.
-  return {temperature: 0, topK: 1, repeatPenalty: 1.1};
+/**
+ * The model card's sampling, in one place.
+ *
+ * Temperature 0.2 and top-k 50 are the recipe the app was pointed at for this
+ * family: low enough that a tool call is repeatable, not greedy. The repeat
+ * penalty is Qwen's own generation setting; the app's older 1.1 was chosen for
+ * a different model.
+ */
+function samplingFor(): LocalModelSampling {
+  return {temperature: 0.2, topK: 50, repeatPenalty: 1.05};
 }
 

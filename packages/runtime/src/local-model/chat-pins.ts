@@ -1,5 +1,5 @@
 /**
- * The LFM3 weights and the llama.cpp engine that runs them, pinned.
+ * The chat weights and the llama.cpp engine that runs them, pinned.
  *
  * The app carries no weights. A first run downloads them, which is why this is
  * code rather than a file the app has to find: both the window and the headless
@@ -30,7 +30,11 @@ import type {
   LocalModelId,
   LocalModelVariant,
 } from '@marimo/protocol';
-import {LOCAL_MODEL_IDS, LOCAL_MODEL_VARIANTS} from '@marimo/protocol';
+import {
+  LOCAL_MODEL_IDS,
+  LOCAL_MODEL_VARIANTS,
+  LOCAL_MODELS,
+} from '@marimo/protocol';
 
 import {parseChatModelManifest} from './manifest.js';
 import type {ChatModelManifest} from './manifest.js';
@@ -115,10 +119,7 @@ const CHAT_ENGINE = {
   },
 } as const;
 
-const TEXT_REVISION = 'bad5729bba61d076fff20d2548e62526665af215';
-const VL_REVISION = 'b36554cfd35854b06429900131730cd80f092cdb';
-const AUDIO_REVISION = '02355c1a141e464a064f2ab2c276638dbcb7f38a';
-const OMNI_REVISION = '3d29af2ad166f8299c2d820937e47dc0add20ffc';
+const QWEN_VL_REVISION = '68bb8bc4b7df5289c143aaec0ab477a7d4051aab';
 
 function weights(
   file: string,
@@ -129,135 +130,43 @@ function weights(
 }
 
 /**
- * One model, both quantized copies.
+ * One model, both quantized copies, and the encoder both share.
  *
- * The 4-bit choice is not "the same model, worse": the text model ships a QAD
- * checkpoint trained to recover the accuracy Q4_0 loses, and that is the file
- * used. The others use their Q4_K_M cut. A variant's projector is included
- * because the encoder is part of the download; a vision model without its
- * projector is an engine that cannot see at all, not a slightly worse one.
+ * The projector is the same F16 file for either copy. Qwen publishes no smaller
+ * encoder for this family, and a variant without it is not a text model with
+ * fewer features — it is an engine with no image encoder in it at all, so a
+ * picture would be a request the process cannot serve. The Q4 copy is the one a
+ * first run downloads; the Q8 copy is the larger answer.
  */
 const CHAT_MODELS = {
-  'lfm3-1.7b': {
-    modelId: 'lfm3-1.7b' as const,
-    repo: 'LiquidAI/LFM3-1.7B-GGUF',
-    revision: TEXT_REVISION,
-    license: 'LFM Open License v1.0',
+  'qwen2.5-vl-7b': {
+    modelId: 'qwen2.5-vl-7b' as const,
+    repo: 'unsloth/Qwen2.5-VL-7B-Instruct-GGUF',
+    revision: QWEN_VL_REVISION,
+    license: 'Apache-2.0',
     variants: {
       q8: {
         weights: weights(
-          'LFM3-1.7B-Q8_0.gguf',
-          1_846_238_496,
-          '8f6b24182258205e9e01e21f1f24a1f208c1e8115578825d202ce39976af20b6',
+          'Qwen2.5-VL-7B-Instruct-Q8_0.gguf',
+          8_098_524_032,
+          'ee770c700d7429cc6f0c74d6c7ab3c063bf521312fc36e80776d1d79bc9fa4ad',
+        ),
+        projector: weights(
+          'mmproj-F16.gguf',
+          1_354_163_040,
+          '987dd0733033fb5dd9b124d1ca926ae865572e432384eee7618b2eec3e735e17',
         ),
       },
       q4: {
         weights: weights(
-          'LFM3-1.7B-QAD-Q4_0.gguf',
-          1_049_615_680,
-          '43a7d09a0e9cba91b63eb7052488b9564569bddfd65754d2e426465e572a7452',
-        ),
-      },
-    },
-  },
-  'lfm3-vl-2b': {
-    modelId: 'lfm3-vl-2b' as const,
-    repo: 'LiquidAI/LFM3-VL-2B-GGUF',
-    revision: VL_REVISION,
-    license: 'LFM Open License v1.0',
-    variants: {
-      q8: {
-        weights: weights(
-          'LFM3-VL-2B-Q8_0.gguf',
-          1_846_238_496,
-          'e138e54189a751d90ea8c0b236360490613ecd465d28d68fa6094d3db7fa6727',
+          'Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf',
+          4_683_072_384,
+          'd16776dcd9a28d42758c2958ed3a752aabf20a305252cd64ff2be72b4a78c503',
         ),
         projector: weights(
-          'mmproj-LFM3-VL-2B-Q8_0.gguf',
-          203_031_872,
-          'c5c5b58d544a18da919172d2d0368090ea1a4a351b6feb7f8a326a264a5918ab',
-        ),
-      },
-      q4: {
-        weights: weights(
-          'LFM3-VL-2B-QAD-Q4_0.gguf',
-          1_049_615_648,
-          '621c455376cb96a20891697deb9975c6fb47dd5ea98ed3ad1f3b7e8f24f0b1e6',
-        ),
-        /*
-         * There is no Q4 projector in the repository. The Q8 encoder is 203MB
-         * against 1.05GB of weights; inventing a smaller file would mean a
-         * download that does not exist, and leaving it out would mean a vision
-         * model that cannot see.
-         */
-        projector: weights(
-          'mmproj-LFM3-VL-2B-Q8_0.gguf',
-          203_031_872,
-          'c5c5b58d544a18da919172d2d0368090ea1a4a351b6feb7f8a326a264a5918ab',
-        ),
-      },
-    },
-  },
-  'lfm3-audio-2b': {
-    modelId: 'lfm3-audio-2b' as const,
-    repo: 'LiquidAI/LFM3-Audio-2B-GGUF',
-    revision: AUDIO_REVISION,
-    license: 'LFM Open License v1.0',
-    variants: {
-      q8: {
-        weights: weights(
-          'LFM3-Audio-2B-Q8_0.gguf',
-          1_846_236_704,
-          'd4e36902ba8f0ee7b333596030a59d650f88ac76660b4d9ba5ff77c3c2258fc0',
-        ),
-        projector: weights(
-          'mmproj-LFM3-Audio-2B-Q8_0.gguf',
-          303_811_840,
-          '2b6648b1fd48af16aa0877b0592b144d15070783673e038a379fdbc51d40e365',
-        ),
-      },
-      q4: {
-        weights: weights(
-          'LFM3-Audio-2B-Q4_K_M.gguf',
-          1_099_626_016,
-          '9a773289bd321ed879cd3a76545f6aca506e403851a45fb315420aee45625be2',
-        ),
-        projector: weights(
-          'mmproj-LFM3-Audio-2B-Q4_K_M.gguf',
-          172_418_048,
-          '1a3a895160aad17c1f52117a6ee4cea8e68988651ea5a33c5b990539e8eae81d',
-        ),
-      },
-    },
-  },
-  'lfm3-omni-2b': {
-    modelId: 'lfm3-omni-2b' as const,
-    repo: 'LiquidAI/LFM3-Omni-2B-GGUF',
-    revision: OMNI_REVISION,
-    license: 'LFM Open License v1.0',
-    variants: {
-      q8: {
-        weights: weights(
-          'LFM3-Omni-2B-Q8_0.gguf',
-          1_846_240_768,
-          '59118f661eaacb93d204723d76355b53347f0940b508c11412f6290fd49158d4',
-        ),
-        projector: weights(
-          'mmproj-LFM3-Omni-2B-Q8_0.gguf',
-          506_842_528,
-          '8a25f9d1931244429de404fccacfb7fb933970a36aa5688d2f5069f29c6b27b1',
-        ),
-      },
-      q4: {
-        weights: weights(
-          'LFM3-Omni-2B-Q4_K_M.gguf',
-          1_099_630_080,
-          '9f8d30e9d4fd7a9349d586e077988229b3ca0a0e4ad730897563d1eccc9893e2',
-        ),
-        projector: weights(
-          'mmproj-LFM3-Omni-2B-Q4_K_M.gguf',
-          291_586_720,
-          '0a746c0794782a16d4456b230c2a0b5888a2d94a6677211edbed7d7a4177a39a',
+          'mmproj-F16.gguf',
+          1_354_163_040,
+          '987dd0733033fb5dd9b124d1ca926ae865572e432384eee7618b2eec3e735e17',
         ),
       },
     },
@@ -277,15 +186,14 @@ export const CHAT_PINS: ChatModelManifest = parseChatModelManifest({
 });
 
 /**
- * The default variant for a model, re-exported so a host does not need a second
- * lookup table.
+ * The default variant for a model.
  *
- * `q4` is the audio and omni default because those are the two a low-memory
- * machine reaches for first and the two where latency matters most; the text and
- * vision models default to `q8` because quality is what they are for.
+ * Read from the descriptor rather than repeated here: the card's default and
+ * the installer's default have to be one answer, and a second table is how they
+ * stop being one.
  */
 export function defaultVariantFor(model: LocalModelId): LocalModelVariant {
-  return model === 'lfm3-audio-2b' || model === 'lfm3-omni-2b' ? 'q4' : 'q8';
+  return LOCAL_MODELS[model].defaultVariant;
 }
 
 /** Every id and variant, for a test that walks the pins. */

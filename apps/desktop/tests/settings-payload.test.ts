@@ -92,13 +92,13 @@ function localModels(): LocalModelsStatus {
       LOCAL_MODEL_IDS.map((id) => [id, modelStatus(id)]),
     ) as Record<LocalModelId, LocalModelStatus>,
     tasks: {
-      chat: 'lfm3-omni-2b',
-      vision: 'lfm3-omni-2b',
-      voice: 'lfm3-omni-2b',
+      chat: 'qwen2.5-vl-7b',
+      vision: 'qwen2.5-vl-7b',
     },
     idleMinutes: 3,
     engineBackend: 'vulkan',
-    recommendedVariant: 'q8',
+    recommendedVariant: 'q4',
+    retired: [],
   };
 }
 
@@ -119,7 +119,7 @@ describe('a settings payload', () => {
   it('carries the model situation and the hardware facts', () => {
     const settings = payload();
     expect(settings.localModels.engine.present).toBe(true);
-    expect(settings.localModels.tasks.chat).toBe('lfm3-omni-2b');
+    expect(settings.localModels.tasks.chat).toBe('qwen2.5-vl-7b');
     expect(settings.hardware.totalMemoryMb).toBe(16_384);
     expect(settings.modelReady).toBe(true);
     // Every task is in the catalogue and every model has a label the window can

@@ -1,9 +1,9 @@
 /**
  * What the person wants to do, as a multi-select.
  *
- * These are not capabilities. A goal chooses which steps the flow shows, which
- * starter role it suggests, and whether the voice preference is offered. It
- * grants no tool: the direction above already answered
+ * These are not capabilities. A goal chooses which steps the flow shows and
+ * which starter role it suggests. It grants no tool: the direction above
+ * already answered
  * that question, and a goal that quietly wrote a grant would be a second,
  * quieter access screen.
  *

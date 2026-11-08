@@ -9,10 +9,10 @@
  *
  * The goals are a *plan for this run*, not a preference. Nothing here grants a
  * tool, and nothing is written down: the goals choose which steps appear, which
- * starter role is suggested, and whether the voice preference is offered. What
- * they produce — a grant, a download, a bot, a service — is written when it
- * happens and visible in Settings afterwards. Storing the goals would be a
- * second, quieter place where a capability decision lived.
+ * starter role is suggested, and which review rows are worth showing. What they
+ * produce — a grant, a download, a bot, a service — is written when it happens
+ * and visible in Settings afterwards. Storing the goals would be a second,
+ * quieter place where a capability decision lived.
  *
  * `automation` is the only goal a Regular setup cannot take. The others either
  * use tools Standard already has, ask for a model rather than a tool, or are
@@ -88,7 +88,6 @@ export type SetupGoalId =
   | 'coding'
   | 'bots'
   | 'pictures'
-  | 'voice'
   | 'automation';
 
 export interface SetupGoal {
@@ -169,16 +168,6 @@ export const SETUP_GOALS: readonly SetupGoal[] = [
     models: ['vision'],
   },
   {
-    id: 'voice',
-    label: 'Talk out loud',
-    blurb:
-      'Ask by microphone and hear the answer. The Omni model already speaks; ' +
-      'the next step turns spoken replies on.',
-    needsPower: false,
-    needsBot: false,
-    models: ['voice'],
-  },
-  {
     id: 'automation',
     label: 'Run jobs on a schedule',
     blurb:
@@ -208,7 +197,7 @@ export function goalAvailableIn(
  *
  * `tasks` is filtered through `LOCAL_TASKS` rather than kept in the order the
  * cards were clicked: the list is the model catalogue's order, and an order
- * that depended on clicks would make the extras step's cards jump around.
+ * that depended on clicks would make the review's rows jump around.
  * `jobs` is data, not a claim about this path — `setupSteps` is what decides
  * whether a Regular run may show the jobs step, and only Power may.
  */

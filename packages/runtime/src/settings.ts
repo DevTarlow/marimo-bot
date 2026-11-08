@@ -6,9 +6,9 @@
  * to its default instead of discarding every other setting.
  *
  * Every value here is now a preference: the local model tasks, the idle
- * timeout, the companion's speech settings, the layout and the escape hatches.
- * What is installed and which quantization it is are facts about the disk and
- * live beside the weights; a settings file that claimed them would be a card
+ * timeout, the companion's behaviour, the layout and the escape hatches. What
+ * is installed and which quantization it is are facts about the disk and live
+ * beside the weights; a settings file that claimed them would be a card
  * offering a model nobody downloaded.
  */
 import {mkdir, readFile, rename, writeFile} from 'node:fs/promises';
@@ -52,11 +52,9 @@ import type {
 export function defaultStoredSettings(): StoredSettings {
   return {
     /*
-     * Which local model does Chat, Images and Voice, and how long it stays
-     * warm. Every task starts on Omni: one download that can answer, see and
-     * speak, so a first run does not make somebody choose a model before it can
-     * reply. The dedicated text, vision and audio models are still in Settings
-     * for a machine that wants a smaller copy or a different trade-off.
+     * Which local model does Chat and Images, and how long it stays warm. One
+     * model answers both: a picture is read by the same weights as a sentence,
+     * so a first run does not make somebody choose a model before it can reply.
      */
     localModels: defaultLocalModelsSettings(),
     appearance: defaultAppearance(),
@@ -122,20 +120,19 @@ export function defaultStoredSettings(): StoredSettings {
 /**
  * The settings document version.
  *
- * Settings were version-less until this upgrade. The first written stamp, 1,
- * is the one every existing file carries; version 2 is the Omni default. A
- * settings file is still read leniently, but a newer version is refused so a
- * future build's file is not overwritten by this one.
+ * Settings were version-less until version 1. Version 2 moved every task to the
+ * Omni model. Version 3 moves them to Qwen2.5-VL and drops the Vision and Voice
+ * split down to Chat and Images on one model. A settings file is still read
+ * leniently, but a newer version is refused so a future build's file is not
+ * overwritten by this one.
  */
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 /**
- * Version 1 -> 2: every task moves to the Omni model.
+ * The versions below this one, step by step.
  *
- * The first run used to install three dedicated models and ask which one did
- * what. Omni can see, hear and speak, so one download is enough and the person
- * no longer has to choose. Existing installs are moved once; after that the
- * task rows in Settings are the user's again.
+ * The `1 -> 2` step stays as history: a file from before the Omni build still
+ * has to travel through it before `2 -> 3` can understand the result.
  */
 const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
   {
@@ -159,6 +156,39 @@ const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
             chat: 'lfm3-omni-2b',
             vision: 'lfm3-omni-2b',
             voice: 'lfm3-omni-2b',
+          },
+        },
+      };
+    },
+  },
+  {
+    from: 2,
+    to: 3,
+    summary: 'moved Chat and Images to Qwen2.5 VL',
+    migrate(document) {
+      const localModels = document['localModels'];
+      if (
+        localModels === null ||
+        typeof localModels !== 'object' ||
+        Array.isArray(localModels)
+      ) {
+        return document;
+      }
+      const block = localModels as Record<string, unknown>;
+      return {
+        ...document,
+        localModels: {
+          // The two preferences that are still meaningful survive the move; the
+          // task assignments are the part this build changed.
+          ...(block['idleMinutes'] === undefined
+            ? {}
+            : {idleMinutes: block['idleMinutes']}),
+          ...(block['engineBackend'] === undefined
+            ? {}
+            : {engineBackend: block['engineBackend']}),
+          tasks: {
+            chat: 'qwen2.5-vl-7b',
+            vision: 'qwen2.5-vl-7b',
           },
         },
       };
@@ -458,12 +488,12 @@ function fillBlock<T extends object>(
 /**
  * Applies a local-model patch over what is stored.
  *
- * The three task assignments are merged one at a time, so moving Chat leaves
- * Vision and Voice exactly as another window last wrote them. `idleMinutes` is a
- * single number and is simply replaced when present, and `engineBackend` is the
- * same kind of single choice. The capability validation happens on the merged
- * block in `settingsSchema.parse`, not here: a patch naming one task is not
- * asked to prove the other two.
+ * The two task assignments are merged one at a time, so moving Chat leaves
+ * Images exactly as another window last wrote it. `idleMinutes` is a single
+ * number and is simply replaced when present, and `engineBackend` is the same
+ * kind of single choice. The capability validation happens on the merged block
+ * in `settingsSchema.parse`, not here: a patch naming one task is not asked to
+ * prove the other.
  */
 export function mergeLocalModels(
   current: LocalModelsSettings,

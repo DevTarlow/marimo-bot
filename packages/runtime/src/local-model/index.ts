@@ -125,15 +125,4 @@ export type {
   LocalModelHostOptions,
 } from './host.js';
 
-export {
-  MAX_SPEECH_CHARS,
-  SpeechError,
-  synthesizeSpeech,
-  transcribeAudio,
-  trimForSpeech,
-} from './speech.js';
-export type {
-  SpeakOptions,
-  SpokenAudio,
-  TranscribeOptions,
-} from './speech.js';
+export {QWEN_VL_CHAT_TEMPLATE} from './qwen-vl-template.js';

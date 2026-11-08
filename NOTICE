@@ -8,12 +8,16 @@ The app downloads and runs the following third-party artefacts on the user's
 machine. They are not distributed inside this repository or inside a packaged
 build.
 
-LFM3 models
-  Liquid AI, Inc.
-  LFM3-1.7B-GGUF, LFM3-VL-2B-GGUF, LFM3-Audio-2B-GGUF and LFM3-Omni-2B-GGUF
-  Licensed under the LFM Open License v1.0.
-  https://huggingface.co/collections/LiquidAI/lfm3
-  https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/main/LICENSE
+Qwen2.5-VL-7B-Instruct
+  Alibaba Cloud (Qwen team)
+  Qwen2.5-VL-7B-Instruct-GGUF, quantized by unsloth, with its mmproj image encoder
+  Licensed under the Apache License 2.0.
+  https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct
+  https://huggingface.co/unsloth/Qwen2.5-VL-7B-Instruct-GGUF
+
+  The chat template shipped in qwen-vl-template.ts is adapted from Qwen's
+  multimodal tool-calling template (Apache-2.0), with the generation prompt's
+  <think> line removed for a model that has no thinking mode.
 
 llama.cpp
   The ggml-org contributors
@@ -27,6 +31,6 @@ EmbeddingGemma 2 (Recall, optional)
   Downloaded only when the user turns Recall on.
   https://huggingface.co/google/embeddinggemma-300m
 
-The LFM3 models and EmbeddingGemma are downloaded by the app at the user's
+The Qwen model and EmbeddingGemma are downloaded by the app at the user's
 request; their licences travel with the downloaded files. The Apache-2.0 licence
 in LICENCE covers this repository's own source.

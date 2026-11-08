@@ -68,7 +68,7 @@ export function ModelSetupCard({
   const size = variantBytes(modelId, variant);
   const sizeLabel =
     size >= 1024 * 1024 * 1024
-      ? `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+      ? `${(size / 1_000_000_000).toFixed(1)} GB`
       : `${Math.ceil(size / (1024 * 1024))} MB`;
 
   return (
@@ -98,8 +98,8 @@ export function ModelSetupCard({
                   {option === 'q8' ? 'Best quality (8-bit)' : 'Smaller (4-bit)'}
                   <em className="settings-why">
                     {option === 'q8'
-                      ? `${(variantBytes(modelId, 'q8') / (1024 * 1024 * 1024)).toFixed(1)} GB. The better answers.`
-                      : `${(variantBytes(modelId, 'q4') / (1024 * 1024 * 1024)).toFixed(1)} GB. For a machine with less memory.`}
+                      ? `${(variantBytes(modelId, 'q8') / 1_000_000_000).toFixed(1)} GB. The better answers.`
+                      : `${(variantBytes(modelId, 'q4') / 1_000_000_000).toFixed(1)} GB. For a machine with less memory.`}
                   </em>
                 </span>
               </label>
@@ -180,11 +180,11 @@ export function ModelSetupCard({
       )}
 
       <p className="settings-muted">
-        The model is licensed by Liquid AI under the{' '}
+        The weights are released under the{' '}
         <a href={model.license.url} target="_blank" rel="noreferrer">
           {model.license.name}
-        </a>
-        .
+        </a>{' '}
+        licence.
       </p>
     </div>
   );

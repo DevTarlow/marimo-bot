@@ -127,7 +127,6 @@ export {
   LocalModelHost,
   LocalModelService,
   ManifestError,
-  MAX_SPEECH_CHARS,
   missingProblem,
   MODEL_DIR_ENV,
   MODEL_DIR_NAME,
@@ -142,10 +141,6 @@ export {
   recallSpec,
   resolveLocalModelFiles,
   resolveRecallFiles,
-  SpeechError,
-  synthesizeSpeech,
-  transcribeAudio,
-  trimForSpeech,
   unpackEngine,
   unpackEngineBundle,
   writeLocalModelMarker,
@@ -181,9 +176,6 @@ export type {
   LocalModelSpec,
   RecallFiles,
   RecallSpec,
-  SpeakOptions,
-  SpokenAudio,
-  TranscribeOptions,
 } from './local-model/index.js';
 
 /*

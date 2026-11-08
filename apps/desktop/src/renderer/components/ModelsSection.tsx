@@ -1,13 +1,13 @@
 /**
- * Models: the Omni model, its copy, and what is running.
+ * Models: the one model, its copy, and what is running.
  *
- * The app has one model now. Omni answers Chat, Images and Voice, so there is no
- * task assignment to make and no second download to choose. This card owns the
- * one model's download, variant, sleep state and removal.
+ * The app has one model now. It answers Chat and Images, so there is no second
+ * download to choose. This card owns the model's download, variant, sleep state
+ * and removal.
  *
- * Older installs may still have the dedicated text, vision or audio files on
- * disk. They are not used by anything any more; a short cleanup list removes
- * them without offering them as a choice.
+ * Older installs may still have the LFM3 files on disk. They are not used by
+ * anything any more; a short cleanup list removes them without offering them as
+ * a choice.
  *
  * A download is not a modal. It starts, the card grows a progress bar, and the
  * rest of Settings stays usable — the one long operation in this app should not
@@ -17,15 +17,15 @@ import {useEffect, useState} from 'react';
 
 import {
   LOCAL_MODELS,
-  LOCAL_MODEL_IDS,
   LOCAL_MODEL_VARIANTS,
-  TASK_LABELS,
+  RETIRED_MODEL_LABELS,
   variantBytes,
 } from '@marimo/protocol';
 import type {
   LocalModelId,
   LocalModelVariant,
   PublicSettings,
+  RetiredModelId,
   SettingsPatch,
 } from '@marimo/protocol';
 
@@ -37,11 +37,10 @@ export const MODELS_SECTION = 'Models';
 /**
  * The one model this build runs.
  *
- * The catalogue still has the dedicated text, vision and audio models for the
- * pins and for an old install's cleanup, but the app answers with Omni for every
- * task.
+ * The catalogue has exactly this entry. Old LFM3 directories are a separate,
+ * removable list rather than models the app can start.
  */
-const PRIMARY_MODEL: LocalModelId = 'lfm3-omni-2b';
+const PRIMARY_MODEL: LocalModelId = 'qwen2.5-vl-7b';
 
 type Downloading = {
   label: string;
@@ -69,7 +68,7 @@ export function ModelsSection({
   const [downloading, setDownloading] = useState<
     Partial<Record<LocalModelId, Downloading>>
   >({});
-  const [confirmRemove, setConfirmRemove] = useState<LocalModelId | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   useEffect(() => {
     const off = window.marimo.onEvent((event) => {
@@ -147,6 +146,20 @@ export function ModelsSection({
     }
   };
 
+  const removeRetired = async (modelId: RetiredModelId): Promise<void> => {
+    setSaving(true);
+    setProblem(null);
+    try {
+      await window.marimo.call('models.removeRetired', {modelId});
+      setConfirmRemove(null);
+      await onSaved();
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const sleep = async (): Promise<void> => {
     try {
       await window.marimo.call('models.sleep', {});
@@ -181,11 +194,7 @@ export function ModelsSection({
   // The default engine is Vulkan on Linux and Windows, and Metal on macOS.
   const defaultEngine =
     settings.hardware.platform === 'darwin' ? 'Metal' : 'Vulkan';
-  const unused = LOCAL_MODEL_IDS.filter(
-    (modelId) =>
-      modelId !== PRIMARY_MODEL &&
-      settings.localModels.models[modelId].installed,
-  );
+  const retired = settings.localModels.retired;
 
   return (
     <SettingsSection
@@ -194,9 +203,9 @@ export function ModelsSection({
       onToggle={onToggle}
     >
       <p className="settings-muted">
-        The Omni model handles Chat, Images and Voice. It runs on this
-        computer; nothing you type is sent to a model service. One model is in
-        memory at a time, and after a quiet spell it stops.
+        One model handles Chat and Images, including the image encoder. It runs
+        on this computer; nothing you type is sent to a model service. It is the
+        only model in memory, and after a quiet spell it stops.
       </p>
       {!supported && (
         <p className="settings-problem">
@@ -292,13 +301,10 @@ export function ModelsSection({
           status.installedVariant ??
           settings.localModels.recommendedVariant;
         const progress = downloading[modelId];
-        const usedFor = status.usedFor
-          .map((task) => TASK_LABELS[task])
-          .join(', ');
         const q8 = variantBytes(modelId, 'q8');
         const q4 = variantBytes(modelId, 'q4');
-        const q8Label = `${(q8 / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-        const q4Label = `${(q4 / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+        const q8Label = `${(q8 / 1_000_000_000).toFixed(1)} GB`;
+        const q4Label = `${(q4 / 1_000_000_000).toFixed(1)} GB`;
 
         return (
           <div className="model-card" key={modelId}>
@@ -310,7 +316,6 @@ export function ModelsSection({
             </div>
             <p className="settings-muted">{model.blurb}</p>
             <p className="settings-muted">
-              {usedFor.length > 0 ? `Used for ${usedFor}.` : 'Not used by a task.'}{' '}
               {status.installed
                 ? `Installed: ${status.installedVariant === 'q4' ? '4-bit' : '8-bit'}.`
                 : status.missing.includes('engine') &&
@@ -450,16 +455,16 @@ export function ModelsSection({
         );
       })}
 
-      {unused.length > 0 && (
+      {retired.length > 0 && (
         <div className="settings-field">
-          <span>Other downloaded models</span>
+          <span>Other downloaded files</span>
           <p className="settings-muted">
-            Omni handles Chat, Images and Voice. These files are left over from
-            an older install and are not used any more.
+            These LFM3 files are left over from an older install and are not used
+            any more. Removing one deletes it from this computer.
           </p>
           <div className="settings-row">
-            {unused.map((modelId) => {
-              const model = LOCAL_MODELS[modelId];
+            {retired.map((modelId) => {
+              const label = RETIRED_MODEL_LABELS[modelId];
               return (
                 <span className="settings-row" key={modelId}>
                   {confirmRemove === modelId ? (
@@ -469,10 +474,10 @@ export function ModelsSection({
                         className="button button-primary button-small"
                         disabled={saving}
                         onClick={() => {
-                          void remove(modelId);
+                          void removeRetired(modelId);
                         }}
                       >
-                        Remove {model.label}
+                        Remove {label}
                       </button>
                       <button
                         type="button"
@@ -492,7 +497,7 @@ export function ModelsSection({
                         setConfirmRemove(modelId);
                       }}
                     >
-                      Remove {model.label}…
+                      Remove {label}…
                     </button>
                   )}
                 </span>

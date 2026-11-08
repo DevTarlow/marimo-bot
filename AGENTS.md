@@ -397,6 +397,19 @@ reader is deciding whether their machine can run it. A section may open with the
 question it answers. No adjective doing a number's work, and no promise the build
 does not keep.
 
+**An update is woven in, not pasted over.** Change the sentence the change makes
+false, add the line the new thing earns, and leave the rest of the section
+standing. Replacing a passage wholesale drops detail nobody meant to lose and
+turns a two-line diff into a rewrite, so the reader cannot see what moved; the
+voice above belongs to the file, not to a rewrite. Leave content alone unless the
+build has actually moved past it.
+
+**`AGENTS.md` is held to the same rule.** This file is read as the current state
+of the working notes, the same way the README is read as the current state of the
+app: a paragraph that no longer matches the repository is corrected in place, in
+the same commit as the change that made it false, and it is corrected by weaving
+rather than by clearing the section. Neither file is a draft to be regenerated.
+
 ## The loop
 
 **A task is done when it is committed; the branch moves when a human says so.**

@@ -15,6 +15,7 @@
     "test": "vitest run",
     "smoke": "node scripts/smoke.mjs",
     "jobs-check": "node scripts/jobs-check.mjs",
+    "e2e": "node scripts/e2e.mjs",
     "package": "pnpm build && electron-builder --linux AppImage --publish never",
     "package:dir": "pnpm build && electron-builder --dir --publish never",
     "package:win": "pnpm build && electron-builder --win nsis --publish never",

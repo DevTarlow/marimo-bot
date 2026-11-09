@@ -151,7 +151,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `userData/skills/<name>/SKILL.md` prints its name and one line in the prompt;
     `load_skill` reads the body when a task matches. `enabledSkills` is the one
     grant and three things read it — the prompt, the library behind `load_skill`,
-    and the Settings switches. A grant change is not a reason to drop a host.
+    and the Settings switches. The reader is offered whenever the skill library
+    exists, not when the profile lists `load_skill`: there is no such switch, and
+    requiring one made the reader unreachable while the prompt kept advertising
+    the skill. A grant change is not a reason to drop a host.
 24. **The app starts no chat model.** The server is the person's process.
     `ModelServer` in `packages/runtime/src/model-server.ts` probes it and answers
     where a turn goes; nothing downloads weights, picks a port, spawns an engine,
@@ -331,9 +334,9 @@ model/
     mmproj-Q8_0.gguf
 ```
 
-The two live tests under `packages/runtime/src/recall/` use it. The chat model has
-no live check in the repository: a manual run against a real llama.cpp is the only
-thing that proves a turn returns `tool_calls` and an image reaches the encoder.
+The two live tests under `packages/runtime/src/recall/` use it. The chat model's
+live check is `scripts/e2e.mjs`, run against a real llama.cpp: it is the thing
+that proves a turn returns `tool_calls` and an image reaches the encoder.
 
 ## Learning
 
@@ -494,9 +497,10 @@ pnpm test             # vitest, everywhere
 pnpm --filter @marimo/desktop dev     # tsc -b, then Vite + Electron
 pnpm --filter @marimo/desktop smoke   # boot a real window and prove it works
 pnpm --filter @marimo/desktop jobs-check   # prove a due job runs in the app
+pnpm --filter @marimo/desktop e2e     # live journeys against your model server
 ```
 
-**The last three open a real window, and this app is tray-resident.** The app is
+**The last four open a real window, and this app is tray-resident.** The app is
 started detached by `scripts/app-process.mjs`, so `stopApp` can signal the process
 group; the pid a launcher hands back is a wrapper, not the app. Before calling the
 work finished, check:
@@ -555,11 +559,14 @@ else does.
   directory. The directory has to be laid out the way the app uses it — weights at
   the root or in a model's own subdirectory, engine in `engine/` — because that is
   where the supervisor takes the shared libraries from.
-- The chat model has no live check in the repository any more. A manual run
-  against a real llama.cpp (its model and, for pictures, `--mmproj`) is the only
-  thing that proves the transport, the tools-capable template and the image path
-  together; the smoke check uses a stand-in server and proves the window, not a
-  model.
+- The chat model's live check is `scripts/e2e.mjs`: it boots an isolated window
+  against a server the person is running, drives the composer and the approval
+  cards the way a user does, and asserts each turn's tool calls, files and answer
+  from the harness log. It needs a real server (default
+  `http://127.0.0.1:8080/v1`), is not in CI, and is what to run before claiming a
+  capability works: `pnpm --filter @marimo/desktop e2e --only chat --shot <dir>`.
+  A failing journey is an app bug or a model limit to record, not a check to
+  weaken.
 
 ## Packaging
 

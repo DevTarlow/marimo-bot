@@ -53,6 +53,7 @@ import {fileURLToPath} from 'node:url';
 
 
 import {appIsRunning, startApp, stopApp} from './app-process.mjs';
+import {attach, until as waitUntil} from './window-driver.mjs';
 
 const appRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const electron = join(appRoot, 'node_modules', '.bin', 'electron');
@@ -177,29 +178,14 @@ async function writeModelSettings(userData, url) {
   );
 }
 
-/** Waits for something, or gives up. */
-async function until(
-  what,
-  attempt,
-  {everyMs = 250, withinMs = DEADLINE_MS} = {},
-) {
-  const deadline = Date.now() + withinMs;
-  let last;
-  while (Date.now() < deadline) {
-    try {
-      const value = await attempt();
-      if (value !== undefined) {
-        return value;
-      }
-    } catch (error) {
-      last = error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, everyMs));
-  }
-  throw new Error(
-    `timed out waiting for ${what}${last ? `: ${last.message}` : ''}`,
-  );
-}
+/**
+ * The smoke's wait, on the shared loop.
+ *
+ * The env override belongs to this script: `MARIMO_SMOKE_TIMEOUT` was here
+ * before the loop was shared, and a caller that sets it still gets it.
+ */
+const until = (what, attempt, options = {}) =>
+  waitUntil(what, attempt, {withinMs: DEADLINE_MS, ...options});
 
 async function main() {
   const userData = await mkdtemp(join(tmpdir(), 'marimo-smoke-'));
@@ -3315,71 +3301,6 @@ async function main() {
     modelServer.server.close();
     await rm(userData, {recursive: true, force: true});
   }
-}
-
-/**
- * Wraps the socket in a request/response `send`.
- *
- * DevTools has no correlation beyond the id the client invents, so the pending
- * map is the whole of the protocol handling this check needs.
- *
- * The same socket carries the page's own console output, which is collected
- * rather than ignored: when a check fails, the renderer's complaint is usually
- * the only thing that says why, and it is not visible from the main process.
- */
-async function attach(socket) {
-  let nextId = 1;
-  const pending = new Map();
-  const console = [];
-
-  socket.addEventListener('message', (event) => {
-    let message;
-    try {
-      message = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-
-    if (message.method === 'Runtime.consoleAPICalled') {
-      const level = message.params?.type ?? 'log';
-      const text = (message.params?.args ?? [])
-        .map((arg) => arg?.value ?? arg?.description ?? '')
-        .join(' ');
-      if (text.length > 0) {
-        console.push(`${level}: ${text}`);
-      }
-      return;
-    }
-
-    const entry = pending.get(message.id);
-    if (entry === undefined) {
-      return;
-    }
-    pending.delete(message.id);
-    if (message.error) {
-      entry.reject(new Error(message.error.message));
-    } else {
-      entry.resolve(message.result);
-    }
-  });
-
-  const send = (method, params = {}) =>
-    new Promise((resolve, reject) => {
-      const id = nextId++;
-      pending.set(id, {resolve, reject});
-      socket.send(JSON.stringify({id, method, params}));
-      setTimeout(() => {
-        if (pending.delete(id)) {
-          reject(new Error(`${method} did not answer within 10s`));
-        }
-      }, 10_000);
-    });
-
-  // Asks for the console stream before anything else, so a complaint made
-  // during startup is not missed by being early.
-  await send('Runtime.enable');
-
-  return {send, console};
 }
 
 /**

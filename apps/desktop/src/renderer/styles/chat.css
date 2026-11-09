@@ -566,7 +566,13 @@ body.resizing-rail * {
   user-select: text;
 }
 
-.head-theme {
+/*
+ * The theme preference, as three pills rather than a menu: there are three
+ * states and each one is a word, so a select would hide two of them. It lives
+ * in Settings → Appearance, where the rest of the app's own look lives.
+ */
+.theme-switch {
+  align-self: flex-start;
   display: flex;
   gap: var(--space-1);
   padding: 2px;

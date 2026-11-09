@@ -68,6 +68,7 @@ import {
   defaultBotAvatarFor,
   SKILL_DESCRIPTION_MAX,
   SKILL_INSTRUCTIONS_MAX,
+  THEME_MODES,
 } from '@marimo/protocol';
 
 import {chosenPreset} from '../capabilities.js';
@@ -1154,6 +1155,46 @@ export function Settings({
             ? {}
             : {onOpenConversation: onOpenJobConversation})}
         />
+
+        {/*
+          The window's own colours, beside the companion because both are facts
+          about the app rather than about a bot: the theme reaches every window,
+          including the moss, and it is the same preference whichever chat is
+          open. It used to sit in the header, where it read as part of this
+          conversation.
+        */}
+        <SettingsSection title="Appearance" opened={opened} onToggle={fold}>
+          <div className="settings-field">
+            <span>Theme</span>
+            <div className="theme-switch" role="group" aria-label="Theme">
+              {THEME_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className="theme-button"
+                  /* Pressed means "this is the preference", not "this is the
+                     colour" — with System chosen, neither Light nor Dark is
+                     pressed even though one of them is what you are looking at. */
+                  aria-pressed={loaded.settings.appearance.theme === mode}
+                  disabled={saving}
+                  onClick={() => {
+                    void change(async () => {
+                      await window.marimo.call('settings.set', {
+                        patch: {appearance: {theme: mode}},
+                      });
+                    });
+                  }}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+            <em className="settings-why">
+              System uses this computer’s light or dark setting. Light and Dark
+              pin one.
+            </em>
+          </div>
+        </SettingsSection>
 
         <SettingsSection
           title="Desktop companion"

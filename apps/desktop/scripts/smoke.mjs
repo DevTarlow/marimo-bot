@@ -285,6 +285,34 @@ async function main() {
     };
 
     /**
+     * Opens a settings section the way a person does — a click on its heading.
+     *
+     * Idempotent, because the fold is stored: a walk can come back to a panel
+     * that is still open from an earlier visit. It lives here rather than beside
+     * its first use because the theme check runs in a later block.
+     */
+    const openSection = async (title) => {
+      await evaluate(`(() => {
+        const section = [...document.querySelectorAll('details.settings-section')]
+          .find((entry) => entry.querySelector('h3')?.textContent === ${JSON.stringify(title)});
+        if (section !== undefined && !section.open) {
+          section.querySelector('summary')?.click();
+        }
+      })()`);
+      const opened = await until(`the ${title} section to open`, async () => {
+        const value = await evaluate(`(() => {
+          const section = [...document.querySelectorAll('details.settings-section')]
+            .find((entry) => entry.querySelector('h3')?.textContent === ${JSON.stringify(title)});
+          return section === undefined ? undefined : section.open;
+        })()`);
+        return value === true ? true : undefined;
+      });
+      if (opened !== true) {
+        fail(`the ${title} section could not be opened`);
+      }
+    };
+
+    /**
      * Reloads the window and waits for the *new* document.
      *
      * A reload is not instant, and the document being replaced answers every
@@ -2393,33 +2421,6 @@ async function main() {
         );
       }
 
-      /**
-       * Opens a section the way a person does — a click on its heading.
-       *
-       * Idempotent, because the fold is stored: the walk below comes back to the
-       * Commands panel a second time and it is still open from the first visit.
-       */
-      const openSection = async (title) => {
-        await evaluate(`(() => {
-        const section = [...document.querySelectorAll('details.settings-section')]
-          .find((entry) => entry.querySelector('h3')?.textContent === ${JSON.stringify(title)});
-        if (section !== undefined && !section.open) {
-          section.querySelector('summary')?.click();
-        }
-      })()`);
-        const opened = await until(`the ${title} section to open`, async () => {
-          const value = await evaluate(`(() => {
-          const section = [...document.querySelectorAll('details.settings-section')]
-            .find((entry) => entry.querySelector('h3')?.textContent === ${JSON.stringify(title)});
-          return section === undefined ? undefined : section.open;
-        })()`);
-          return value === true ? true : undefined;
-        });
-        if (opened !== true) {
-          fail(`the ${title} section could not be opened`);
-        }
-      };
-
       /*
        * The Jobs card, seeded above. It has to list the job under its bot with
        * the schedule in words, and its Pause button has to go through the same
@@ -3184,30 +3185,53 @@ async function main() {
     }
 
     if (wantedTheme !== undefined) {
-      const clicked = await send('Runtime.evaluate', {
-        expression: `(() => {
-          const wanted = ${JSON.stringify(wantedTheme)};
-          const button = [...document.querySelectorAll('.theme-button')]
-            .find((entry) => entry.textContent.trim().toLowerCase() === wanted);
-          if (button === undefined) return false;
-          button.click();
-          return true;
-        })()`,
-        returnByValue: true,
-      });
+      /*
+       * The preference is a Settings → Appearance choice, not a header control,
+       * so the check opens that card and presses the pill. Written over the
+       * bridge instead, it would prove the setting lands but not that the window
+       * can make the choice.
+       */
+      await evaluate(
+        `[...document.querySelectorAll('.head button')]
+        .find((entry) => entry.textContent.trim() === 'Settings')?.click()`,
+      );
+      await until('the settings cards', async () =>
+        (await evaluate(
+          `document.querySelector('details.settings-section') !== null`,
+        )) === true
+          ? true
+          : undefined,
+      );
+      await openSection('Appearance');
+      const clicked = await evaluate(`(() => {
+        const wanted = ${JSON.stringify(wantedTheme)};
+        const button = [...document.querySelectorAll('.theme-button')]
+          .find((entry) => entry.textContent.trim().toLowerCase() === wanted);
+        if (button === undefined) return false;
+        button.click();
+        return true;
+      })()`);
 
-      if (clicked.result?.value !== true) {
+      if (clicked !== true) {
         fail(`there is no "${wantedTheme}" control to switch to`);
       } else {
         await until(`the theme to become ${wantedTheme}`, async () => {
-          const {result} = await send('Runtime.evaluate', {
-            expression: 'document.documentElement.dataset.theme',
-            returnByValue: true,
-          });
-          return result?.value === wantedTheme ? true : undefined;
+          const value = await evaluate(
+            'document.documentElement.dataset.theme',
+          );
+          return value === wantedTheme ? true : undefined;
         });
         ok(`switched to the ${wantedTheme} theme`);
       }
+
+      /*
+       * Back to the chat before the screenshot, which is about the window rather
+       * than about the card that changed the preference.
+       */
+      await evaluate(
+        `[...document.querySelectorAll('.settings-head button')]
+        .find((entry) => entry.textContent.trim() === 'Back to chat')?.click()`,
+      );
     }
 
     /*

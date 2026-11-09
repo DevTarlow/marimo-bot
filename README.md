@@ -140,6 +140,8 @@ Bots sit at the top of the sidebar, and picking one shows its chats. Settings ha
 
 Drag the sidebar's right edge to widen it. The width is remembered.
 
+Settings → **Appearance** has the theme: **System** uses this computer's light or dark setting, and **Light** or **Dark** pins one.
+
 Several bots can share a chat, so type `@` to put a question to one of them. Marimo Bot can also hand work to a bot.
 
 The helper runs with that bot's tools in the same chat. If it needs permission, the card appears there, and the helper continues after you approve.

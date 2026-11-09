@@ -6,19 +6,19 @@
  * invent a layout, and every departure from the shape people already know is a
  * thing they have to learn before they can ask a question.
  *
- * The theme switch is a preview for now — the preference is a settings write
- * that lands with Settings — but the tokens underneath it are the real ones, so
- * what it previews is what will ship.
+ * The theme is resolved here — `system` against what the operating system
+ * reported — and written from Settings → Appearance. A change there arrives as
+ * `theme.changed`, so the window repaints without the reload that a preference
+ * read only at launch would need.
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
-import {COMMAND_IDS, COMMANDS, THEME_MODES} from '@marimo/protocol';
+import {COMMAND_IDS, COMMANDS} from '@marimo/protocol';
 import type {
   AppInfo,
   ProfileCatalog,
   PublicSettings,
   Theme,
-  ThemeMode,
 } from '@marimo/protocol';
 
 import {Composer} from './components/Composer.js';
@@ -326,13 +326,6 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     document.documentElement.dataset['theme'] = theme;
   }, [theme]);
-
-  /** Writes the preference. The event that comes back is what moves the switch. */
-  const setThemeMode = (mode: ThemeMode): void => {
-    void window.marimo
-      .call('settings.set', {patch: {appearance: {theme: mode}}})
-      .catch(() => undefined);
-  };
 
   /**
    * Writes the width a drag settled on.
@@ -950,24 +943,6 @@ export function App(): React.JSX.Element {
           >
             Settings
           </button>
-          <div className="head-theme" role="group" aria-label="Theme">
-            {THEME_MODES.map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className="theme-button"
-                /* Pressed means "this is the preference", not "this is the
-                   colour" — with `system` chosen, neither Light nor Dark is
-                   pressed even though one of them is what you are looking at. */
-                aria-pressed={agent.themeMode === mode}
-                onClick={() => {
-                  setThemeMode(mode);
-                }}
-              >
-                {mode}
-              </button>
-            ))}
-          </div>
         </header>
 
         {info?.warning !== undefined && (

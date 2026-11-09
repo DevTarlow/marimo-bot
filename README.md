@@ -102,7 +102,7 @@ Turn it on in Settings and the bot can download an `http` or `https` page up to 
 
 The Documents drawer lists the files already in the folder, hidden ones included. Only the app's own state, `.git`, dependency and build folders stay out. You can edit any UTF-8 text file there, and the bot sees your changes.
 
-A binary file such as an image or a PDF is listed too. But the app says it cannot open it as text rather than damaging it.
+A picture is listed too, and clicking it opens it in the viewer, at the size a picture in the chat gets. The editor still opens UTF-8 text only: a PDF or another binary file is listed, and the app says it cannot open it as text rather than damaging it.
 
 Markdown gets a Preview. Everything else is edited as source. If a bot writes a file, it appears in the drawer.
 

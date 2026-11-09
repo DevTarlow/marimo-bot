@@ -135,10 +135,12 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     refused.
 21. **A Space's documents are the folder's files, not a second copy.** The
     library lists every regular file, hidden ones included, and the editor opens
-    the UTF-8 text ones. `.marimo/` and `.git/` are skipped. A file that is not
-    UTF-8 text is listed and refused when opened, never decoded into a string and
-    saved back as damage. The caps (500 files, eight levels, one megabyte) say
-    when they stopped rather than answering as if the folder ended there.
+    the UTF-8 text ones. A picture is opened in the viewer through the same
+    `marimo-asset://` URL the transcript uses: it is shown, not read as text.
+    `.marimo/` and `.git/` are skipped. Any other file that is not UTF-8 text is
+    listed and refused when opened, never decoded into a string and saved back as
+    damage. The caps (500 files, eight levels, one megabyte) say when they stopped
+    rather than answering as if the folder ended there.
 22. **A prompt must not advertise a capability the profile does not have.** The
     tool list and the prompt agree, or the model narrates a capability it was
     never given. The `# Tools you have` block is built from the definitions the

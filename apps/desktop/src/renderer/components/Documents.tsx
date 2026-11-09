@@ -11,10 +11,11 @@
  * turn is started. It lists what `docs.list` sent, reads one file at a time,
  * and writes it back only through `docs.write`, whose whole design is that a
  * file which moved underneath the editor is a question rather than a silent
- * overwrite. A binary file is listed too, and the read that refuses it is the
- * sentence the library shows: nothing is opened and nothing is written. The
- * conflict path below is the point of the feature; everything else is the
- * machinery that gets a person to it.
+ * overwrite. A picture is opened in the viewer rather than read as text; any
+ * other binary file is listed and the read that refuses it is the sentence the
+ * library shows: nothing is opened and nothing is written. The conflict path
+ * below is the point of the feature; everything else is the machinery that gets
+ * a person to it.
  *
  * It stays mounted while closed, and that is deliberate: a draft typed in the
  * last second before the drawer is shut still has an autosave coming, and
@@ -28,6 +29,8 @@ import type {
   DocumentRead,
   Workspace,
 } from '@marimo/protocol';
+
+import {isImagePath, spaceImageUrl} from '@marimo/protocol';
 
 import {formatBytes} from '../bytes.js';
 import {describe} from '../describe.js';
@@ -49,6 +52,8 @@ import {
   MIN_DOCUMENTS_WIDTH,
 } from '../layout.js';
 import {Markdown} from './Markdown.js';
+import {ImageViewer} from './MessageFiles.js';
+import type {PreviewTarget} from './MessageFiles.js';
 
 import './documents.css';
 
@@ -114,6 +119,16 @@ export function Documents({
   const [listNotes, setListNotes] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [editor, setEditor] = useState<OpenDocument | null>(null);
+  /**
+   * A picture opened from the library.
+   *
+   * Not an editor and not a read: the library lists pictures beside text files,
+   * and clicking one used to ask `docs.read` for its UTF-8 text, which is the
+   * refusal the person then saw. The viewer is the same one the transcript uses
+   * and the URL is the same `marimo-asset://` one, so a picture in the Space is
+   * looked at rather than turned into an error.
+   */
+  const [preview, setPreview] = useState<PreviewTarget | null>(null);
   const [mode, setMode] = useState<Mode>('edit');
   const [status, setStatus] = useState<Status>('idle');
   /**
@@ -480,6 +495,36 @@ export function Documents({
       }
     },
     [adopt, save],
+  );
+
+  const closePreview = useCallback((): void => {
+    setPreview(null);
+  }, []);
+
+  /**
+   * Opens a row: a text file in the editor, a picture in the viewer.
+   *
+   * A draft in the editor is left alone by a preview — the modal sits over it,
+   * and the autosave that owns the draft is not interrupted for a look at a
+   * neighbouring file.
+   */
+  const openFromLibrary = useCallback(
+    (file: DocumentEntry): void => {
+      if (!isImagePath(file.path)) {
+        void openDocument(file.path);
+        return;
+      }
+      if (profileId === undefined || sessionId === null) {
+        setProblem('Open a conversation to see this picture.');
+        return;
+      }
+      setProblem(null);
+      setPreview({
+        source: spaceImageUrl(profileId, sessionId, file.path),
+        name: file.name,
+      });
+    },
+    [openDocument, profileId, sessionId],
   );
 
   /** Closes the editor, with the same rule as opening another file. */
@@ -1066,7 +1111,7 @@ export function Documents({
                               : undefined
                           }
                           onClick={() => {
-                            void openDocument(file.path);
+                            openFromLibrary(file);
                           }}
                         >
                           <span className="documents-row-name">
@@ -1253,6 +1298,8 @@ export function Documents({
           </div>
         )}
       </div>
+
+      <ImageViewer target={preview} onClose={closePreview} />
     </aside>
   );
 }

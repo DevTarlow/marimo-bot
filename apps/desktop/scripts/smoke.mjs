@@ -1988,6 +1988,72 @@ async function main() {
           fail(`the drawer says nothing about what it is: ${opened.text}`);
         } else {
           ok('the documents drawer opens onto the space it is about');
+
+          /*
+           * A picture in the library is a picture, not a failed text read.
+           * Clicking its row asks the viewer, and the drawer used to ask
+           * docs.read for UTF-8 text and print the refusal instead.
+           */
+          const pictureRow = await until('the picture row', async () => {
+            const value = await evaluate(`(() => {
+              const row = [...document.querySelectorAll('.documents-row')].find(
+                (entry) =>
+                  (entry.querySelector('.documents-row-name')?.textContent ?? '') ===
+                  'smoke-shot.png',
+              );
+              return row === undefined ? undefined : true;
+            })()`);
+            return value === true ? true : undefined;
+          });
+          if (pictureRow !== true) {
+            fail('the documents library did not list the picture');
+          } else {
+            await evaluate(`(() => {
+              const row = [...document.querySelectorAll('.documents-row')].find(
+                (entry) =>
+                  (entry.querySelector('.documents-row-name')?.textContent ?? '') ===
+                  'smoke-shot.png',
+              );
+              row?.click();
+            })()`);
+            const pictureViewer = await until(
+              'the picture viewer to open',
+              async () => {
+                const value = await evaluate(`(() => {
+                  const image = document.querySelector('.image-viewer-image');
+                  return image === null
+                    ? undefined
+                    : JSON.stringify({
+                        src: image.getAttribute('src'),
+                        name: image.getAttribute('alt'),
+                      });
+                })()`);
+                return value === undefined ? undefined : JSON.parse(value);
+              },
+            );
+            if (!String(pictureViewer.src ?? '').startsWith('marimo-asset://space/')) {
+              fail(
+                `the picture viewer did not use the Space's asset URL: ${pictureViewer.src}`,
+              );
+            } else if (pictureViewer.name !== 'smoke-shot.png') {
+              fail(`the picture viewer named ${pictureViewer.name}`);
+            } else {
+              ok('a picture in the documents library opens in the viewer');
+            }
+            await evaluate(`(() => {
+              const close = document.querySelector('.image-viewer-close');
+              close?.click();
+            })()`);
+            const closed = await until('the picture viewer to close', async () => {
+              const value = await evaluate(
+                `document.querySelector('.image-viewer') === null`,
+              );
+              return value === true ? true : undefined;
+            });
+            if (closed !== true) {
+              fail('the picture viewer did not close');
+            }
+          }
         }
 
         /*

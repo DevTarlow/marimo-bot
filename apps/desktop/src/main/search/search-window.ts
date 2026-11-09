@@ -30,6 +30,7 @@ import {
   challengeIsFinal,
   normalizeExtraction,
 } from './parse.js';
+import {withChallengeRetry} from './retry.js';
 import {searchUserAgent} from './user-agent.js';
 
 const DEFAULT_ENGINE_URL = 'https://duckduckgo.com/';
@@ -56,14 +57,35 @@ export class BrowserSearchProvider implements WebSearchProvider {
 
   search(request: WebSearchRequest): Promise<WebSearchResult[]> {
     const run = this.queue.then(
-      () => this.runSearch(request),
-      () => this.runSearch(request),
+      () => this.attemptWithRetry(request),
+      () => this.attemptWithRetry(request),
     );
     this.queue = run.then(
       () => undefined,
       () => undefined,
     );
     return run;
+  }
+
+  /**
+   * One search, and one more window if the engine challenged the first.
+   *
+   * The challenge is intermittent — the same query can be refused and then
+   * answered — and the model used to be the retry. Keeping it here means one
+   * tool call reports what a person would get from a second look, and the
+   * challenge grace is already the provider's job.
+   */
+  private attemptWithRetry(
+    request: WebSearchRequest,
+  ): Promise<WebSearchResult[]> {
+    return withChallengeRetry(() => this.runSearch(request), {
+      ...(request.signal === undefined ? {} : {signal: request.signal}),
+      onRetry: () => {
+        console.log(
+          '[marimo] the search engine challenged the first attempt; retrying once',
+        );
+      },
+    });
   }
 
   /** Destroys any live search window and refuses further searches. */

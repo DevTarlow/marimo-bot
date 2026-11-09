@@ -173,10 +173,9 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     (where the button reads **Continue without tools**) and on the composer
     badge, because a green dot over a bot that cannot touch a file is the failure
     this warning exists to prevent. The app's old template asset and
-    `localModelArgs` are gone with the engine they configured; a tools-capable
-    Qwen2.5-VL example lives in `docs/qwen2.5-vl-tools.jinja` for a person to pass
-    to their own server. A turn that gets prose where a call was wanted is a
-    server setting to fix, not a prompt bug.
+    `localModelArgs` are gone with the engine they configured. A turn that gets
+    prose where a call was wanted is a model choice to fix, not a prompt bug: use
+    a model whose template renders tools.
 27. **A false file-tool denial is corrected in the prompt, never in the log.** A
     replayed assistant message that says it cannot edit files is replaced with a
     user-role correction when the turn actually offers `write_file`; the stored
@@ -304,6 +303,14 @@ There is no API key, no hosted provider and no provider address. A server starte
 with `--api-key` is refused with a sentence rather than sent an empty credential.
 A server on another machine is refused by the URL schema; that is the privacy
 promise in code, not a preference.
+
+The configuration the guide recommends — and the one a manual live check runs — is
+llama.cpp with the Gemma 4 12B IT QAT `UD-Q4_K_XL` GGUF and its projector, at a 16K
+window, flash attention with a q8 KV cache and `-ub 1120` for the vision budget.
+It is a reference, not a catalogue: the app still ships, downloads and selects no
+model. The recommendation lives in four README places — Model server, Getting
+started, Questions and Requirements — and in the Model server card's command;
+changing it is one commit across all of them.
 
 Settings → Model server owns the address, the model, the fallback window, **Test
 connection** and the cleanup list for the old Qwen, engine and LFM3 directories.

@@ -24,7 +24,7 @@ The chat window and the moss ball share one conversation. A question you ask fro
 ## The short version
 
 - Work in a folder, not a chat that forgets where it is.
-- Run whatever model server you like, on this computer.
+- Run the model server this build is tested with — Gemma 4 12B on llama.cpp — or your own, on this computer.
 - Attach a picture and a vision-capable server can read it.
 - Search the web when the answer is not on this machine.
 - Make bots for writing, research, code or whatever you repeat.
@@ -260,25 +260,47 @@ It deliberately leaves the model server setting, the Space, the icon and memory 
 
 No model comes inside the app, and the app does not download a chat model.
 
-The app answers with an OpenAI-compatible server on this computer. [llama.cpp](https://github.com/ggml-org/llama.cpp) is the one this guide uses, because it is what the app was built and tested against:
+The app answers with an OpenAI-compatible server on this computer. [llama.cpp](https://github.com/ggml-org/llama.cpp) is the one this guide uses, because it is what the app was built and tested against.
+
+### The tested setup
+
+The setup this build is developed and tested against is **Gemma 4 12B IT** at **UD-Q4_K_XL** (about 6.3 GB), with its vision projector, served by llama.cpp:
 
 ```bash
-llama-server -m your-model.gguf --port 8080 --jinja -c 32768
+llama-server \
+  -m gemma-4-12B-it-qat-UD-Q4_K_XL.gguf \
+  --mmproj mmproj-F16.gguf \
+  -c 16384 -fa on -ngl 99 \
+  --parallel 1 -ub 1120 \
+  -ctk q8_0 -ctv q8_0 \
+  --jinja --host 127.0.0.1 --port 8080
 ```
 
-Start that, then put `http://127.0.0.1:8080/v1` in the first run or in Settings → Model server. The address is normalised: `localhost:8080` becomes `http://localhost:8080/v1`, and a pasted trailing slash is ignored.
+Get the GGUF and its projector (`mmproj-F16.gguf` or `mmproj-F32.gguf`) from the model's repository — in LM Studio, search for `unsloth/gemma-4-12B-it-qat-GGUF` — and run the command from the folder that holds them. The flags matter:
+
+- `-c 16384` is the window. The harness keeps a quarter of it back, so a turn gets about 12K.
+- `-fa on` with `-ctk q8_0 -ctv q8_0` is flash attention and a quantized key/value cache. The two travel together.
+- `-ub 1120` raises the vision token budget, which llama.cpp otherwise caps at 512.
+- `--parallel 1` is one turn at a time, which is how the app runs.
+- `--jinja` uses the model's own template, which is where tool calls and vision are defined.
+- `--mmproj` is the image projector. Without it the model still answers text, but it cannot read an attachment.
+- `--host 127.0.0.1` keeps the server on this computer. Use `0.0.0.0` only if another device needs it.
+
+It needs about **10 GB** of graphics memory, or the same in system memory when it runs on the processor, and about **6.5 GB** of disk for the model and projector. On a smaller card, lower `-c` to 8192 for about 6K a turn, or use a smaller model. With no usable card, change `-ngl 99` to `-ngl 0`. If your llama.cpp build refuses the quantized cache, drop `-ctk q8_0 -ctv q8_0`; it will need more memory.
+
+Any OpenAI-compatible server works, and any model works if its chat template includes tool calls. The setup above is the one this build is tested against.
+
+Start it, then put `http://127.0.0.1:8080/v1` in the first run or in Settings → Model server. The address is normalised: `localhost:8080` becomes `http://localhost:8080/v1`, and a pasted trailing slash is ignored.
 
 **Only this computer is allowed.** The app accepts `localhost`, `127.0.0.1` and `::1`. A public address, a public IP or a server on your network is refused with a sentence; it is not a list of providers the app will not use, it is the one place a conversation can go.
 
 The model is whatever the server loaded. **Test connection** asks the server what it reports and fills the model list from `/v1/models`. Leave the model field blank to use the first one; a server with several loaded models can be pointed at one by name.
 
-**The window comes from the server.** The app asks `/props` for the server's context size, and uses that when it answers. When the server does not report one, the Context window field is the fallback. The harness keeps a quarter of it back for the reply and the tool schemas, so a 32K server gives a turn about 24K.
+**The window comes from the server.** The app asks `/props` for the server's context size, and uses that when it answers. When the server does not report one, the Context window field is the fallback. The harness keeps a quarter of it back for the reply and the tool schemas, so the tested 16K server gives a turn about 12K.
 
-**The model has to know how to call tools.** Most current models ship a chat template that includes tool calls; for those, `--jinja` is the only flag you need. If the server reports a template with no tools block, the turn still runs, but the bot can only talk: it cannot read your files, run jobs or use connectors, and it may describe work it did not do. The first run says that before you continue and the button reads **Continue without tools**; the Model server card and the composer's **no tools** badge keep saying it afterwards. The fix is a model whose template includes tool calls, or a tools-capable template passed to the server.
+**The model has to know how to call tools.** The tested model's template includes tool calls, and `--jinja` is what makes llama.cpp use it. If a server reports a template with no tools block, the turn still runs, but the bot can only talk: it cannot read your files, run jobs or use connectors, and it may describe work it did not do. The first run says that before you continue and the button reads **Continue without tools**; the Model server card and the composer's **no tools** badge keep saying it afterwards. The fix is a model whose template includes tool calls.
 
-Qwen2.5-VL, the model this app used to ship, is the known case: its own GGUF template has no tools block. A tools-capable version is in [docs/qwen2.5-vl-tools.jinja](./docs/qwen2.5-vl-tools.jinja); download it and add `--chat-template-file /path/to/qwen2.5-vl-tools.jinja` to the command above. Newer models such as Qwen3 usually need no extra file.
-
-**Pictures need a projector.** A vision model answers text without its image encoder, but it cannot read an attachment. In llama.cpp, add `--mmproj mmproj.gguf` (the file from the model's repository) to the command above.
+**Pictures need a projector.** A vision model answers text without its image encoder, but it cannot read an attachment. The tested command points `--mmproj` at the projector; a different vision model needs its own projector file.
 
 The app never starts, stops, sleeps or upgrades the server. That process, its memory, its graphics card settings and its own idle behaviour are yours. Settings → Model server only says whether it answers, what it calls its model and how large its window is.
 
@@ -338,7 +360,7 @@ If you have the app, the first run asks a few questions and then shows only the 
 
 1. **Choose a setup style.** **Regular** gives Marimo Bot the Standard tools and keeps the path short. **Power** gives it every tool the app has (writing files, running commands, scheduling jobs and handing work to your other bots) and opens the extra steps, including the jobs step when you choose scheduling. Where a tool can act, a command or a replacement of an existing file still asks you first. You can change this later in Settings.
 2. **Say what you want to do.** Pick any of: use your files, research the web, write and edit, work on code, build a team of bots, look at pictures, or run jobs on a schedule. These choose which steps appear and which starter bot is suggested. They do not give Marimo Bot any tools. Scheduling is part of Power setup. The other goals are available either way, and choosing a writing or coding goal suggests a bot with its own tools.
-3. **Connect your model server.** Start your server first: for llama.cpp, `llama-server -m your-model.gguf --port 8080 --jinja -c 32768`. The step offers `http://127.0.0.1:8080/v1` and a **Test connection** button. It fills the model from what the server reports, so there is no file to download and no engine to wait for. This is the only required step: Continue stays disabled until the address answers. If the template has no tools block, the step warns and the button says **Continue without tools**: you can still chat, but the bot cannot touch your files. **Set this up later** closes the flow, and Settings → Model server is where to connect it afterwards. Pictures need the server started with `--mmproj`.
+3. **Connect your model server.** Start your server first — the command in [Model server](#model-server) is the setup this build is tested against (Gemma 4 12B and its projector). The step offers `http://127.0.0.1:8080/v1` and a **Test connection** button. It fills the model from what the server reports, so the app has no file to download and no engine to wait for. This is the only required step: Continue stays disabled until the address answers. If the template has no tools block, the step warns and the button says **Continue without tools**: you can still chat, but the bot cannot touch your files. **Set this up later** closes the flow, and Settings → Model server is where to connect it afterwards. Pictures need the server started with `--mmproj`.
 4. **Choose a Space.** Marimo starts you in `Marimo`, a folder it creates inside your home folder. Pick another folder if your work already lives somewhere else. The app can read and write there, and nowhere else. You can skip this.
 5. **Make a bot, if a goal calls for one.** Start from the suggested role, build it step by step or talk it through with Marimo. Some goals (files or pictures on their own) do not need a bot and skip this step. The `+` beside Bots makes one later.
 6. **Make it yours.** Pick an icon, and write its Persona. The starter Persona is there to change or keep. The Role is shown greyed out: it is the app's brief for the bot, it shapes how the bot works with the others, and Settings is where you change it.
@@ -380,11 +402,11 @@ Yes, when the server and the model are on this computer. No network is needed fo
 
 ### Do I need a graphics card?
 
-The app has no opinion. It sends the request and the server decides. llama.cpp runs on the processor when it has no usable card, and offloads to one when it does; that is its setting, not this app's. Recall is the exception: it stays on the processor because its model card warns that the activations can overflow float16 on a GPU.
+The app has no opinion. It sends the request and the server decides. llama.cpp runs on the processor when it has no usable card, and offloads to one when it does; that is its setting, not this app's. The tested command uses `-ngl 99` to put every layer on the card; with no usable card, change it to `-ngl 0` and expect it to be slower. Recall is the exception: it stays on the processor because its model card warns that the activations can overflow float16 on a GPU.
 
 ### How much memory does it need?
 
-Whatever the model you loaded needs, plus the server's own overhead. A 7B model at 4-bit with a 32K window is about 8 GB; a larger model or a larger window needs more. The app asks the server how large its window is and keeps a quarter of it back for the reply and the tool schemas.
+Whatever the model you loaded needs, plus the server's own overhead. The setup this build is tested against — Gemma 4 12B at Q4 with a 16K window and the vision projector — is about 10 GB. A 7B model at Q4 with a 32K window is about 8 GB; a larger model or a larger window needs more. The app asks the server how large its window is and keeps a quarter of it back for the reply and the tool schemas.
 
 ### Where are my files?
 
@@ -425,9 +447,9 @@ See the next section for the short answer: Windows and macOS installers, automat
 Will it run on my machine?
 
 - A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
-- Room for whatever model you run, in the shape your server wants it. The app adds nothing to that.
+- Room for whatever model you run, in the shape your server wants it. The tested model and its projector take about 6.5 GB; the app adds nothing to that.
 - About 310 MB of disk for Recall, or 865 MB with media search. An upgrade from an old version needs room for its leftover chat files until you remove them from Settings → Model server.
-- Enough memory for your model and its window. A 7B model at Q4 with a 32K window is about 8 GB of graphics or system memory.
+- Enough memory for your model and its window. The tested Gemma 4 12B at Q4 with a 16K window is about 10 GB of graphics or system memory; a 7B model at Q4 with a 32K window is about 8 GB.
 - No account and no key. A graphics card is not required; your server decides whether to use one.
 
 The app carries no hosted service. It answers from a server on this computer, and Recall downloads its own small model.

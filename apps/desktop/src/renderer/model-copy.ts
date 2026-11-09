@@ -28,19 +28,17 @@ export function cannotCallTools(
   return status?.state === 'ready' && status.tools === false;
 }
 
-/** The Settings card: what is broken, what stops working, and the two fixes. */
+/** The Settings card: what is broken, what stops working, and the fix. */
 export const TOOLS_OFF_CARD =
   'This server’s chat template has no tools block, so the bot can answer but ' +
   'cannot read your files, run jobs or use connectors — and it may describe ' +
-  'work it did not do. Use a model whose template includes tool calls, or ' +
-  'start llama.cpp with --chat-template-file and a tools-capable template.';
+  'work it did not do. Use a model whose template includes tool calls.';
 
 /** The first run, beside the button that decides whether to continue. */
 export const TOOLS_OFF_SETUP =
   'This server can answer, but its template cannot call tools, so the bot ' +
   'will not be able to read your files or run jobs. Use a model whose ' +
-  'template includes tool calls, or start the server with a tools-capable ' +
-  'template.';
+  'template includes tool calls.';
 
 /** The composer badge, in the tooltip the badge already has. */
 export const TOOLS_OFF_BADGE =

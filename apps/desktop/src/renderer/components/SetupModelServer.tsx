@@ -65,9 +65,11 @@ export function SetupModelServer({
         and no download.
       </p>
       <p className="onboarding-note">
-        The default is llama.cpp on <code>http://127.0.0.1:8080/v1</code>, with
-        your model loaded. A server on another machine is refused: only
-        localhost, 127.0.0.1 and ::1 are accepted.
+        The setup this build is tested against is llama.cpp with Gemma 4 12B and
+        its projector; the command is under the fields. The address is{' '}
+        <code>http://127.0.0.1:8080/v1</code>, and only this computer is
+        accepted: localhost, 127.0.0.1 and ::1. Any OpenAI-compatible server
+        whose model can call tools works too.
       </p>
 
       <ModelServerForm

@@ -18,6 +18,23 @@ import type {PublicSettings} from '@marimo/protocol';
 import {useModelServer} from '../hooks/useModelServer.js';
 import {cannotCallTools, TOOLS_OFF_CARD} from '../model-copy.js';
 
+/**
+ * The llama.cpp invocation the guide is built and tested against.
+ *
+ * An array rather than one long line so the breaks are explicit: the card
+ * preserves them, and a command wrapped by the source's indentation would not
+ * paste back into a shell.
+ */
+const TESTED_SERVER_COMMAND = [
+  'llama-server \\',
+  '  -m gemma-4-12B-it-qat-UD-Q4_K_XL.gguf \\',
+  '  --mmproj mmproj-F16.gguf \\',
+  '  -c 16384 -fa on -ngl 99 \\',
+  '  --parallel 1 -ub 1120 \\',
+  '  -ctk q8_0 -ctv q8_0 \\',
+  '  --jinja --host 127.0.0.1 --port 8080',
+].join('\n');
+
 export function ModelServerForm({
   settings,
   onSettings,
@@ -211,10 +228,13 @@ export function ModelServerForm({
         picture gets the server’s own complaint rather than an answer.
       </p>
 
+      <p className="settings-muted">
+        The configuration this build is tested against, with Gemma 4 12B and its
+        projector (about 10 GB of memory):
+      </p>
+
       <pre className="model-server-command">
-        <code>
-          llama-server -m your-model.gguf --port 8080 --jinja -c 32768
-        </code>
+        <code>{TESTED_SERVER_COMMAND}</code>
       </pre>
     </div>
   );

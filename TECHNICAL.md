@@ -124,6 +124,15 @@ for them. Now the app starts nothing. It talks to an OpenAI-compatible server on
 the same computer — llama.cpp on `127.0.0.1:8080`, or anything else that speaks
 the API — and the model is whatever that server loaded.
 
+**The reference configuration is documentation, not a catalogue.** The build is
+developed and tested against llama.cpp with the Gemma 4 12B IT QAT `UD-Q4_K_XL`
+GGUF and its vision projector, a 16K window, flash attention with a q8 KV cache
+and `-ub 1120` so a picture gets more than llama.cpp's 512-token default. The
+exact command lives in the README's Model server section and in the Model server
+card. Nothing in the app downloads, lists or chooses a model; the reference exists
+so a person has one known-good setup, and every other tools-capable model stays
+welcome.
+
 **One endpoint, and it is on this computer.** `packages/protocol/src/model-server.ts`
 holds the block and the rules: a base URL, a model name and a fallback window.
 The URL schema accepts only `localhost`, a `127.*` literal or `[::1]`, normalises

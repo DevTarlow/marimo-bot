@@ -169,7 +169,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     one it did not start.** `--jinja` or a model whose own template renders
     `tool_calls` is the person's setup. The probe reads `/props.chat_template_caps`
     first and the template text only as a fallback, and reports `tools: false` as
-    a warning on the card rather than a refusal. The app's old template asset and
+    a warning rather than a refusal: on the Model server card, at the first run
+    (where the button reads **Continue without tools**) and on the composer
+    badge, because a green dot over a bot that cannot touch a file is the failure
+    this warning exists to prevent. The app's old template asset and
     `localModelArgs` are gone with the engine they configured; a tools-capable
     Qwen2.5-VL example lives in `docs/qwen2.5-vl-tools.jinja` for a person to pass
     to their own server. A turn that gets prose where a call was wanted is a

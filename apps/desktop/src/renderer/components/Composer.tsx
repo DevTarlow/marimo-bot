@@ -44,6 +44,7 @@ import type {CommandId, PickedFile, SkippedFile} from '@marimo/protocol';
 import {composeMessage, describeSkipped} from '../attachments.js';
 import {describe} from '../describe.js';
 import {addressedAgent, mentionAt} from '../mentions.js';
+import {TOOLS_OFF_BADGE} from '../model-copy.js';
 import type {Participant} from '../participants.js';
 import {Popover, PopoverItem} from './Popover.js';
 import type {PopoverAnchor} from './Popover.js';
@@ -68,6 +69,7 @@ export function Composer({
   disabled,
   modelLabel,
   modelState,
+  modelTools,
   onOpenModelServer,
   onPickFiles,
   commands,
@@ -99,6 +101,15 @@ export function Composer({
   modelLabel?: string;
   /** Its process state, drawn as a dot: awake, waking, resting, failed. */
   modelState?: 'awake' | 'waking' | 'resting' | 'failed';
+  /**
+   * Whether that server can render tool calls, when it answered at all.
+   *
+   * A server that cannot is still awake — the dot and the model name are true —
+   * but the badge must not read as healthy: the bot can chat and cannot touch a
+   * file, run a job or use a connector, which is the whole of what people come
+   * here to do. Undefined while the server is off or unknown.
+   */
+  modelTools?: boolean;
   /** Opens Settings → Model server. The badge is the route to managing it. */
   onOpenModelServer?: () => void;
   /**
@@ -524,11 +535,18 @@ export function Composer({
             <button
               type="button"
               className={`composer-model-badge is-${modelState ?? 'resting'}`}
-              title={`${modelLabel ?? 'No model server'} — open Settings → Model server to change it.`}
+              title={
+                modelTools === false
+                  ? `${modelLabel} — ${TOOLS_OFF_BADGE}. Open Settings → Model server.`
+                  : `${modelLabel ?? 'No model server'} — open Settings → Model server to change it.`
+              }
               onClick={onOpenModelServer}
             >
               <span className="composer-model-dot" aria-hidden="true" />
-              <span>{modelLabel}</span>
+              <span className="composer-model-name">{modelLabel}</span>
+              {modelTools === false && (
+                <span className="composer-model-state is-warning">no tools</span>
+              )}
               {modelState === 'waking' && (
                 <span className="composer-model-state">waking…</span>
               )}

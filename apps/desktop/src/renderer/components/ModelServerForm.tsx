@@ -16,6 +16,7 @@ import {useEffect, useRef} from 'react';
 import type {PublicSettings} from '@marimo/protocol';
 
 import {useModelServer} from '../hooks/useModelServer.js';
+import {cannotCallTools, TOOLS_OFF_CARD} from '../model-copy.js';
 
 export function ModelServerForm({
   settings,
@@ -188,12 +189,8 @@ export function ModelServerForm({
         </p>
       )}
 
-      {status.tools === false && (
-        <p className="settings-problem">
-          This server’s chat template cannot render tool calls, so a tool call
-          may come back as prose. Start it with <code>--jinja</code> and a model
-          whose template renders tools, or pass a tools-capable template.
-        </p>
+      {cannotCallTools(status) && (
+        <p className="settings-problem">{TOOLS_OFF_CARD}</p>
       )}
 
       {status.vision === false && (

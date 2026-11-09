@@ -2780,6 +2780,12 @@ body.resizing-rail * {
   margin-top: var(--space-4);
 }
 
+/* The first run's tools-off warning borrows the chat's warning strip, without
+ * the window-wide margins that strip is given above the transcript. */
+.setup-tools-warning {
+  margin: var(--space-3) 0 0;
+}
+
 /* The two buttons a first run offers, side by side rather than stacked. */
 .onboarding-actions {
   display: flex;
@@ -3471,6 +3477,14 @@ body.resizing-rail * {
   background: var(--text-faint);
 }
 
+/* A long model name gives way to the state beside it: "no tools" is the part
+ * that must not be clipped out of the badge. */
+.composer-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .composer-model-badge.is-awake .composer-model-dot {
   background: var(--success);
 }
@@ -3491,7 +3505,14 @@ body.resizing-rail * {
 }
 
 .composer-model-state {
+  flex: none;
   color: var(--text-faint);
+}
+
+/* "no tools" is not a process state, but it is the one the person needs to
+ * notice; the dot stays green because the server really is answering. */
+.composer-model-state.is-warning {
+  color: var(--warning);
 }
 
 /*

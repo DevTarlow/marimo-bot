@@ -7,6 +7,12 @@
  * test succeeded, because the flow's promise is that the window it closes onto
  * can answer.
  *
+ * A server that answers but cannot call tools keeps that promise and breaks the
+ * larger one: the chat opens and the bot cannot read a file or run a job. So it
+ * is not refused — the person may want exactly that — but the warning sits
+ * beside the button and the button stops pretending: it continues *without
+ * tools*, in those words.
+ *
  * It is the same form as Settings' card, deliberately: a second set of fields
  * here would be a second validation rule, and the two would drift the first
  * time one of them learned about a new kind of address.
@@ -16,6 +22,11 @@ import {useState} from 'react';
 import type {PublicSettings} from '@marimo/protocol';
 
 import {ModelServerForm} from './ModelServerForm.js';
+import {
+  cannotCallTools,
+  continueLabel,
+  TOOLS_OFF_SETUP,
+} from '../model-copy.js';
 
 export function SetupModelServer({
   settings,
@@ -38,6 +49,12 @@ export function SetupModelServer({
     ready: settings.modelReady,
     testing: false,
   });
+  /*
+   * `state.ready` rather than the raw status: a half-typed address must not keep
+   * a warning about a server that is no longer the one in the field.
+   */
+  const toolsOff =
+    state.ready && cannotCallTools(settings.modelServerStatus);
 
   return (
     <div className="setup-body">
@@ -59,6 +76,12 @@ export function SetupModelServer({
         onStatusChange={setState}
       />
 
+      {toolsOff && (
+        <p className="warning setup-tools-warning" role="status">
+          <span>{TOOLS_OFF_SETUP}</span>
+        </p>
+      )}
+
       <div className="onboarding-actions">
         <button
           type="button"
@@ -66,7 +89,7 @@ export function SetupModelServer({
           disabled={!state.ready || state.testing}
           onClick={onNext}
         >
-          Continue
+          {continueLabel(toolsOff)}
         </button>
         <button
           type="button"

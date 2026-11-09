@@ -446,6 +446,16 @@ export function App(): React.JSX.Element {
       : shortModelName(settings.modelServer.model) || 'No server');
 
   /*
+   * The dot says the process is answering; this says whether an answer can do
+   * anything. Kept beside the label rather than folded into `modelState`,
+   * because a server with no tools is awake and the vocabulary about a process
+   * should not be asked to mean two things. Only a ready server has an opinion:
+   * `tools` is unknown while it is off or still failing.
+   */
+  const modelTools =
+    modelStatus?.state === 'ready' ? modelStatus.tools : undefined;
+
+  /*
    * The transition, not the state. `settings.modelReady` is true on every launch
    * for anybody who has used the app, and offering recall to somebody who is
    * already using it would be the nag this is shaped to avoid — so the offer
@@ -1080,6 +1090,7 @@ export function App(): React.JSX.Element {
             disabled={disabled || !agent.ready}
             modelLabel={modelLabel}
             modelState={modelState}
+            modelTools={modelTools}
             onOpenModelServer={() => {
               setSettingsSection(MODEL_SERVER_SECTION);
               setShowSettings(true);

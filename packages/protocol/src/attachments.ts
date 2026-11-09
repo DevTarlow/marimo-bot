@@ -16,6 +16,30 @@
  *
  * Pure, and with no Node imports: the sandboxed renderer is one of the callers.
  */
+import {z} from 'zod';
+
+/**
+ * A file handed to the model as bytes rather than as a path.
+ *
+ * The path is relative to the conversation's Space and is resolved again by the
+ * process that reads it, so a renderer that invents a path gets the same refusal
+ * a tool would. Only images exist today: text files still travel as a path in
+ * the message, because the agent's own reader is the one that opens them.
+ */
+export const attachmentKindSchema = z.enum(['image']);
+export type AttachmentKind = z.infer<typeof attachmentKindSchema>;
+
+export const attachmentSchema = z.object({
+  path: z.string().min(1),
+  kind: attachmentKindSchema,
+});
+export type Attachment = z.infer<typeof attachmentSchema>;
+
+/** The most images one message may carry. */
+export const MAX_ATTACHMENTS = 4;
+
+/** The largest image one message may carry, in bytes. */
+export const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
 /**
  * The line attached paths sit under, as the message spells it.

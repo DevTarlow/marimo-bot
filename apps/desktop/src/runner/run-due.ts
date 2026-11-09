@@ -44,8 +44,9 @@ import {
   isProcessHeld,
   JobScheduler,
   JobStore,
-  LocalModelHost,
   McpManager,
+  ModelServer,
+  modelDir,
   resolveAppPaths,
   secretReaderFor,
 } from '@marimo/runtime';
@@ -240,24 +241,24 @@ export async function runDue(options: {
   });
 
   /*
-   * The local model, started for the length of this run.
+   * The person's model server, found when a job is due.
    *
-   * A scheduled job needs the same engine the window uses, from the same
-   * directory, and it must not outlive the process: the timer starts a fresh
-   * process every minute, so an engine left behind would be one per minute. The
-   * host is created after the runtime because its settings reader is the
-   * runtime's; `ensureModel` is only called once a job is actually due.
+   * This process starts nothing: the timer runs with no window and no engine of
+   * its own, and the model is a server the person keeps running. The probe is
+   * created after the runtime because its settings reader is the runtime's;
+   * `resolveModel` is only called once a job is actually due, so a run with
+   * nothing to do never dials anything.
    */
-  let models: LocalModelHost | undefined;
+  let models: ModelServer | undefined;
 
   const agent: AgentRuntime = new AgentRuntime({
     paths,
     appName: PRODUCT_NAME,
-    ensureModel: async (modelId) => {
+    resolveModel: async () => {
       if (models === undefined) {
-        return {ok: false, problem: 'The local model host is not ready yet.'};
+        return {ok: false, problem: 'The model server probe is not ready yet.'};
       }
-      return await models.ensure(modelId);
+      return await models.resolve();
     },
     /*
      * What the servers are offering, read per turn rather than captured: a
@@ -276,10 +277,9 @@ export async function runDue(options: {
     },
   });
 
-  models = new LocalModelHost({
-    userData: paths.userData,
+  models = new ModelServer({
+    modelRoot: modelDir({userData: paths.userData}),
     readSettings: async () => await agent.settings(),
-    isBusy: () => agent.harness().isRunningAny(),
     log: (line) => {
       console.log(line);
     },
@@ -347,7 +347,9 @@ export async function runDue(options: {
     // Before the runtime, so a connector's child process is stopped by the object
     // that started it rather than left to the process exiting.
     await mcp.stop();
-    await models.stop();
+    // The model server is not a child of this process: dropping the probe's cache
+    // is all there is to do. The person's server keeps running.
+    models.dispose();
     await agent.dispose();
   }
 

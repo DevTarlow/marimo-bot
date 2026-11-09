@@ -24,8 +24,6 @@
  * id rather than repeating its Role or tools, so the catalogue stays the one
  * place that says what a Writer is and what it may do.
  */
-import {LOCAL_TASKS} from '@marimo/protocol';
-import type {LocalTask} from '@marimo/protocol';
 
 /** The two answers to "how do you want to set this up". */
 export type SetupDirection = 'regular' | 'power';
@@ -97,7 +95,7 @@ export interface SetupGoal {
   /**
    * Whether this goal needs the Power grant.
    *
-   * Only automation does. The rest are read-only work, a model download, or a
+   * Only automation does. The rest are read-only work, a server connection, or a
    * bot doing the acting with its own profile grant.
    */
   needsPower: boolean;
@@ -105,8 +103,8 @@ export interface SetupGoal {
   needsBot: boolean;
   /** The starter role to suggest, when one fits. */
   templateId?: string;
-  /** The model task this goal cares about, for the review. */
-  models?: readonly LocalTask[];
+  /** Whether this goal needs a server that can see pictures. */
+  pictures?: boolean;
 }
 
 export const SETUP_GOALS: readonly SetupGoal[] = [
@@ -161,11 +159,11 @@ export const SETUP_GOALS: readonly SetupGoal[] = [
     id: 'pictures',
     label: 'Look at pictures',
     blurb:
-      'Answer questions about screenshots, charts and photographs. The Omni ' +
-      'model already sees them; just attach one to a message.',
+      'Answer questions about screenshots, charts and photographs. Start your ' +
+      'model server with an image projector, then attach one to a message.',
     needsPower: false,
     needsBot: false,
-    models: ['vision'],
+    pictures: true,
   },
   {
     id: 'automation',
@@ -195,23 +193,24 @@ export function goalAvailableIn(
 /**
  * What the chosen goals add to the flow.
  *
- * `tasks` is filtered through `LOCAL_TASKS` rather than kept in the order the
- * cards were clicked: the list is the model catalogue's order, and an order
- * that depended on clicks would make the review's rows jump around.
+ * `pictures` is data, not a claim about the path: the review shows the row for
+ * anybody who asked, and the sentence there says the server needs an image
+ * projector rather than promising one.
  * `jobs` is data, not a claim about this path — `setupSteps` is what decides
  * whether a Regular run may show the jobs step, and only Power may.
  */
 export interface GoalEffects {
   needsBot: boolean;
   templateId?: string;
-  tasks: LocalTask[];
+  /** Whether the review's pictures row is worth showing. */
+  pictures: boolean;
   jobs: boolean;
 }
 
 export function goalEffects(goals: readonly SetupGoalId[]): GoalEffects {
   const selected = new Set(goals);
-  const tasks = new Set<LocalTask>();
   let needsBot = false;
+  let pictures = false;
   let jobs = false;
   let templateId: string | undefined;
 
@@ -221,16 +220,14 @@ export function goalEffects(goals: readonly SetupGoalId[]): GoalEffects {
     }
     needsBot ||= goal.needsBot;
     templateId ??= goal.templateId;
-    for (const task of goal.models ?? []) {
-      tasks.add(task);
-    }
+    pictures ||= goal.pictures === true;
     jobs ||= goal.id === 'automation';
   }
 
   return {
     needsBot,
     ...(templateId === undefined ? {} : {templateId}),
-    tasks: LOCAL_TASKS.filter((task) => tasks.has(task)),
+    pictures,
     jobs,
   };
 }

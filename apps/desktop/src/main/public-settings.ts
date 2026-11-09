@@ -11,11 +11,15 @@
  * So the gathering stays in `ipc.ts` and the *shape* is built here, from values
  * a caller can hand in: `tests/settings-payload.test.ts` walks what this returns
  * rather than a copy of what it thinks this returns.
+ *
+ * Readiness is derived from the one probe result rather than passed beside it.
+ * There used to be a second function deciding whether a file was on disk; a
+ * server either answered or it did not, and a boolean computed from the same
+ * status is one fewer thing that can disagree with the card.
  */
 import type {
   AgentProfile,
-  HostHardware,
-  LocalModelsStatus,
+  ModelServerStatus,
   PublicSettings,
   StoredSettings,
 } from '@marimo/protocol';
@@ -24,28 +28,28 @@ import type {
 export interface SettingsFacts {
   /** The stored document. */
   settings: StoredSettings;
-  /** Whether a turn could start right now, and why not. */
-  readiness: {ok: boolean; problem?: string};
   /** Whether this machine can encrypt a connector's secret at rest. */
   encryptionAvailable: boolean;
-  /** Every model's files and process state. */
-  localModels: LocalModelsStatus;
-  /** Memory and platform, for a first run's copy recommendation. */
-  hardware: HostHardware;
+  /** The live model server, as the probe found it. */
+  modelServer: ModelServerStatus;
   profiles: AgentProfile[];
   activeProfileId: string;
 }
 
 export function settingsForWindow(facts: SettingsFacts): PublicSettings {
+  const ready = facts.modelServer.state === 'ready';
   return {
     ...facts.settings,
-    modelReady: facts.readiness.ok,
-    ...(facts.readiness.problem === undefined
+    modelReady: ready,
+    ...(ready
       ? {}
-      : {modelProblem: facts.readiness.problem}),
+      : {
+          modelProblem:
+            facts.modelServer.detail ??
+            'The model server is not answering. Open Settings → Model server.',
+        }),
     encryptionAvailable: facts.encryptionAvailable,
-    localModels: facts.localModels,
-    hardware: facts.hardware,
+    modelServerStatus: facts.modelServer,
     profiles: facts.profiles,
     activeProfileId: facts.activeProfileId,
   };

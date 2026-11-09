@@ -5,11 +5,11 @@
  * read and edit. Reads are forgiving: an unknown or malformed field falls back
  * to its default instead of discarding every other setting.
  *
- * Every value here is now a preference: the local model tasks, the idle
- * timeout, the companion's behaviour, the layout and the escape hatches. What
- * is installed and which quantization it is are facts about the disk and live
- * beside the weights; a settings file that claimed them would be a card
- * offering a model nobody downloaded.
+ * Every value here is now a preference: the model server's address and model,
+ * the companion's behaviour, the layout and the escape hatches. Whether the
+ * server answers is a fact about a process, kept in the live status rather than
+ * written here; a settings file that claimed it would be a card describing a
+ * server nobody had started.
  */
 import {mkdir, readFile, rename, writeFile} from 'node:fs/promises';
 import {dirname} from 'node:path';
@@ -28,7 +28,7 @@ import {
   appearanceSchema,
   companionSettingsSchema,
   defaultAppearance,
-  defaultLocalModelsSettings,
+  defaultModelServerSettings,
   defaultRecallSettings,
   defaultCompanionSettings,
   DEFAULT_MEMORY_REVIEW_EVENTS,
@@ -36,15 +36,15 @@ import {
   defaultWindowState,
   defaultDiscordSettings,
   discordSettingsSchema,
-  localModelsSettingsSchema,
+  modelServerSettingsSchema,
   recallSettingsSchema,
   settingsPatchSchema,
   settingsSchema,
   windowStateSchema,
 } from '@marimo/protocol';
 import type {
-  LocalModelsPatch,
-  LocalModelsSettings,
+  ModelServerPatch,
+  ModelServerSettings,
   SettingsPatch,
   StoredSettings,
 } from '@marimo/protocol';
@@ -52,11 +52,11 @@ import type {
 export function defaultStoredSettings(): StoredSettings {
   return {
     /*
-     * Which local model does Chat and Images, and how long it stays warm. One
-     * model answers both: a picture is read by the same weights as a sentence,
-     * so a first run does not make somebody choose a model before it can reply.
+     * The model server this install talks to. A preference rather than a fact
+     * about a download: the app owns no chat weights, so the address and the
+     * model name are the person's, and the live status is read from the server.
      */
-    localModels: defaultLocalModelsSettings(),
+    modelServer: defaultModelServerSettings(),
     appearance: defaultAppearance(),
     allowPrivateNetworkFetch: false,
     mcpServers: [],
@@ -120,12 +120,14 @@ export function defaultStoredSettings(): StoredSettings {
  * The settings document version.
  *
  * Settings were version-less until version 1. Version 2 moved every task to the
- * Omni model. Version 3 moves them to Qwen2.5-VL and drops the Vision and Voice
- * split down to Chat and Images on one model. A settings file is still read
- * leniently, but a newer version is refused so a future build's file is not
- * overwritten by this one.
+ * Omni model. Version 3 moved them to Qwen2.5-VL and dropped the Vision and
+ * Voice split down to Chat and Images on one model. Version 4 drops the model
+ * catalogue entirely: the chat model is a server the person runs, so the block
+ * that named a downloaded model becomes an address, a name and a window. A
+ * settings file is still read leniently, but a newer version is refused so a
+ * future build's file is not overwritten by this one.
  */
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 /**
  * The versions below this one, step by step.
@@ -190,6 +192,22 @@ const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
             vision: 'qwen2.5-vl-7b',
           },
         },
+      };
+    },
+  },
+  {
+    from: 3,
+    to: 4,
+    summary: 'replaced the downloaded chat model with a local model server',
+    migrate(document) {
+      const rest = {...document};
+      delete rest['localModels'];
+      return {
+        ...rest,
+        // The old model's files are still on disk and are listed as leftovers
+        // by the Model server card; carrying the old task assignments would name
+        // a model no server is running.
+        modelServer: defaultModelServerSettings(),
       };
     },
   },
@@ -338,15 +356,15 @@ export class SettingsStore {
             rawObject['recall'],
           ),
           /*
-           * The local model block, filled over its defaults the same way. A
-           * hand-edited task assignment that names a model this build does not
-           * ship costs the block, not the rest of the document, and a file from
-           * the provider build has no block at all, so it gets the defaults.
+           * The model server block, filled over its defaults the same way. A
+           * hand-edited address that is not loopback costs the block, not the
+           * rest of the document, and a file from the previous build has no
+           * block at all, so it gets llama.cpp's default address.
            */
-          localModels: fillBlock(
-            localModelsSettingsSchema,
-            defaults.localModels,
-            rawObject['localModels'],
+          modelServer: fillBlock(
+            modelServerSettingsSchema,
+            defaults.modelServer,
+            rawObject['modelServer'],
           ),
         }
       : raw;
@@ -386,13 +404,13 @@ export class SettingsStore {
         ? {...current.recall, ...definedOnly(defined.recall)}
         : current.recall;
       /*
-       * The local model block is merged one task at a time, not one block at a
-       * time. Moving Chat must not send the other two assignments back from a
-       * window whose copy predates a change made in another one.
+       * The model server block is merged field by field. Saving a new address
+       * must not send back a model name from a window whose copy predates a
+       * discovery made in another one.
        */
-      const localModels = defined.localModels
-        ? mergeLocalModels(current.localModels, defined.localModels)
-        : current.localModels;
+      const modelServer = defined.modelServer
+        ? mergeModelServer(current.modelServer, defined.modelServer)
+        : current.modelServer;
       const merged = settingsSchema.parse({
         ...current,
         ...defined,
@@ -400,7 +418,7 @@ export class SettingsStore {
         companion,
         appearance,
         recall,
-        localModels,
+        modelServer,
       });
       await this.write(merged);
       this.cache = merged;
@@ -485,25 +503,21 @@ function fillBlock<T extends object>(
 }
 
 /**
- * Applies a local-model patch over what is stored.
+ * Applies a model-server patch over what is stored.
  *
- * The two task assignments are merged one at a time, so moving Chat leaves
- * Images exactly as another window last wrote it. `idleMinutes` is a single
- * number and is simply replaced when present, and `engineBackend` is the same
- * kind of single choice. The capability validation happens on the merged block
- * in `settingsSchema.parse`, not here: a patch naming one task is not asked to
- * prove the other.
+ * A field at a time, for the reason the store merges any block: saving a new
+ * address must not send back a model name from a window whose copy predates a
+ * discovery in another one. The URL is normalised by the patch schema, and the
+ * merged block is validated as a whole in `settingsSchema.parse`, so a
+ * hand-edited address that is not loopback cannot survive a write.
  */
-export function mergeLocalModels(
-  current: LocalModelsSettings,
-  patch: LocalModelsPatch,
-): LocalModelsSettings {
+export function mergeModelServer(
+  current: ModelServerSettings,
+  patch: ModelServerPatch,
+): ModelServerSettings {
   return {
-    tasks: {
-      ...current.tasks,
-      ...(patch.tasks === undefined ? {} : definedOnly(patch.tasks)),
-    },
-    idleMinutes: patch.idleMinutes ?? current.idleMinutes,
-    engineBackend: patch.engineBackend ?? current.engineBackend,
+    url: patch.url ?? current.url,
+    model: patch.model ?? current.model,
+    contextTokens: patch.contextTokens ?? current.contextTokens,
   };
 }

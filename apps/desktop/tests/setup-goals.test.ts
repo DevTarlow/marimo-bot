@@ -70,14 +70,14 @@ describe('what the chosen goals add', () => {
   it('adds nothing for no goals', () => {
     expect(goalEffects([])).toEqual({
       needsBot: false,
-      tasks: [],
+      pictures: false,
       jobs: false,
     });
   });
 
-  it('asks for the vision model when pictures were chosen', () => {
-    expect(goalEffects(['pictures']).tasks).toEqual(['vision']);
-    expect(goalEffects(['files']).tasks).toEqual([]);
+  it('asks for a pictures row when pictures were chosen', () => {
+    expect(goalEffects(['pictures']).pictures).toBe(true);
+    expect(goalEffects(['files']).pictures).toBe(false);
   });
 
   it('reserves jobs for the automation goal', () => {
@@ -140,6 +140,6 @@ describe('the goal list itself', () => {
   it('lets one goal be read back by id', () => {
     const wanted: SetupGoalId = 'pictures';
     expect(setupGoalById(wanted)?.label).toBe('Look at pictures');
-    expect(setupGoalById('files')?.models).toBeUndefined();
+    expect(setupGoalById('files')?.pictures).toBeUndefined();
   });
 });

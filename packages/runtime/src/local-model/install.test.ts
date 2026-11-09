@@ -36,7 +36,6 @@ import {
   installEmbeddingPiece,
   installEngine,
   unpackEngine,
-  unpackEngineBundle,
 } from './install.js';
 
 const BODY = 'the recall model, which is not really 310 MB';
@@ -328,62 +327,6 @@ describe('the engine', () => {
     expect(await readlink(link)).toBe('libllama.so.0.6.0');
   });
 
-  it('puts the CUDA runtime beside the engine from a second archive', async () => {
-    const engineArchive = join(dir, 'cuda-engine.tar.gz');
-    const runtimeArchive = join(dir, 'cudart.tar.gz');
-    await writeFile(engineArchive, 'engine', 'utf8');
-    await writeFile(runtimeArchive, 'runtime', 'utf8');
-
-    await unpackEngineBundle([engineArchive, runtimeArchive], dir, {
-      platform: 'linux',
-      execFileImpl: async (_file, args) => {
-        const scratch = args[args.indexOf('-C') + 1]!;
-        const archive = args[1] ?? '';
-        if (archive.endsWith('cudart.tar.gz')) {
-          const inner = join(scratch, 'cudart');
-          await mkdir(inner, {recursive: true});
-          await writeFile(join(inner, 'libcudart.so.12'), 'cudart', 'utf8');
-        } else {
-          const inner = join(scratch, 'llama-b1');
-          await mkdir(inner, {recursive: true});
-          await writeFile(join(inner, 'llama-server'), 'binary', 'utf8');
-          await writeFile(join(inner, 'libggml-cuda.so'), 'cuda', 'utf8');
-        }
-        return {stdout: '', stderr: ''};
-      },
-    });
-
-    expect(await readFile(join(engineDir(dir), 'llama-server'), 'utf8')).toBe(
-      'binary',
-    );
-    expect(await readFile(join(engineDir(dir), 'libcudart.so.12'), 'utf8')).toBe(
-      'cudart',
-    );
-  });
-
-  it('refuses a runtime archive without the CUDA runtime', async () => {
-    const engineArchive = join(dir, 'cuda-engine.tar.gz');
-    const runtimeArchive = join(dir, 'cudart.tar.gz');
-    await writeFile(engineArchive, 'engine', 'utf8');
-    await writeFile(runtimeArchive, 'runtime', 'utf8');
-
-    await expect(
-      unpackEngineBundle([engineArchive, runtimeArchive], dir, {
-        platform: 'linux',
-        execFileImpl: async (_file, args) => {
-          const scratch = args[args.indexOf('-C') + 1]!;
-          await mkdir(join(scratch, 'llama-b1'), {recursive: true});
-          await writeFile(
-            join(scratch, 'llama-b1', 'llama-server'),
-            'binary',
-            'utf8',
-          );
-          return {stdout: '', stderr: ''};
-        },
-      }),
-    ).rejects.toThrow(/without the CUDA runtime/u);
-  });
-
   it('refuses an archive that does not contain the engine', async () => {
     const archive = join(dir, 'engine.tar.gz');
     await writeFile(archive, 'archive', 'utf8');
@@ -415,61 +358,6 @@ describe('the engine', () => {
     );
     // The archive is not kept: it is 32 MB of nothing once it is unpacked.
     await expect(stat(join(dir, '.engine-e.tar.gz.part'))).rejects.toThrow();
-  });
-
-  it('installs the CUDA engine and runtime as one pinned bundle', async () => {
-    const fakeCudaTar = async (
-      _file: string,
-      args: string[],
-    ): Promise<{stdout: string; stderr: string}> => {
-      const scratch = args[args.indexOf('-C') + 1]!;
-      const archive = args[1] ?? '';
-      if (archive.includes('cudart')) {
-        const inner = join(scratch, 'cudart');
-        await mkdir(inner, {recursive: true});
-        await writeFile(join(inner, 'libcudart.so.12'), 'cudart', 'utf8');
-      } else {
-        const inner = join(scratch, 'llama-b1');
-        await mkdir(inner, {recursive: true});
-        await writeFile(join(inner, 'llama-server'), 'binary', 'utf8');
-        await writeFile(join(inner, 'libggml-cuda.so'), 'cuda', 'utf8');
-      }
-      return {stdout: '', stderr: ''};
-    };
-
-    const result = await installEngine({
-      dir,
-      manifest,
-      platform: 'linux',
-      arch: 'x64',
-      backend: 'cuda',
-      fetchImpl: fakeFetch('archive-bytes'),
-      execFileImpl: fakeCudaTar,
-    });
-
-    expect(result.installed).toBe(true);
-    expect(await readFile(join(engineDir(dir), 'llama-server'), 'utf8')).toBe(
-      'binary',
-    );
-    expect(await readFile(join(engineDir(dir), 'libcudart.so.12'), 'utf8')).toBe(
-      'cudart',
-    );
-
-    const cuda = manifest.engine.cuda!['linux-x64']!;
-    expect(await engineIsPinned(dir, cuda, 'linux')).toBe(true);
-    // One archive of the bundle is not the bundle.
-    expect(await engineIsPinned(dir, cuda[0]!, 'linux')).toBe(false);
-
-    const again = await installEngine({
-      dir,
-      manifest,
-      platform: 'linux',
-      arch: 'x64',
-      backend: 'cuda',
-      fetchImpl: fakeFetch('archive-bytes'),
-      execFileImpl: fakeCudaTar,
-    });
-    expect(again.installed).toBe(false);
   });
 
   /*
@@ -534,12 +422,6 @@ function embeddingFixture(): EmbeddingManifest {
       baseUrl: 'https://example.test/dl',
       assets: {
         'linux-x64': {file: 'e.tar.gz', sha256: digestOf('archive-bytes')},
-      },
-      cuda: {
-        'linux-x64': [
-          {file: 'e-cuda.tar.gz', sha256: digestOf('archive-bytes')},
-          {file: 'cudart.tar.gz', sha256: digestOf('archive-bytes')},
-        ],
       },
     },
     weights: {

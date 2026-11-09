@@ -90,6 +90,11 @@ export function Pet(): React.JSX.Element {
     const off = window.marimo.onEvent((event) => {
       if (event.type === 'companion.changed') {
         setSettings(event.settings);
+      } else if (event.type === 'model.status') {
+        // The server is started outside both windows. Without this the moss
+        // would stay quiet until it was reopened, while the main window's
+        // notice had already cleared.
+        setCanAnswer(event.status.state === 'ready');
       }
     });
     return () => {
@@ -334,7 +339,7 @@ export function Pet(): React.JSX.Element {
           value={draft}
           placeholder={
             !canAnswer
-              ? 'Pick a model first'
+              ? 'Start your model server'
               : busy
                 ? 'Working…'
                 : 'Ask Marimo Bot…'
@@ -343,7 +348,7 @@ export function Pet(): React.JSX.Element {
           title={
             canAnswer
               ? undefined
-              : 'Marimo Bot has no local model yet. Settings, in the main window, is where one is downloaded.'
+              : 'The model server is not answering. Start it, then open Settings in the main window if the address needs changing.'
           }
           disabled={!canAnswer}
           onChange={(event) => {

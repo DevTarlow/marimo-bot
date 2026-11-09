@@ -1,9 +1,9 @@
 /**
  * Recall, in the window's process.
  *
- * It was the counterpart of a file that supervised the chat engine, and the three
- * ways it differed from that one are now the three ways it differs from everything
- * else here: it is the only thing in this process that starts an engine.
+ * It is the only thing in this process that starts an engine. The chat model is a
+ * server the person runs, so there is no sibling supervisor any more; the three
+ * things below are what recall does differently from everything else here.
  *
  * **One service per profile and folder, kept.** The runtime drops its cached
  * runner whenever the service changes identity — a runner holds the tool closures
@@ -548,7 +548,7 @@ export class RecallHost {
   ): Promise<void> {
     try {
       /*
-       * The engine first, then the weights — the order the chat model's install
+       * The engine first, then the weights — the order an engine install has
        * has, and for the same reason: it is the cheap half, and a platform this
        * build has no engine for should be refused before 310 MB is spent.
        */

@@ -11,9 +11,10 @@
  * capability is still a switch, and every switch is here.
  *
  * The repair that matters most is first in spirit. The app carries no model, so
- * a fresh install cannot answer until one is downloaded — and the card that does
- * it, the Models card, is where the welcome screen sends somebody on their first
- * run. Connectors are on the same screen for the same reason from the other end:
+ * a fresh install cannot answer until its server is connected — and the card
+ * that does it, the Model server card, is where a launch with the server off
+ * sends somebody. Connectors are on the same screen for the same reason from the
+ * other end:
  * the card is where a server is added and trusted, and a capability nobody can
  * see is one nobody turns on.
  *
@@ -79,7 +80,7 @@ import {ControlChoice} from './ControlChoice.js';
 import {Jobs} from './Jobs.js';
 import {Learning} from './Learning.js';
 import {Memory} from './Memory.js';
-import {ModelsSection} from './ModelsSection.js';
+import {ModelServerSection} from './ModelServerSection.js';
 import type {PopoverAnchor} from './Popover.js';
 import {Recall} from './Recall.js';
 import {NewBotDialog} from './NewBotDialog.js';
@@ -585,9 +586,9 @@ export function Settings({
         <SettingsSection title="Your bots" opened={opened} onToggle={fold}>
           <p className="settings-muted">
             Each bot has its own identity, its own abilities and its own
-            conversations. The model is chosen for the app in the Models card,
-            so every bot answers with the same local family. Making a second
-            bot is how you keep two jobs from sharing one memory.
+            conversations. The model server is chosen for the app in the Model
+            server card, so every bot answers from the same server. Making a
+            second bot is how you keep two jobs from sharing one memory.
           </p>
           {/*
             Once for the list rather than once per agent: with no spaces there is
@@ -1349,14 +1350,20 @@ export function Settings({
         {/*
           What answers.
 
-          It is not tuning: a fresh install has nothing to think with until the
-          first model is downloaded, and the screen a first run lands on has to
-          be able to fix that.
+          It is not tuning: a fresh install has nothing to think with until its
+          server answers, and the card a first run's notice sends somebody to has
+          to be able to fix that. The form writes into the loaded payload so the
+          status beside the fields moves without a full reload.
         */}
-        <ModelsSection
+        <ModelServerSection
           settings={loaded.settings}
           opened={opened}
           onToggle={fold}
+          onSettings={(next) => {
+            setLoaded((current) =>
+              current === null ? current : {...current, settings: next},
+            );
+          }}
           onSaved={load}
         />
 

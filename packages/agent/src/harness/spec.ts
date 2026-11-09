@@ -299,10 +299,10 @@ export interface HarnessAppDefaults {
   /**
    * The most prompt tokens this turn's model can hold.
    *
-   * An app fact rather than a profile choice: the local model's engine is
-   * started with a 32K window, and a harness allowed to compact at 96K would
-   * send the model a request it cannot answer. The clamp is a ceiling — a
-   * profile may still ask for a smaller window, never a larger one.
+   * An app fact rather than a profile choice: the server reports the window it
+   * was started with, and a harness allowed to compact at 96K would send the
+   * model a request it cannot answer. The clamp is a ceiling — a profile may
+   * still ask for a smaller window, never a larger one.
    */
   contextLimit?: number;
 }

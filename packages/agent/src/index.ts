@@ -29,7 +29,7 @@ export type {
   McpToolInfo,
 } from './mcp/index.js';
 /*
- * The one client, for the one endpoint: the local llama.cpp server speaks the
+ * The one client, for the one endpoint: the local model server speaks the
  * OpenAI chat-completions dialect, so a turn is an address, a model id and a
  * stream rather than a vendor SDK. The `DeepSeekLlm` alias went with the single
  * backend it named.

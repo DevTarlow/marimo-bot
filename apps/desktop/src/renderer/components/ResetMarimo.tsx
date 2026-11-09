@@ -9,7 +9,7 @@
  *
  * **It lists what goes, one line each, and says what stays.** "This will erase
  * your data" is the kind of sentence people read past. A list naming bots, their
- * conversations, what they remembered, jobs, keys, the search model and the
+ * conversations, what they remembered, jobs, keys, the model server setting and the
  * service timer is one somebody can check against what they have, and the
  * counterpart — that the folders they loaded are never touched — is the fact
  * that makes the decision possible at all.
@@ -118,9 +118,14 @@ export function ResetMarimo({
           will type them in again.
         </li>
         <li>
-          The downloaded chat models, so the next launch downloads one again. If
-          you pointed the models at a folder of your own, that folder is left
-          alone.
+          The model server’s address and model name, so the next launch starts
+          from llama.cpp’s default. The server itself is yours and is not
+          touched.
+        </li>
+        <li>
+          Any old chat model files an earlier version downloaded. If you pointed
+          the models at a folder of your own with <code>MARIMO_MODEL_DIR</code>,
+          that folder is left alone.
         </li>
         <li>
           The search index and the downloaded search model, so switching search

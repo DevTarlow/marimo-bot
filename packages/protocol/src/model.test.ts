@@ -2,12 +2,11 @@
  * The settings blocks that decide what answers, and the one that decides how.
  *
  * The store that reads and writes a settings file is tested in `@marimo/runtime`;
- * what is asserted here is the shape a window and a first run agree about: a
- * local model assignment per task, the companion block, and the recall block
- * that was already here. A fixture built by hand would be a
- * second copy of the schema and would break every time a field was added
- * somewhere else, so each block is tested on its own over the defaults the app
- * ships.
+ * what is asserted here is the shape a window and a first run agree about: the
+ * model server block, the companion block, and the recall block that was already
+ * here. A fixture built by hand would be a second copy of the schema and would
+ * break every time a field was added somewhere else, so each block is tested on
+ * its own over the defaults the app ships.
  */
 import {describe, expect, it} from 'vitest';
 
@@ -17,86 +16,57 @@ import {
   defaultAppearance,
   defaultCompanionSettings,
   defaultDiscordSettings,
-  defaultLocalModelsSettings,
+  DEFAULT_MODEL_SERVER_URL,
+  defaultModelServerSettings,
   defaultRecallSettings,
   defaultWindowState,
-  LOCAL_TASKS,
-  localModelsSettingsSchema,
   recallSettingsSchema,
   settingsPatchSchema,
   settingsSchema,
 } from './index.js';
 
 /**
- * The local models block, and the rule that makes a hand-edited file safe.
+ * The model server block, and the rule that makes a hand-edited file safe.
  *
- * A task is a capability, not a name. The refinement is what refuses a file that
- * names the audio model for Chat at the door, rather than producing a turn whose
- * prompt is wrong for the weights — a failure that would otherwise arrive as a
- * bad answer, which is much harder to explain.
+ * The address is the one place a conversation is sent, so the schema refuses
+ * anything that is not loopback. The URL rules themselves are tested in
+ * `model-server.test.ts`; what is asserted here is that the block is part of the
+ * settings document and that a patch can move one field without the others.
  */
-describe('the local models in a settings file', () => {
+describe('the model server in a settings file', () => {
   it('is a block of the settings document, not a separate store', () => {
-    expect(settingsSchema.shape.localModels).toBeDefined();
+    expect(settingsSchema.shape.modelServer).toBeDefined();
   });
 
-  it('starts a fresh install on the vision model for both tasks', () => {
+  it('starts a fresh install on llama.cpp’s own address', () => {
     const parsed = settingsSchema.safeParse(settingsShape());
     expect(parsed.success).toBe(true);
     if (!parsed.success) {
       return;
     }
-    expect(parsed.data.localModels).toEqual(defaultLocalModelsSettings());
-    expect(parsed.data.localModels.tasks).toEqual({
-      chat: 'qwen2.5-vl-7b',
-      vision: 'qwen2.5-vl-7b',
-    });
-    expect(parsed.data.localModels.idleMinutes).toBe(3);
+    expect(parsed.data.modelServer).toEqual(defaultModelServerSettings());
+    expect(parsed.data.modelServer.url).toBe(DEFAULT_MODEL_SERVER_URL);
+    // Blank means "the model the server reports", not a name the app invented.
+    expect(parsed.data.modelServer.model).toBe('');
+    expect(parsed.data.modelServer.contextTokens).toBe(32_768);
   });
 
-  it('refuses a model that cannot do the task it was assigned', () => {
-    const parsed = localModelsSettingsSchema.safeParse({
-      tasks: {
-        chat: 'lfm3-1.7b',
-        vision: 'lfm3-1.7b',
-      },
-      idleMinutes: 3,
-    });
-    expect(parsed.success).toBe(false);
-  });
-
-  it('accepts the vision model for both tasks it can do', () => {
-    const parsed = localModelsSettingsSchema.safeParse({
-      tasks: {
-        chat: 'qwen2.5-vl-7b',
-        vision: 'qwen2.5-vl-7b',
-      },
-      idleMinutes: 10,
-    });
-    expect(parsed.success).toBe(true);
-  });
-
-  it('accepts a patch that moves one task and leaves the other out', () => {
+  it('accepts a patch that sets the address and leaves the model out', () => {
     const parsed = settingsPatchSchema.safeParse({
-      localModels: {tasks: {chat: 'qwen2.5-vl-7b'}},
+      modelServer: {url: 'http://localhost:8080/v1'},
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.localModels).toEqual({
-      tasks: {chat: 'qwen2.5-vl-7b'},
+    expect(parsed.success && parsed.data.modelServer).toEqual({
+      url: 'http://localhost:8080/v1',
     });
   });
 
-  it('refuses a patch that names a model this build does not ship', () => {
+  it('refuses a patch that points off this computer', () => {
     expect(
       settingsPatchSchema.safeParse({
-        localModels: {tasks: {chat: 'lfm3-9b'}},
+        modelServer: {url: 'https://api.example.com/v1'},
       }).success,
     ).toBe(false);
-  });
-
-  it('covers every task the app can route', () => {
-    const defaults = defaultLocalModelsSettings();
-    expect(Object.keys(defaults.tasks).sort()).toEqual([...LOCAL_TASKS].sort());
   });
 });
 
@@ -184,7 +154,7 @@ describe('the recall settings', () => {
  * schema test is here because the schema is the half a window sees.
  */
 describe('a settings file from the old build', () => {
-  it('ignores a provider block and fills the local models', () => {
+  it('ignores a provider block and fills the model server', () => {
     const parsed = settingsSchema.safeParse({
       ...settingsShape(),
       providers: {
@@ -204,14 +174,14 @@ describe('a settings file from the old build', () => {
       return;
     }
     expect('providers' in parsed.data).toBe(false);
-    expect(parsed.data.localModels).toEqual(defaultLocalModelsSettings());
+    expect(parsed.data.modelServer).toEqual(defaultModelServerSettings());
   });
 });
 
 function settingsShape(): Record<string, unknown> {
   return {
     appearance: defaultAppearance(),
-    localModels: defaultLocalModelsSettings(),
+    modelServer: defaultModelServerSettings(),
     allowPrivateNetworkFetch: false,
     mcpServers: [],
     discord: defaultDiscordSettings(),

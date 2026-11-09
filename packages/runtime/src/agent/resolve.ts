@@ -4,19 +4,19 @@
  * This used to be the join between three documents that never saw each other —
  * the settings (which provider answered), the profile and the provider's secret.
  * The secret is gone, and with it the provider. What is left is the (profile,
- * account) pair the turn will actually use: who this bot is, where it works, what
- * it may use, and the loopback address of the one local model that is running.
+ * server) pair the turn will actually use: who this bot is, where it works, what
+ * it may use, and the loopback address and model the probe found.
  *
  * It is a pure function of its inputs. Every failure it can have — a profile
- * with no folder, a model the host could not start — has to be reportable
+ * with no folder, a model server that is not answering — has to be reportable
  * *before* a turn starts, because a turn that begins and then dies gives the user
  * a spinner and a stack trace instead of a sentence. So it answers with a reason
  * rather than throwing, and the caller decides how to say it.
  *
  * The model and its address arrive as arguments rather than being read here: the
- * address exists only in the process that started the engine, and it changes
- * every time the engine is woken. A copy stored in this function would be an
- * address pointing at a process that died a minute ago.
+ * address is a preference the person can change while the window is open, and the
+ * probe answers it per turn. A copy stored in this function would be yesterday's
+ * server.
  */
 import type {AgentConfig, Skill} from '@marimo/agent';
 
@@ -38,8 +38,8 @@ export interface StoredSkillForPrompt {
  * What a turn needs, or why it cannot start.
  *
  * `problem` is phrased for the person who will read it: these reach the chat
- * window as an error line, and "no local model" is a worse sentence than
- * "LFM3 1.7B is not downloaded — open Settings → Models".
+ * window as an error line, and "no model" is a worse sentence than "Nothing is
+ * answering at http://127.0.0.1:8080/v1 — start your server".
  */
 export type ResolvedAgent =
   | {ok: true; config: AgentConfig; profile: AgentProfile}

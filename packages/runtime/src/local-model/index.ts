@@ -1,28 +1,26 @@
 /**
- * The local models: their pins, their download, the engine that serves them.
+ * Recall's engine: its pins, its download, and the process that serves it.
+ *
+ * The chat model is not here any more. It is a server the person runs, probed by
+ * `model-server.ts` in the package root; there are no chat weights to fetch and
+ * no chat engine to spawn. What remains under this directory is the one child
+ * process the app still owns: recall's embedding engine, started on demand and
+ * stopped after it has been idle.
  *
  * The pieces are deliberately separate, and the seams are where the testing is:
- * `manifest.ts` is the shipped pins as data, `install.ts` fetches them,
- * `files.ts` answers where it all lives, `args.ts` is the command line as an
- * array, and `service.ts` runs one process. `host.ts` adds the model directory,
- * the one-model-at-a-time rule and the idle timer on top of that engine.
+ * `pins.ts` is the shipped pin as data, `manifest.ts` is the reader that decides
+ * whether it is usable, `install.ts` fetches it, `files.ts` answers where it
+ * lives, `args.ts` is the command line as an array, and `service.ts` runs one
+ * process.
  *
  * It lives in this package rather than in the app because both processes need
- * it: the window starts a model to answer a question, and the headless runner
- * starts one to run a scheduled job while the window is closed. Neither can
- * reach into the other, and a second copy of this in `apps/desktop` would be the
- * half that drifts.
- *
- * The recall model is still here too. It is a different download with a
- * different engine pin and a different lifecycle, and its files sit beside the
- * chat models under the same root.
+ * it: the window starts the engine when somebody searches, and the headless
+ * runner reads an index a scheduled job's tool is given. Neither can reach into
+ * the other, and a second copy in `apps/desktop` would be the half that drifts.
  */
 export {
   engineBinaryName,
   engineDir,
-  localModelDir,
-  localModelMarkerFile,
-  localModelSpec,
   MODEL_DIR_ENV,
   MODEL_DIR_NAME,
   modelDir,
@@ -30,20 +28,11 @@ export {
   recallDir,
   recallPiecesInstalled,
   recallSpec,
-  resolveLocalModelFiles,
   resolveRecallFiles,
 } from './files.js';
-export type {
-  LocalModelFiles,
-  LocalModelSampling,
-  LocalModelSpec,
-  RecallFiles,
-  RecallSpec,
-} from './files.js';
+export type {RecallFiles, RecallSpec} from './files.js';
 
 export {
-  chatModelParts,
-  chatModelUrl,
   EMBEDDING_PIECES,
   EMBEDDING_POOLINGS,
   embeddingUrl,
@@ -51,15 +40,10 @@ export {
   engineFilesFor,
   engineUrl,
   ManifestError,
-  parseChatModelManifest,
   parseEmbeddingManifest,
   platformKey,
 } from './manifest.js';
 export type {
-  ChatModelFilePin,
-  ChatModelManifest,
-  ChatModelPin,
-  ChatModelVariantPin,
   EmbeddingManifest,
   EmbeddingPiece,
   EmbeddingPieceName,
@@ -73,56 +57,27 @@ export {
   engineIsPinned,
   installEmbeddingPiece,
   installEngine,
-  installLocalModel,
   InstallError,
   unpackEngine,
-  unpackEngineBundle,
 } from './install.js';
 export type {
   DownloadProgress,
   EmbeddingInstallOptions,
   EngineInstallOptions,
   InstallOptions,
-  LocalModelInstallOptions,
 } from './install.js';
 
-export {
-  localModelOnDisk,
-  readLocalModelMarker,
-  writeLocalModelMarker,
-} from './installed.js';
-export type {
-  LocalModelDiskState,
-  LocalModelMarker,
-  LocalModelMarkerFile,
-} from './installed.js';
+export {writeEngineMarker} from './installed.js';
 
-export {CHAT_PINS, CHAT_PIN_KEYS, defaultVariantFor} from './chat-pins.js';
 export {EMBEDDING_PINS} from './pins.js';
 
-export {
-  EMBEDDING_ALIAS,
-  embeddingArgs,
-  localModelArgs,
-} from './args.js';
+export {EMBEDDING_ALIAS, embeddingArgs} from './args.js';
 export type {EmbeddingSpec} from './args.js';
 
-export {
-  freePort,
-  embeddingPidFile,
-  LocalModelService,
-} from './service.js';
+export {freePort, embeddingPidFile, LocalModelService} from './service.js';
 export type {
   EngineFiles,
   EngineRunSpec,
   EngineStatus,
   LocalModelOptions,
 } from './service.js';
-
-export {LocalModelHost, missingProblem} from './host.js';
-export type {
-  EnsureModelResult,
-  LocalModelHostOptions,
-} from './host.js';
-
-export {QWEN_VL_CHAT_TEMPLATE} from './qwen-vl-template.js';

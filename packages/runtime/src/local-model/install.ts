@@ -1,9 +1,10 @@
 /**
- * Fetching the engine and the weights, verified and resumable.
+ * Fetching recall's engine and weights, verified and resumable.
  *
- * It was a packaging script once, run on a build machine; it is a download a
- * user's first run performs, which is the change that shapes everything below.
- * Four things about it change what the code has to do:
+ * It was a packaging script once, run on a build machine; it is a download the
+ * person performs when they turn recall on, which is the change that shapes
+ * everything below. (The chat model is no longer downloaded: it is a server the
+ * person runs.) Four things about it change what the code has to do:
  *
  * - **It runs on somebody else's machine, on their network, once.** So a failure
  *   has to be a sentence rather than a stack trace, and an interrupted download
@@ -24,7 +25,7 @@
  *   downloaded rather than leaving it to be retried forever.
  */
 import {createHash} from 'node:crypto';
-import {createReadStream, createWriteStream, statSync} from 'node:fs';
+import {createReadStream, createWriteStream} from 'node:fs';
 import {
   cp,
   mkdir,
@@ -32,7 +33,6 @@ import {
   rename,
   rm,
   stat,
-  statfs,
 } from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {pipeline} from 'node:stream/promises';
@@ -40,32 +40,13 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 
 import type {
-  EngineBackend,
-  LocalModelId,
-  LocalModelVariant,
-} from '@marimo/protocol';
-import {LOCAL_MODELS} from '@marimo/protocol';
-
-import type {
-  ChatModelManifest,
   EmbeddingManifest,
   EmbeddingPieceName,
   EngineManifest,
 } from './manifest.js';
-import {
-  chatModelParts,
-  chatModelUrl,
-  embeddingUrl,
-  engineFilesFor,
-  engineUrl,
-} from './manifest.js';
-import {engineBinaryName, engineDir, localModelDir} from './files.js';
-import {
-  engineIsPinned,
-  readLocalModelMarker,
-  writeEngineMarker,
-  writeLocalModelMarker,
-} from './installed.js';
+import {embeddingUrl, engineFilesFor, engineUrl} from './manifest.js';
+import {engineBinaryName, engineDir} from './files.js';
+import {engineIsPinned, writeEngineMarker} from './installed.js';
 
 export {engineIsPinned};
 
@@ -108,11 +89,9 @@ export interface InstallOptions {
   signal?: AbortSignal;
 }
 
-/** Anything with an engine block: either model manifest will do. */
+/** Anything with an engine block: the recall manifest is the one caller. */
 export interface EngineInstallOptions extends InstallOptions {
   manifest: {engine: EngineManifest};
-  /** The archive to fetch; the default is the platform's Vulkan/Metal build. */
-  backend?: EngineBackend;
 }
 
 /** One piece of the recall model. */
@@ -133,58 +112,49 @@ export class InstallError extends Error {
  * Fetches the engine unless the pinned one is already unpacked.
  *
  * The engine goes first and on its own, so a platform this build has no engine
- * for is refused before the weights are fetched. A default build is one archive;
- * CUDA is the engine archive plus the runtime it links against, and both are
- * unpacked into the same directory before the marker is written.
+ * for is refused before the weights are fetched. One archive per platform is
+ * unpacked, and the marker is written after the binary is in place.
  */
 export async function installEngine(
   options: EngineInstallOptions,
 ): Promise<{installed: boolean}> {
   const files = engineFilesFor(options.manifest, {
-    ...(options.backend === undefined ? {} : {backend: options.backend}),
     ...(options.platform === undefined ? {} : {platform: options.platform}),
     ...(options.arch === undefined ? {} : {arch: options.arch}),
   });
-  if (files === undefined) {
+  const asset = files?.[0];
+  if (asset === undefined) {
     throw new InstallError(
-      options.backend === 'cuda'
-        ? 'There is no CUDA engine build for this platform, so the model cannot run here with CUDA. Vulkan is still available.'
-        : 'There is no engine build for this platform, so the model cannot run here.',
+      'There is no engine build for this platform, so the model cannot run here.',
     );
   }
 
-  if (await engineIsPinned(options.dir, files, options.platform)) {
+  if (await engineIsPinned(options.dir, asset, options.platform)) {
     return {installed: false};
   }
 
-  const archives: string[] = [];
-  for (const [index, asset] of files.entries()) {
-    const archive = join(options.dir, `.engine-${asset.file}.part`);
-    archives.push(archive);
-    await downloadVerified({
-      url: engineUrl(options.manifest, asset),
-      destination: archive,
-      sha256: asset.sha256,
-      ...(asset.bytes === undefined ? {} : {bytes: asset.bytes}),
-      label: index === 0 ? 'The model engine' : 'The CUDA runtime',
-      ...(options.onProgress === undefined
-        ? {}
-        : {onProgress: options.onProgress}),
-      ...(options.fetchImpl === undefined ? {} : {fetchImpl: options.fetchImpl}),
-      ...(options.signal === undefined ? {} : {signal: options.signal}),
-    });
-  }
+  const archive = join(options.dir, `.engine-${asset.file}.part`);
+  await downloadVerified({
+    url: engineUrl(options.manifest, asset),
+    destination: archive,
+    sha256: asset.sha256,
+    ...(asset.bytes === undefined ? {} : {bytes: asset.bytes}),
+    label: 'The model engine',
+    ...(options.onProgress === undefined
+      ? {}
+      : {onProgress: options.onProgress}),
+    ...(options.fetchImpl === undefined ? {} : {fetchImpl: options.fetchImpl}),
+    ...(options.signal === undefined ? {} : {signal: options.signal}),
+  });
 
-  await unpackEngineBundle(archives, options.dir, {
+  await unpackEngine(archive, options.dir, {
     ...(options.platform === undefined ? {} : {platform: options.platform}),
     ...(options.execFileImpl === undefined
       ? {}
       : {execFileImpl: options.execFileImpl}),
   });
-  for (const archive of archives) {
-    await rm(archive, {force: true});
-  }
-  await writeEngineMarker(options.dir, files);
+  await rm(archive, {force: true});
+  await writeEngineMarker(options.dir, asset);
 
   return {installed: true};
 }
@@ -384,13 +354,13 @@ async function request(
 }
 
 /**
- * Unpacks the engine archive and puts the binary where the app looks for it.
+ * Unpacks one engine archive into the directory the engine runs from.
  *
  * The archives differ between platforms — tar.gz for Linux and macOS, zip for
  * Windows — and each may or may not wrap its contents in a version directory.
  * Rather than encode that, the archive is unpacked into a scratch directory and
- * the binary is found; whatever sits beside it (the shared libraries) is what gets
- * moved, because that is what the engine needs at run time.
+ * the binary is found; whatever sits beside it (the shared libraries) is what
+ * gets moved, because that is what the engine needs at run time.
  *
  * `verbatimSymlinks` is load-bearing and was learned the hard way. The archives
  * link their libraries with *relative* names — `libllama-common.so.0` →
@@ -411,59 +381,18 @@ export async function unpackEngine(
     ) => Promise<{stdout: string; stderr: string}>;
   } = {},
 ): Promise<void> {
-  await unpackEngineBundle([archive], dir, options);
-}
-
-/**
- * Unpacks one engine archive, or the CUDA engine and its runtime together.
- *
- * The default build is one archive. CUDA is two, and the runtime is not beside
- * the binary in the release — it is a second download whose libraries have to
- * land in the same directory before `llama-server` can start. The archive that
- * contains the binary is copied whole; every other archive contributes the
- * directory that holds its CUDA runtime library.
- */
-export async function unpackEngineBundle(
-  archives: readonly string[],
-  dir: string,
-  options: {
-    platform?: NodeJS.Platform;
-    execFileImpl?: (
-      file: string,
-      args: string[],
-    ) => Promise<{stdout: string; stderr: string}>;
-  } = {},
-): Promise<void> {
   const exec = options.execFileImpl ?? run;
   const scratch = join(dir, '.unpack');
   await rm(scratch, {recursive: true, force: true});
   await mkdir(scratch, {recursive: true});
 
-  const what = archives.length === 1 ? 'archive' : 'bundle';
-
   try {
-    const extracted: string[] = [];
-    for (const [index, archive] of archives.entries()) {
-      const target = join(scratch, String(index));
-      await mkdir(target, {recursive: true});
-      await extractArchive(archive, target, exec, what);
-      extracted.push(target);
-    }
-
+    await extractArchive(archive, scratch, exec);
     const binary = engineBinaryName(options.platform);
-    let engineIndex = -1;
-    let engineRoot = '';
-    for (const [index, root] of extracted.entries()) {
-      const found = await findFile(root, binary);
-      if (found !== undefined) {
-        engineIndex = index;
-        engineRoot = dirname(found);
-        break;
-      }
-    }
-    if (engineIndex < 0) {
+    const found = await findFile(scratch, binary);
+    if (found === undefined) {
       throw new InstallError(
-        `The engine ${what} does not contain ${binary}, so it is not the build ` +
+        `The engine archive does not contain ${binary}, so it is not the build ` +
           'this app pinned.',
       );
     }
@@ -471,24 +400,10 @@ export async function unpackEngineBundle(
     const target = engineDir(dir);
     await rm(target, {recursive: true, force: true});
     await mkdir(target, {recursive: true});
-    await cp(engineRoot, target, {
+    await cp(dirname(found), target, {
       recursive: true,
       verbatimSymlinks: true,
     });
-
-    for (const [index, root] of extracted.entries()) {
-      if (index === engineIndex) {
-        continue;
-      }
-      const library = await findRuntimeLibrary(root, options.platform);
-      if (library === undefined) {
-        throw new InstallError(
-          'The CUDA bundle contains an archive without the CUDA runtime, so ' +
-            'the engine could not start.',
-        );
-      }
-      await copyDirectoryContents(library, target);
-    }
   } finally {
     await rm(scratch, {recursive: true, force: true});
   }
@@ -501,7 +416,6 @@ async function extractArchive(
     file: string,
     args: string[],
   ) => Promise<{stdout: string; stderr: string}>,
-  what: string,
 ): Promise<void> {
   try {
     await exec('tar', ['-xf', archive, '-C', target]);
@@ -512,59 +426,10 @@ async function extractArchive(
       await exec('unzip', ['-o', '-q', archive, '-d', target]);
     } catch {
       throw new InstallError(
-        `The engine ${what} could not be unpacked: ${describe(failure)}. ` +
+        `The engine archive could not be unpacked: ${describe(failure)}. ` +
           'This machine needs `tar` or `unzip` on its PATH.',
       );
     }
-  }
-}
-
-/**
- * The directory holding the CUDA runtime in an extracted archive.
- *
- * CUDA's archive is its own download and is not laid out like the engine's, so
- * the library is found rather than assumed to sit at a fixed depth. A build
- * without it is refused before the binary is put in place, because a missing
- * `libcudart` is the engine failing at start with a message about a shared
- * library rather than about the download.
- */
-async function findRuntimeLibrary(
-  root: string,
-  platform: NodeJS.Platform | undefined,
-): Promise<string | undefined> {
-  const entries = await readdir(root, {withFileTypes: true});
-  for (const entry of entries) {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) {
-      const found = await findRuntimeLibrary(path, platform);
-      if (found !== undefined) {
-        return found;
-      }
-    } else if (entry.isFile() && isCudaRuntime(entry.name, platform)) {
-      return root;
-    }
-  }
-  return undefined;
-}
-
-function isCudaRuntime(
-  name: string,
-  platform: NodeJS.Platform | undefined,
-): boolean {
-  return platform === 'win32'
-    ? /^cudart64_.*\.dll$/iu.test(name)
-    : /^libcudart\.so/u.test(name);
-}
-
-async function copyDirectoryContents(
-  from: string,
-  to: string,
-): Promise<void> {
-  for (const entry of await readdir(from, {withFileTypes: true})) {
-    await cp(join(from, entry.name), join(to, entry.name), {
-      recursive: true,
-      verbatimSymlinks: true,
-    });
   }
 }
 
@@ -603,175 +468,3 @@ async function sizeOf(file: string): Promise<number> {
 function describe(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
-
-/* -------------------------------------------------------------------------- */
-/* The chat models                                                             */
-/* -------------------------------------------------------------------------- */
-
-/** One model copy, and the engine it shares with the rest. */
-export interface LocalModelInstallOptions extends InstallOptions {
-  manifest: ChatModelManifest;
-  modelId: LocalModelId;
-  variant: LocalModelVariant;
-  /** The engine archive to install beside the weights. */
-  backend?: EngineBackend;
-}
-
-/**
- * Fetches the engine and one model copy, verified and resumable.
- *
- * The order is the one the engine's own install established: the cheap half
- * first, so a platform with no build is refused before the weights are spent. Every
- * file goes through `downloadVerified`, which writes a `.part`, checks the
- * digest and renames only then — a file that looks installed but is not is worse
- * than a missing one, because the engine's failure arrives much later and says
- * nothing about the download.
- *
- * The marker is written last and names the exact revision and files. That is
- * what makes a later build's changed pin replace yesterday's weights, and what
- * makes a size-only check sufficient on every subsequent read.
- */
-export async function installLocalModel(
-  options: LocalModelInstallOptions,
-): Promise<{installed: boolean}> {
-  const {manifest, modelId, variant} = options;
-  const model = LOCAL_MODELS[modelId];
-  const engine = await installEngine({
-    dir: options.dir,
-    manifest,
-    ...(options.backend === undefined ? {} : {backend: options.backend}),
-    ...(options.platform === undefined ? {} : {platform: options.platform}),
-    ...(options.arch === undefined ? {} : {arch: options.arch}),
-    ...(options.onProgress === undefined
-      ? {}
-      : {onProgress: options.onProgress}),
-    ...(options.fetchImpl === undefined
-      ? {}
-      : {fetchImpl: options.fetchImpl}),
-    ...(options.execFileImpl === undefined
-      ? {}
-      : {execFileImpl: options.execFileImpl}),
-    ...(options.signal === undefined ? {} : {signal: options.signal}),
-  });
-
-  const dir = localModelDir(options.dir, modelId);
-  await mkdir(dir, {recursive: true});
-
-  const parts = chatModelParts(manifest, modelId, variant);
-  const missing = parts.filter(
-    (part) => sizeOfSync(join(dir, part.pin.file)) !== part.pin.bytes,
-  );
-
-  /*
-   * Asked before the first byte, with a little room to finish rather than fill
-   * the disk exactly. A user who has to delete something should be told which
-   * number is wrong while the button can still explain itself.
-   */
-  const needed = missing.reduce((total, part) => total + part.pin.bytes, 0);
-  if (needed > 0) {
-    await assertDiskSpace(dir, needed);
-  }
-
-  for (const part of missing) {
-    await downloadVerified({
-      url: chatModelUrl(manifest, modelId, variant, part.part),
-      destination: join(dir, part.pin.file),
-      sha256: part.pin.sha256,
-      bytes: part.pin.bytes,
-      label:
-        part.part === 'weights' ? model.label : 'The image encoder',
-      ...(options.onProgress === undefined
-        ? {}
-        : {onProgress: options.onProgress}),
-      ...(options.fetchImpl === undefined
-        ? {}
-        : {fetchImpl: options.fetchImpl}),
-      ...(options.signal === undefined ? {} : {signal: options.signal}),
-    });
-  }
-
-  /*
-   * A variant change leaves the old quantization's file in the directory
-   * unless it is removed here. Both names end in `.gguf` and both are large;
-   * leaving one behind would double the disk cost of a choice the user made to
-   * save space.
-   */
-  const keep = new Set(parts.map((part) => part.pin.file));
-  for (const name of await readdir(dir)) {
-    if (name.endsWith('.gguf') && !keep.has(name)) {
-      await rm(join(dir, name), {force: true});
-    }
-  }
-
-  const files = parts.map((part) => ({
-    name: part.pin.file,
-    sha256: part.pin.sha256,
-    bytes: part.pin.bytes,
-  }));
-  const marker = await readLocalModelMarker(dir);
-  const markerCurrent =
-    marker !== undefined &&
-    marker.modelId === modelId &&
-    marker.variant === variant &&
-    marker.revision === manifest.models[modelId].revision &&
-    marker.files.length === files.length &&
-    marker.files.every((file) =>
-      files.some(
-        (expected) =>
-          expected.name === file.name &&
-          expected.sha256 === file.sha256 &&
-          expected.bytes === file.bytes,
-      ),
-    );
-
-  if (!markerCurrent) {
-    await writeLocalModelMarker(dir, {
-      modelId,
-      variant,
-      revision: manifest.models[modelId].revision,
-      files,
-    });
-  }
-
-  return {installed: engine.installed || missing.length > 0 || !markerCurrent};
-}
-
-/** The size of a file without awaiting it; `-1` when it is not there. */
-function sizeOfSync(file: string): number {
-  try {
-    // `statSync` is safe here: the path is one this process just constructed,
-    // and the check is a single metadata read.
-    return statSync(file).size;
-  } catch {
-    return -1;
-  }
-}
-
-/** Refuses a download that would fill the disk, in a sentence. */
-async function assertDiskSpace(dir: string, needed: number): Promise<void> {
-  const headroom = 256 * 1024 * 1024;
-  let free: number;
-  try {
-    const stats = await statfs(dir);
-    free = Number(stats.bavail) * Number(stats.bsize);
-  } catch {
-    // A filesystem that cannot answer is not evidence that it is full. The
-    // download's own failure is the honest one.
-    return;
-  }
-  if (free < needed + headroom) {
-    throw new InstallError(
-      `There is not enough room for this model. It needs about ` +
-        `${formatBytes(needed + headroom)} free, and this disk has ` +
-        `${formatBytes(free)}.`,
-    );
-  }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-  }
-  return `${Math.ceil(bytes / (1024 * 1024))} MB`;
-}
-

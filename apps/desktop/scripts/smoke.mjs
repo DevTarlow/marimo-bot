@@ -38,21 +38,19 @@
  * real reduction in isolation and must not be what a normal run quietly gets.
  */
 import {
-  chmod,
   copyFile,
   mkdir,
   mkdtemp,
-  open,
   readdir,
   rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
+import {createServer} from 'node:http';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {CHAT_PINS, engineAssetFor} from '@marimo/runtime';
 
 import {appIsRunning, startApp, stopApp} from './app-process.mjs';
 
@@ -87,68 +85,96 @@ function ok(message) {
 }
 
 /**
- * Puts a model on disk for the app to find.
+ * A stand-in model server, on a port of its own.
  *
- * The window is what this check is about, not a four-gigabyte download. A sparse
- * file of the pinned size, the marker the installer would have written, and a
- * stand-in engine are enough for the host to believe a model is installed and
- * for the setup flow to reach its "Ready" state — and they cost nothing.
+ * The check is about the window, not a real model: it needs `/v1/models` to name
+ * something, `/props` to report a window, and a streaming completion so a turn
+ * that carries a picture finishes instead of hanging. The app has no chat engine
+ * to start, so this is the smallest server that makes the badge say connected.
  *
- * `MARIMO_MODEL_DIR` is what points the app at it. It is the same override a
- * live run uses, so this is not a special path the product does not have.
+ * It listens on an ephemeral loopback port and the settings file below names it,
+ * so a llama.cpp already running on 8080 is left alone.
  */
-async function prepareModelFixture(userData) {
-  const root = join(userData, 'model');
-  await mkdir(join(root, 'engine'), {recursive: true});
-  await copyFile(
-    join(appRoot, 'scripts', 'fixtures', 'stub-engine.mjs'),
-    join(root, 'engine', 'llama-server'),
-  );
-  await chmod(join(root, 'engine', 'llama-server'), 0o755);
-  const asset = engineAssetFor(CHAT_PINS);
-  if (asset === undefined) {
-    throw new Error('this platform has no pinned engine to stand in for');
+async function startModelServer() {
+  const server = createServer((request, response) => {
+    const url = request.url ?? '';
+    if (request.method === 'GET' && url === '/v1/models') {
+      response.writeHead(200, {'content-type': 'application/json'});
+      response.end(
+        JSON.stringify({
+          object: 'list',
+          data: [{id: 'qwen3-8b', object: 'model', owned_by: 'smoke'}],
+        }),
+      );
+      return;
+    }
+    if (request.method === 'GET' && url === '/props') {
+      response.writeHead(200, {'content-type': 'application/json'});
+      response.end(
+        JSON.stringify({
+          default_generation_settings: {n_ctx: 32_768},
+          chat_template:
+            '{% if tools %}{{ tool_calls }}{% endif %}{{ messages }}',
+        }),
+      );
+      return;
+    }
+    if (request.method === 'POST' && url === '/v1/chat/completions') {
+      response.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const created = Math.floor(Date.now() / 1000);
+      const chunk = (delta, finish = null, usage = null) =>
+        `data: ${JSON.stringify({
+          id: 'chatcmpl-smoke',
+          object: 'chat.completion.chunk',
+          created,
+          model: 'qwen3-8b',
+          choices: [{index: 0, delta, finish_reason: finish}],
+          ...(usage === null ? {} : {usage}),
+        })}\n\n`;
+      response.write(chunk({role: 'assistant', content: 'Smoke says hello.'}));
+      response.write(chunk({}, 'stop'));
+      response.write(
+        chunk({}, null, {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2,
+        }),
+      );
+      response.end('data: [DONE]\n\n');
+      return;
+    }
+    response.writeHead(404, {'content-type': 'application/json'});
+    response.end(JSON.stringify({error: 'not found'}));
+  });
+  await new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') {
+    server.close();
+    throw new Error('the stand-in model server did not get a port');
   }
-  await writeFile(
-    join(root, 'engine', '.pinned'),
-    `${JSON.stringify(
-      {file: asset.asset.file, sha256: asset.asset.sha256},
-      null,
-      2,
-    )}\n`,
-    'utf8',
-  );
+  return {server, url: `http://127.0.0.1:${String(address.port)}/v1`};
+}
 
-  const pin = CHAT_PINS.models['qwen2.5-vl-7b'];
-  const variant = pin.variants.q4;
-  const weights = variant.weights;
-  const projector = variant.projector;
-  const dir = join(root, 'qwen2.5-vl-7b');
-  await mkdir(dir, {recursive: true});
-  for (const file of [weights, projector]) {
-    const handle = await open(join(dir, file.file), 'w');
-    await handle.truncate(file.bytes);
-    await handle.close();
-  }
+/** The settings the app opens with: the server above, and nothing else chosen. */
+async function writeModelSettings(userData, url) {
   await writeFile(
-    join(dir, 'local-model.json'),
+    join(userData, 'settings.json'),
     `${JSON.stringify(
       {
-        modelId: 'qwen2.5-vl-7b',
-        variant: 'q4',
-        revision: pin.revision,
-        files: [weights, projector].map((file) => ({
-          name: file.file,
-          sha256: file.sha256,
-          bytes: file.bytes,
-        })),
+        version: 4,
+        modelServer: {url, model: 'qwen3-8b', contextTokens: 32_768},
       },
       null,
       2,
     )}\n`,
     'utf8',
   );
-  return root;
 }
 
 /** Waits for something, or gives up. */
@@ -185,7 +211,8 @@ async function main() {
    */
   const home = join(userData, 'home');
   await mkdir(home, {recursive: true});
-  const modelRoot = await prepareModelFixture(userData);
+  const modelServer = await startModelServer();
+  await writeModelSettings(userData, modelServer.url);
   const args = [appRoot, `--remote-debugging-port=${DEBUG_PORT}`];
   if (process.env['MARIMO_NO_SANDBOX'] === '1') {
     args.push('--no-sandbox');
@@ -197,7 +224,6 @@ async function main() {
     env: {
       ...process.env,
       MARIMO_USER_DATA_DIR: userData,
-      MARIMO_MODEL_DIR: modelRoot,
       HOME: home,
       USERPROFILE: home,
     },
@@ -546,29 +572,45 @@ async function main() {
     await press('Continue');
 
     /*
-     * The model step. A fresh install has a model fixture on disk, so the step
-     * should say it is ready rather than offer a download — which is what makes
-     * the rest of this check able to reach a composer.
+     * The model server step. The stand-in server is already running, so the
+     * step's own test should find it and name the model it reports, which is
+     * what makes the rest of this check able to reach a composer.
      */
-    const modelStep = await until('the model step', async () => {
+    const modelStep = await until('the model server step', async () => {
       const value = await evaluate(`(() => {
-        const card = document.querySelector('.model-setup-card');
-        if (card === null) {
+        const form = document.querySelector('[data-model-server-form]');
+        if (form === null) {
           return undefined;
         }
+        const status = document.querySelector('[data-model-server-state]');
+        const next = [...document.querySelectorAll('.setup-body button')].find(
+          (entry) => entry.textContent.trim() === 'Continue',
+        );
         return JSON.stringify({
-          ready: card.textContent.includes('Downloaded and checked'),
-          download: card.textContent.includes('Download and continue'),
+          state: status?.getAttribute('data-model-server-state') ?? '',
+          text: form.textContent ?? '',
+          canContinue: next !== undefined && next.disabled === false,
         });
       })()`);
-      return value === undefined ? undefined : JSON.parse(value);
+      if (value === undefined) {
+        return undefined;
+      }
+      const read = JSON.parse(value);
+      // The probe can be in flight with the last status still saying ready.
+      // Wait for both the status and the button, rather than stopping at a
+      // snapshot taken between the two.
+      return read.canContinue ? read : undefined;
     });
-    if (modelStep.ready !== true || modelStep.download !== false) {
+    if (modelStep.state !== 'ready') {
+      fail(`the model server step is ${modelStep.state}, not ready`);
+    } else if (!modelStep.text.includes('qwen3-8b')) {
       fail(
-        `the model step did not see the installed model: ${JSON.stringify(modelStep)}`,
+        `the model server step does not name the server's model: ${JSON.stringify(modelStep)}`,
       );
+    } else if (!modelStep.canContinue) {
+      fail('the model server step will not continue with a server that answers');
     } else {
-      ok('the first run sees the installed local model and offers to continue');
+      ok('the first run finds the model server and offers to continue');
     }
     await press('Continue');
 
@@ -701,7 +743,7 @@ async function main() {
       })()`);
       return value === undefined ? undefined : JSON.parse(value);
     });
-    if (!finishStep.text.includes('Qwen2.5 VL 7B')) {
+    if (!finishStep.text.includes('qwen3-8b')) {
       fail(
         `the setup summary does not name the model: ${JSON.stringify(finishStep)}`,
       );
@@ -2303,8 +2345,8 @@ async function main() {
 
       if (settingsScreen.hasModeSwitch) {
         fail('the single settings screen still draws a simple/power switch');
-      } else if (!settingsScreen.titles.includes('Models')) {
-        fail('the settings screen cannot reach the models that answer for it');
+      } else if (!settingsScreen.titles.includes('Model server')) {
+        fail('the settings screen cannot reach the server that answers for it');
       } else if (!settingsScreen.titles.includes('Connectors')) {
         fail('the settings screen cannot reach the connectors it has');
       } else if (!settingsScreen.titles.includes('Commands')) {
@@ -2498,55 +2540,51 @@ async function main() {
       }
 
       /*
-       * The Models card, which is where the app gets an answer from now.
+       * The Model server card, which is where the app gets an answer from now.
        *
-       * A window with no model of its own has three facts to get right and no way
-       * for a unit test to see them together: one model card, one rest select,
-       * and a downloaded model that says which copy is installed. There is no
-       * task picker and no key field any more, and looking for their absence is
-       * the check that the provider/model-choice screens are gone.
+       * A window with no model of its own has three facts to get right and no
+       * way for a unit test to see them together: the address it was given, the
+       * live status beside it, and the model the server reports. There is no
+       * download, no key field and no task picker any more, and looking for
+       * their absence is the check that the old card is gone.
        */
-      await openSection('Models');
-      const modelsCard = await until('the Models card to answer', async () => {
+      await openSection('Model server');
+      const serverCard = await until('the Model server card to answer', async () => {
         const state = await evaluate(`(() => {
           const section = [...document.querySelectorAll('.settings-section')]
-            .find((entry) => entry.querySelector('h3')?.textContent === 'Models');
+            .find((entry) => entry.querySelector('h3')?.textContent === 'Model server');
           if (section === undefined) return undefined;
-          const cards = [...section.querySelectorAll('.model-card')];
+          const buttons = [...section.querySelectorAll('button')].map(
+            (button) => button.textContent ?? '',
+          );
           return JSON.stringify({
-            selects: section.querySelectorAll('select').length,
             passwordFields: section.querySelectorAll('input[type="password"]').length,
-            cards: cards.length,
-            installed: cards
-              .map((card) => card.textContent ?? '')
-              .filter((text) => text.includes('Installed:')),
-            buttons: [...section.querySelectorAll('button')].map(
-              (button) => button.textContent ?? '',
-            ),
+            url: section.querySelector('input[aria-label="Model server address"]')?.value ?? '',
+            state:
+              section
+                .querySelector('[data-model-server-state]')
+                ?.getAttribute('data-model-server-state') ?? '',
+            text: section.textContent ?? '',
+            downloads: buttons.filter((text) => /download|install/iu.test(text)),
           });
         })()`);
         return state === undefined ? undefined : JSON.parse(state);
       });
 
-      if (modelsCard.passwordFields !== 0) {
-        fail('the Models card still has an API-key field');
-      } else if (modelsCard.selects !== 1) {
+      if (serverCard.passwordFields !== 0) {
+        fail('the Model server card still has an API-key field');
+      } else if (serverCard.downloads.length > 0) {
         fail(
-          `the Models card offers ${String(modelsCard.selects)} selects, not just the rest select`,
+          `the Model server card still offers a download: ${JSON.stringify(serverCard.downloads)}`,
         );
-      } else if (modelsCard.cards !== 1) {
-        fail(
-          `the Models card draws ${String(modelsCard.cards)} models, not one`,
-        );
-      } else if (
-        !modelsCard.installed.some((text) => text.includes('4-bit')) ||
-        !modelsCard.installed.some((text) => text.includes('Qwen2.5 VL 7B'))
-      ) {
-        fail(
-          `the installed model is not named in the Models card: ${JSON.stringify(modelsCard.installed)}`,
-        );
+      } else if (!serverCard.url.endsWith('/v1')) {
+        fail(`the Model server card does not show the address: ${JSON.stringify(serverCard)}`);
+      } else if (serverCard.state !== 'ready') {
+        fail(`the Model server card is ${serverCard.state}, not connected`);
+      } else if (!serverCard.text.includes('qwen3-8b')) {
+        fail('the Model server card does not name the model the server reports');
       } else {
-        ok('the Models card offers Qwen2.5 VL, with no task picker or key');
+        ok('the Model server card shows the address, the status and the model, with no download');
       }
 
       /*
@@ -3250,6 +3288,7 @@ async function main() {
     if (!(await stopApp())) {
       fail('the app could not be stopped, and is still running');
     }
+    modelServer.server.close();
     await rm(userData, {recursive: true, force: true});
   }
 }

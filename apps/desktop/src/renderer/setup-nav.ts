@@ -25,7 +25,7 @@ export type SetupStage =
   | 'welcome'
   | 'direction'
   | 'goals'
-  | 'model'
+  | 'server'
   | 'space'
   | 'bot'
   | 'persona'
@@ -42,7 +42,7 @@ export interface SetupStep {
 const STEP_LABELS: Record<SetupStep['id'], string> = {
   direction: 'Control',
   goals: 'Goals',
-  model: 'Model',
+  server: 'Model server',
   space: 'Space',
   bot: 'A bot',
   persona: 'Persona',
@@ -78,7 +78,7 @@ export function setupSteps(read: SetupRead): SetupStep[] {
 
   add('direction');
   add('goals');
-  add('model');
+  add('server');
   add('space');
   if (effects.needsBot) {
     add('bot');
@@ -122,7 +122,7 @@ export function nextStage(
  * Direction backs to the welcome screen, which draws no Back of its own. Any
  * other step is the one before it in the resolved list, which is what makes
  * every step a real step rather than a screen whose Back was remembered by
- * hand: Persona backs to the bot list, Space backs to the model, and the finish
+ * hand: Persona backs to the bot list, Space backs to the server, and the finish
  * backs to whichever of jobs, more bots or the bot step applied.
  */
 export function previousStage(

@@ -7,8 +7,8 @@
  * adds a field.
  *
  * So this asserts the *shape* rather than one call site: whatever a settings
- * payload grows into, no secret may appear in it. The models are local now and
- * need no key at all, but the payload still carries connector entries and a
+ * payload grows into, no secret may appear in it. The model server is local and
+ * needs no key at all, but the payload still carries connector entries and a
  * Discord block, and those are the fields a hurried change would be tempted to
  * fill in "because the window already has a box for it".
  *
@@ -20,17 +20,7 @@
 import {describe, expect, it} from 'vitest';
 
 import {defaultStoredSettings} from '@marimo/runtime';
-import {
-  LOCAL_MODEL_IDS,
-  LOCAL_MODELS,
-  LOCAL_TASKS,
-} from '@marimo/protocol';
-import type {
-  LocalModelId,
-  LocalModelStatus,
-  LocalModelsStatus,
-  PublicSettings,
-} from '@marimo/protocol';
+import type {ModelServerStatus, PublicSettings} from '@marimo/protocol';
 
 import {settingsForWindow} from '../src/main/public-settings.js';
 
@@ -69,36 +59,16 @@ function credentialFieldsIn(value: unknown, path = ''): string[] {
   );
 }
 
-function modelStatus(id: LocalModelId): LocalModelStatus {
+function modelServer(): ModelServerStatus {
   return {
-    id,
-    installed: false,
-    missing: ['weights'],
-    state: 'off',
-    usedFor: [],
-  };
-}
-
-function localModels(): LocalModelsStatus {
-  return {
-    engine: {
-      present: true,
-      platformSupported: true,
-      tag: 'b11960',
-      backend: 'vulkan',
-      cuda: {available: false, reason: 'No NVIDIA GPU in this test.', bytes: 0},
-    },
-    models: Object.fromEntries(
-      LOCAL_MODEL_IDS.map((id) => [id, modelStatus(id)]),
-    ) as Record<LocalModelId, LocalModelStatus>,
-    tasks: {
-      chat: 'qwen2.5-vl-7b',
-      vision: 'qwen2.5-vl-7b',
-    },
-    idleMinutes: 3,
-    engineBackend: 'vulkan',
-    recommendedVariant: 'q4',
-    retired: [],
+    state: 'ready',
+    url: 'http://127.0.0.1:8080/v1',
+    model: 'qwen3-8b',
+    models: ['qwen3-8b'],
+    contextTokens: 32_768,
+    contextSource: 'server',
+    tools: true,
+    leftOver: [],
   };
 }
 
@@ -107,26 +77,20 @@ describe('a settings payload', () => {
   function payload(): PublicSettings {
     return settingsForWindow({
       settings: defaultStoredSettings(),
-      readiness: {ok: true},
       encryptionAvailable: true,
-      localModels: localModels(),
-      hardware: {totalMemoryMb: 16_384, platform: 'linux', arch: 'x64'},
+      modelServer: modelServer(),
       profiles: [],
       activeProfileId: 'p1',
     });
   }
 
-  it('carries the model situation and the hardware facts', () => {
+  it('carries the server the probe found and derives readiness from it', () => {
     const settings = payload();
-    expect(settings.localModels.engine.present).toBe(true);
-    expect(settings.localModels.tasks.chat).toBe('qwen2.5-vl-7b');
-    expect(settings.hardware.totalMemoryMb).toBe(16_384);
+    expect(settings.modelServerStatus.state).toBe('ready');
+    expect(settings.modelServerStatus.model).toBe('qwen3-8b');
+    expect(settings.modelServer.url).toBe('http://127.0.0.1:8080/v1');
     expect(settings.modelReady).toBe(true);
-    // Every task is in the catalogue and every model has a label the window can
-    // draw without importing the catalogue's prose.
-    for (const task of LOCAL_TASKS) {
-      expect(LOCAL_MODELS[settings.localModels.tasks[task]].label.length).toBeGreaterThan(0);
-    }
+    expect(settings.modelProblem).toBeUndefined();
   });
 
   it('carries no credential field anywhere in it', () => {

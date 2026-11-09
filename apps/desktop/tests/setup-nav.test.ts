@@ -36,7 +36,7 @@ describe('the steps a setup produces', () => {
     expect(ids(stepsFor('regular', []))).toEqual([
       'direction',
       'goals',
-      'model',
+      'server',
       'space',
       'finish',
     ]);
@@ -46,7 +46,7 @@ describe('the steps a setup produces', () => {
     expect(ids(stepsFor('regular', ['research']))).toEqual([
       'direction',
       'goals',
-      'model',
+      'server',
       'space',
       'bot',
       'finish',
@@ -54,7 +54,7 @@ describe('the steps a setup produces', () => {
     expect(ids(stepsFor('regular', ['research'], true))).toEqual([
       'direction',
       'goals',
-      'model',
+      'server',
       'space',
       'bot',
       'persona',
@@ -63,11 +63,11 @@ describe('the steps a setup produces', () => {
     ]);
   });
 
-  it('does not add a step for pictures, now that the one model handles them', () => {
+  it('does not add a step for pictures, because the server decides them', () => {
     expect(ids(stepsFor('power', ['pictures']))).toEqual([
       'direction',
       'goals',
-      'model',
+      'server',
       'space',
       'finish',
     ]);
@@ -77,7 +77,7 @@ describe('the steps a setup produces', () => {
     expect(ids(stepsFor('power', ['automation']))).toEqual([
       'direction',
       'goals',
-      'model',
+      'server',
       'space',
       'bot',
       'jobs',
@@ -86,7 +86,7 @@ describe('the steps a setup produces', () => {
     expect(ids(stepsFor('power', ['automation'], true))).toEqual([
       'direction',
       'goals',
-      'model',
+      'server',
       'space',
       'bot',
       'persona',

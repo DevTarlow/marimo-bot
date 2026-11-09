@@ -13,20 +13,13 @@ import {botDraftSchema} from './bots.js';
 import type {BotTemplate} from './bots.js';
 import {parseCron} from './cron.js';
 import {mcpServerSchema, mcpServersAreDistinct} from './mcp.js';
+import {attachmentSchema, MAX_ATTACHMENTS} from './attachments.js';
 import {
-  attachmentSchema,
-  localModelsPatchSchema,
-  localModelsSettingsSchema,
-  localModelIdSchema,
-  localModelVariantSchema,
-  MAX_ATTACHMENTS,
-  retiredModelIdSchema,
-} from './local-models.js';
-import type {
-  HostHardware,
-  LocalModelId,
-  LocalModelsStatus,
-} from './local-models.js';
+  leftOverModelIdSchema,
+  modelServerPatchSchema,
+  modelServerSettingsSchema,
+} from './model-server.js';
+import type {ModelServerStatus} from './model-server.js';
 import {secretStorageSchema} from './mcp.js';
 
 /*
@@ -113,71 +106,54 @@ export type {
 import type {McpServer} from './mcp.js';
 
 /* -------------------------------------------------------------------------- */
-/* Local models                                                                */
+/* The model server                                                            */
 /* -------------------------------------------------------------------------- */
 
 /*
- * The one model the app downloads, what it can do, and how a task is assigned
- * to it. It is its own module because it is a catalogue with its own shape and
- * its own tests, and because this file is the IPC contract rather than a place
- * for model prose.
+ * The one endpoint that answers, and the files an older build left behind.
+ *
+ * There is no model catalogue any more: the server names its own model, so what
+ * this contract carries is the address a person typed, the model the server
+ * reported, and the window the turn may use. It is its own module because it is
+ * a block of settings with its own rules and its own tests, and because this
+ * file is the IPC contract rather than a place for model prose.
  *
  * The provider id module sits beside it and is deliberately tiny: `local` is
  * the only id this build writes, and the old names survive only so yesterday's
  * conversation can still be read.
  */
 export {
-  attachmentKindSchema,
-  attachmentSchema,
-  defaultLocalModelsSettings,
-  ENGINE_BACKENDS,
-  engineBackendSchema,
-  LOCAL_MODEL_CAPABILITIES,
-  LOCAL_MODEL_IDS,
-  LOCAL_MODEL_PARTS,
-  LOCAL_MODEL_VARIANTS,
-  LOCAL_MODELS,
-  LOCAL_TASKS,
-  localModelIdSchema,
-  localModelPartSchema,
-  localModelStateSchema,
-  localModelVariantSchema,
-  localModelsPatchSchema,
-  localModelsSettingsSchema,
-  localTaskSchema,
-  LOCAL_MODEL_RESERVE_TOKENS,
-  MAX_ATTACHMENT_BYTES,
-  MAX_ATTACHMENTS,
-  modelSupportsTask,
-  modelsForTask,
+  DEFAULT_MODEL_SERVER_CONTEXT,
+  DEFAULT_MODEL_SERVER_URL,
+  defaultModelServerSettings,
+  LEFT_OVER_MODEL_IDS,
+  LEFT_OVER_MODEL_LABELS,
+  leftOverModelIdSchema,
+  MODEL_SERVER_RESERVE_TOKENS,
+  modelServerPatchSchema,
+  modelServerSettingsSchema,
+  modelServerUrlSchema,
+  readModelServerUrl,
   RETIRED_MODEL_IDS,
   RETIRED_MODEL_LABELS,
   retiredModelIdSchema,
-  TASK_CAPABILITIES,
-  TASK_LABELS,
-  variantBytes,
   workContextTokens,
-} from './local-models.js';
+} from './model-server.js';
 export type {
-  Attachment,
-  AttachmentKind,
-  CudaEngineStatus,
-  EngineBackend,
-  HostHardware,
-  LocalModelCapability,
-  LocalModelDescriptor,
-  LocalModelId,
-  LocalModelPart,
-  LocalModelState,
-  LocalModelStatus,
-  LocalModelsPatch,
-  LocalModelsSettings,
-  LocalModelsStatus,
-  LocalModelVariant,
-  LocalModelVariantBytes,
-  LocalTask,
+  LeftOverModelId,
+  ModelServerPatch,
+  ModelServerSettings,
+  ModelServerState,
+  ModelServerStatus,
   RetiredModelId,
-} from './local-models.js';
+} from './model-server.js';
+export {
+  attachmentKindSchema,
+  attachmentSchema,
+  MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS,
+} from './attachments.js';
+export type {Attachment, AttachmentKind} from './attachments.js';
 export {
   agentModelSchema,
   isLegacyProviderId,
@@ -603,7 +579,7 @@ export function defaultWindowState(): WindowState {
  *
  * **Off until the user asks for it**, because turning it on downloads 310 MB and
  * starts a second engine process. Discord is off for the same reason — a fresh
- * install makes no network calls it was not asked to make — and a model download
+ * install makes no network calls it was not asked to make — and a download
  * nobody asked for is that failure with a bigger number attached.
  *
  * The two corpora are separate switches because they are separate consents. The
@@ -659,11 +635,11 @@ export const recallSettingsSchema = z.object({
    * Whether the first-run card has been answered, either way.
    *
    * Not consent and not a switch: `enabled` is the feature and this is the
-   * question about it. It exists because the card is asked *once* — the moment a
-   * download finishes — and "once" cannot be derived from anything else in this
-   * document. `enabled: false` is as true of somebody who pressed "Not now" as it
-   * is of somebody who has never been asked, and the next model download would
-   * ask them again. Written when the card is answered, never read by the model or
+   * question about it. It exists because the card is asked *once* — the moment the
+   * model server first answers — and "once" cannot be derived from anything else
+   * in this document. `enabled: false` is as true of somebody who pressed "Not
+   * now" as it is of somebody who has never been asked, and the next server
+   * coming up would ask them again. Written when the card is answered, never read by the model or
    * by the window's chat surface.
    */
   introSeen: z.boolean(),
@@ -780,27 +756,26 @@ export function defaultRecallSettings(): RecallSettings {
 }
 
 /**
- * Settings are what applies to the app as a whole: how it looks, how literal the
- * model's wording is, which local model does which job, and the escape hatches.
- * Anything about *an agent's* behaviour — who it is, which folder it works in,
- * which tools it may use — lives in a profile below, because that is the unit
- * the user switches between.
+ * Settings are what applies to the app as a whole: how it looks, which model
+ * server answers, and the escape hatches. Anything about *an agent's* behaviour
+ * — who it is, which folder it works in, which tools it may use — lives in a
+ * profile below, because that is the unit the user switches between.
  *
- * There is no address, key or provider here any more. The app answers with its
- * own local model; what is left to choose is which copy answers Chat and
- * Images, and how long it stays warm between turns.
+ * The model server's address is here and it is not a provider. It is one
+ * loopback endpoint the person runs themselves, with no key and no account, and
+ * the block refuses anything that is not on this computer.
  */
 export const settingsSchema = z.object({
   /**
    * Whether the setup flow has had its turn.
    *
-   * The flow that makes a first bot, loads a Space and downloads the first
-   * model is a *first run*, and a first run is a fact rather than a state that
-   * can be recomputed: an install with no model looks the same on its first
-   * launch and on its fiftieth, and the difference that matters is whether
-   * somebody has already been walked through it. Without this, a user who chose
-   * "set this up later" would be handed the wizard again every time they opened
-   * the app.
+   * The flow that makes a first bot, loads a Space and connects the model
+   * server is a *first run*, and a first run is a fact rather than a state that
+   * can be recomputed: an install whose server happens to be off looks the same
+   * on its first launch and on its fiftieth, and the difference that matters is
+   * whether somebody has already been walked through it. Without this, a user
+   * who chose "set this up later" would be handed the wizard again every time
+   * they opened the app.
    *
    * True means the flow has run or been declined; it is not a claim that the app
    * can answer. `modelReady` is that claim, and it is the main process's.
@@ -814,14 +789,14 @@ export const settingsSchema = z.object({
   /** Background, accent and text size: how the app looks, not what it does. */
   appearance: appearanceSchema,
   /**
-   * The local models, and which task each one does.
+   * The model server this install talks to.
    *
-   * The installed copy is deliberately absent: whether a model is on disk and
-   * which quantization it is are facts about the disk, recorded beside the
-   * weights by the installer. A settings file that claimed a 4-bit copy nobody
-   * downloaded would be a card offering a button whose model is not there.
+   * A preference rather than a fact about a download: the app owns no chat
+   * weights any more, so the address and the model name are things the person
+   * chose. Whether the server is running, and what it reports, is the live
+   * status read from it.
    */
-  localModels: localModelsSettingsSchema,
+  modelServer: modelServerSettingsSchema,
   maxOutputTokens: z.number().int().positive().optional(),
   /** Opt-in escape hatch for `http_fetch` hitting loopback/private hosts. */
   allowPrivateNetworkFetch: z.boolean(),
@@ -1010,7 +985,7 @@ export const settingsPatchSchema = settingsSchema.partial().extend({
   appearance: appearancePatchSchema.optional(),
   /* Any subset of the block, merged over what is stored — the reason above. */
   recall: recallSettingsSchema.partial().optional(),
-  localModels: localModelsPatchSchema.optional(),
+  modelServer: modelServerPatchSchema.optional(),
 });
 
 /*
@@ -1582,28 +1557,28 @@ export function emptySkillsFile(): SkillsFile {
 /**
  * What the renderer is allowed to see.
  *
- * No credential is here and none can be: the models run on this machine, so
- * there is no model key at all. What the window needs is the two facts only the
- * main process has — whether the app could answer a question right now, and what
- * state every downloaded model is in — plus the one connector fact it needs
- * before it asks somebody to type a secret (whether this machine can encrypt).
+ * No credential is here and none can be: the model server is on this computer
+ * and takes no key. What the window needs is the two facts only the main process
+ * has — whether the server is answering right now, and what it reports — plus
+ * the one connector fact it needs before it asks somebody to type a secret
+ * (whether this machine can encrypt).
  */
 export type PublicSettings = Settings & {
   /**
    * Whether the app can answer at all, right now.
    *
-   * A fact only the process that resolved it can supply: true when the model
-   * assigned to Chat is installed with its engine. A window that guessed from
-   * what it can see would open a chat on a machine that cannot reply.
+   * A fact only the process that probed it can supply: true when the configured
+   * server answered and named a model. A window that guessed from the address
+   * alone would offer a chat the server is not there to answer.
    */
   modelReady: boolean;
   /**
-   * Why not, when it is not — the sentence the welcome screen shows.
+   * Why not, when it is not — the sentence the notice shows.
    *
    * A reason rather than a boolean, because the failures have nothing in common:
-   * no model downloaded, no engine build for this platform, a file removed from
-   * under it. Each is fixed in a different place, and a screen that said "not
-   * ready" for all of them would be a dead end for each.
+   * nothing listening at the address, a server that wants a key, a server that
+   * listed no model. Each is fixed in a different place, and a sentence that
+   * said "not ready" for all of them would be a dead end for each.
    */
   modelProblem?: string;
   /**
@@ -1614,10 +1589,14 @@ export type PublicSettings = Settings & {
    * say so before it is typed.
    */
   encryptionAvailable: boolean;
-  /** Every model's files and process state, for the Models card and the badge. */
-  localModels: LocalModelsStatus;
-  /** What a first run needs to recommend a copy that fits this machine. */
-  hardware: HostHardware;
+  /**
+   * The live model server, for the card and the composer badge.
+   *
+   * Separate from the stored `modelServer` block because it is a fact about a
+   * process rather than a preference: it changes when the person starts or stops
+   * their server, and the window draws that without a settings write.
+   */
+  modelServerStatus: ModelServerStatus;
   profiles: AgentProfile[];
   activeProfileId: string;
 };
@@ -2856,25 +2835,14 @@ export type AgentUiEvent =
   | {type: 'recall.installed'; piece: RecallPiece}
   | {type: 'recall.failed'; message: string}
   /*
-   * The local models.
+   * The model server.
    *
-   * `model.status` carries the whole situation rather than a diff: it changes
-   * when a download finishes, when an engine starts or stops, and when a turn
-   * changes which model is in memory, and the window draws all of those from
-   * one small object. Progress is separate because it arrives once per percent
-   * and the status is not worth recomputing for each one.
+   * `model.status` carries the whole situation rather than a diff: the person
+   * starts or stops their server outside this app, and the window draws what
+   * the probe found from one small object. It changes when the server comes up,
+   * goes away, reports a different model, or when an old download is removed.
    */
-  | {type: 'model.status'; status: LocalModelsStatus}
-  | {
-      type: 'model.progress';
-      modelId: LocalModelId;
-      label: string;
-      receivedBytes: number;
-      totalBytes: number;
-      percent?: number;
-    }
-  | {type: 'model.installed'; modelId: LocalModelId}
-  | {type: 'model.failed'; modelId: LocalModelId; message: string}
+  | {type: 'model.status'; status: ModelServerStatus}
   /**
    * Something was indexed, so a card or a search box showing counts is stale.
    *
@@ -3481,26 +3449,16 @@ export const agentCallSchemas = {
   'jobs.remove': z.object({jobId: z.string().min(1)}),
 
   /*
-   * The local models.
+   * The model server.
    *
-   * Reads and buttons, for the same reason the recall card's are: a settings
-   * write that quietly reached the network for 1.9GB would report success for
-   * work it had not done. `install` answers as soon as the download has
-   * *started*, and progress arrives on the event channel.
+   * `status` reads the live situation; `test` forces a fresh probe, which is
+   * what the card's button and the first run use after the person starts their
+   * server. `removeLeftOver` deletes one old download, named by the fixed enum
+   * the status reports — never a path a window could invent.
    */
-  'models.status': z.object({}),
-  'models.install': z.object({
-    modelId: localModelIdSchema,
-    variant: localModelVariantSchema,
-  }),
-  'models.cancel': z.object({}),
-  'models.remove': z.object({modelId: localModelIdSchema}),
-  /* Delete one old model's files, from the list the status reports. */
-  'models.removeRetired': z.object({modelId: retiredModelIdSchema}),
-  /* Stop the engine now rather than waiting for the idle timer. */
-  'models.sleep': z.object({}),
-  /* Start it and prove it loads, for a first run that should not lie. */
-  'models.warm': z.object({modelId: localModelIdSchema}),
+  'modelServer.status': z.object({}),
+  'modelServer.test': z.object({}),
+  'modelServer.removeLeftOver': z.object({id: leftOverModelIdSchema}),
 
   /*
    * A Space's documents.
@@ -3769,13 +3727,9 @@ export interface AgentCallResults {
   'jobs.list': {jobs: JobSummary[]; problem?: string};
   'jobs.update': {jobs: JobSummary[]; found: boolean; problem?: string};
   'jobs.remove': {jobs: JobSummary[]; removed: boolean; problem?: string};
-  'models.status': LocalModelsStatus;
-  'models.install': {started: boolean};
-  'models.cancel': {cancelled: boolean};
-  'models.remove': {status: LocalModelsStatus};
-  'models.removeRetired': {status: LocalModelsStatus};
-  'models.sleep': {status: LocalModelsStatus};
-  'models.warm': {ok: boolean; problem?: string; status: LocalModelsStatus};
+  'modelServer.status': ModelServerStatus;
+  'modelServer.test': ModelServerStatus;
+  'modelServer.removeLeftOver': ModelServerStatus;
   'sessions.setParticipants': {session: SessionSummary};
   /*
    * `notes` for the same reason `recall.query` has one: a library that hit its

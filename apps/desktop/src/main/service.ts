@@ -56,9 +56,9 @@ export interface ServiceContext {
 /**
  * Whether a process with no keychain could run this install's jobs.
  *
- * The model needs no key any more — it runs on this machine from weights the
- * app downloaded. What is left is the connectors: a scheduled turn may use the
- * tools its agent was granted, and the runner dials them without a window. A
+ * The model needs no key any more — it is a server on this machine. What is left
+ * is the connectors: a scheduled turn may use the tools its agent was granted,
+ * and the runner dials them without a window. A
  * connector with no secrets needs none; one the user let the runner read is
  * readable; an encrypted one is a connector the job dials without, which is a
  * turn that does less than it was asked to, or a `401` from a server that never

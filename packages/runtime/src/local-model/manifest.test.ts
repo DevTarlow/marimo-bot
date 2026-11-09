@@ -12,7 +12,6 @@ import {describe, expect, it} from 'vitest';
 import {
   embeddingUrl,
   engineAssetFor,
-  engineFilesFor,
   engineUrl,
   ManifestError,
   parseEmbeddingManifest,
@@ -204,52 +203,6 @@ describe('looking an engine up', () => {
     expect(platformKey('darwin', 'arm64')).toBe('darwin-arm64');
   });
 
-  it('returns the CUDA engine and runtime in install order', () => {
-    const base = fixture();
-    const engine = base['engine'] as Record<string, unknown>;
-    const withCuda = parseEmbeddingManifest({
-      ...base,
-      engine: {
-        ...engine,
-        cuda: {
-          'linux-x64': [
-            {
-              file: 'engine-cuda.tar.gz',
-              sha256: 'c'.repeat(64),
-              bytes: 12,
-            },
-            {file: 'cudart.tar.gz', sha256: 'd'.repeat(64), bytes: 34},
-          ],
-        },
-      },
-    });
-
-    const files = engineFilesFor(withCuda, {
-      backend: 'cuda',
-      platform: 'linux',
-      arch: 'x64',
-    });
-    expect(files?.map((file) => file.file)).toEqual([
-      'engine-cuda.tar.gz',
-      'cudart.tar.gz',
-    ]);
-    expect(files?.[1]?.bytes).toBe(34);
-
-    expect(
-      engineFilesFor(withCuda, {
-        backend: 'cuda',
-        platform: 'darwin',
-        arch: 'arm64',
-      }),
-    ).toBeUndefined();
-    expect(
-      engineFilesFor(withCuda, {
-        backend: 'vulkan',
-        platform: 'linux',
-        arch: 'x64',
-      })?.map((file) => file.file),
-    ).toEqual(['engine.tar.gz']);
-  });
 });
 
 describe('the URLs a download uses', () => {

@@ -14,7 +14,6 @@
  */
 import {randomUUID} from 'node:crypto';
 import {stat} from 'node:fs/promises';
-import {totalmem} from 'node:os';
 
 import {
   app,
@@ -27,11 +26,6 @@ import {
 import type {OpenDialogOptions} from 'electron';
 
 import {agentCallSchemas, IPC_CALL_CHANNEL} from '@marimo/protocol';
-import type {
-  LocalModelId,
-  LocalModelVariant,
-  RetiredModelId,
-} from '@marimo/protocol';
 
 import {checkForUpdates} from './updates.js';
 import type {
@@ -43,7 +37,6 @@ import type {
   ThemeMode,
 } from '@marimo/protocol';
 import type {AppPaths} from '@marimo/runtime';
-import {missingProblem} from '@marimo/runtime';
 
 import {PRODUCT_NAME} from '../shared/product.js';
 
@@ -130,10 +123,10 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
   /**
    * The settings a window may see.
    *
-   * No credential is here and none can be: the models run on this machine, so
-   * there is no model key at all. What crosses is the model situation — what is
-   * installed, what is running, and what a first run should recommend — plus the
-   * one connector fact the form needs before it asks somebody to type a secret.
+   * No credential is here and none can be: the model server is on this computer
+   * and takes no key. What crosses is the live model situation — what answered,
+   * what model it named and what window it has — plus the one connector fact the
+   * form needs before it asks somebody to type a secret.
    */
   async function publicSettings(): Promise<PublicSettings> {
     const service = dependencies.agent();
@@ -142,67 +135,20 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     }
     const settings = await service.settings();
     const profiles = await service.profiles();
-    const readiness = await modelReadiness(service);
-    const localModels = await service.modelStatus();
+    const modelServer = await service.modelServerStatus();
 
     return settingsForWindow({
       settings,
-      readiness,
       /*
        * Asked every time rather than cached: on Linux a keyring that was locked
        * at launch can become usable later in the session, and the connector form
        * has to know before it offers a field whose storage will refuse it.
        */
       encryptionAvailable: safeStorageCipher.available(),
-      localModels,
-      hardware: {
-        totalMemoryMb: Math.round(totalmem() / (1024 * 1024)),
-        platform: process.platform,
-        arch: process.arch,
-      },
+      modelServer,
       profiles: profiles.profiles,
       activeProfileId: profiles.activeProfileId,
     });
-  }
-
-  /**
-   * Whether this install could answer a question right now.
-   *
-   * A fact only the main process has: the window sees a status but not the
-   * engine, and "the chat model's weights and the engine are both here" is not
-   * something it can work out for itself. A window that guessed would open a chat
-   * on a machine that cannot reply.
-   *
-   * The order is the order of the fixes. A platform with no engine build cannot
-   * be fixed by a download, and saying so before 1.9GB is spent is the whole
-   * reason the engine is checked first. After that, a missing file is a
-   * download, and the sentence names the parts.
-   */
-  async function modelReadiness(
-    service: AgentService,
-  ): Promise<{ok: boolean; problem?: string}> {
-    const settings = await service.settings();
-    const status = await service.modelStatus();
-    if (!status.engine.platformSupported) {
-      return {
-        ok: false,
-        problem:
-          `This build has no llama.cpp engine for ${process.platform}-${process.arch}, ` +
-          'so it cannot run a local model on this computer.',
-      };
-    }
-    const modelId = settings.localModels.tasks.chat;
-    const model = status.models[modelId];
-    if (model === undefined) {
-      return {
-        ok: false,
-        problem: `The chat model is set to ${modelId}, which this build does not ship.`,
-      };
-    }
-    if (model.installed) {
-      return {ok: true};
-    }
-    return {ok: false, problem: missingProblem(modelId, model.missing)};
   }
 
   /** Both halves of what the window needs after an agent changes. */
@@ -556,27 +502,16 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'jobs.remove': async (params) => await agent().removeJob(params.jobId),
 
     /*
-     * The local models.
+     * The model server.
      *
-     * A read and five buttons. `install` returns as soon as the download has
-     * *started*; progress and completion arrive on the event channel, because an
-     * invoke that blocked for 1.9GB is one nobody could cancel.
+     * `status` is the badge's cached read; `test` forces a probe, which is what
+     * the card's button uses after the person starts their server. Removing an
+     * old download is a button with a confirmation, never a migration.
      */
-    'models.status': async () => await agent().modelStatus(),
-    'models.install': async (params: {
-      modelId: LocalModelId;
-      variant: LocalModelVariant;
-    }) => await agent().installModel(params.modelId, params.variant),
-    'models.cancel': () => agent().cancelModelInstall(),
-    'models.remove': async (params: {modelId: LocalModelId}) => ({
-      status: await agent().removeModel(params.modelId),
-    }),
-    'models.removeRetired': async (params: {modelId: RetiredModelId}) => ({
-      status: await agent().removeRetiredModel(params.modelId),
-    }),
-    'models.sleep': async () => ({status: await agent().sleepModels()}),
-    'models.warm': async (params: {modelId: LocalModelId}) =>
-      await agent().warmModel(params.modelId),
+    'modelServer.status': async () => await agent().modelServerStatus(),
+    'modelServer.test': async () => await agent().testModelServer(),
+    'modelServer.removeLeftOver': async (params) =>
+      await agent().removeLeftOverModel(params.id),
 
     /* Recall: a read and four buttons. */
     'recall.status': async () => await agent().recallStatus(),

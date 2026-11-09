@@ -195,6 +195,6 @@ describe('OpenAiCompatLlm request shape', () => {
     });
 
     await expect(drain(llm)).rejects.toThrow(OpenAiCompatRequestError);
-    await expect(drain(llm)).rejects.toThrow(/The local model returned 429/);
+    await expect(drain(llm)).rejects.toThrow(/The model server returned 429/);
   });
 });

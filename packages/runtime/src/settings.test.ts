@@ -12,10 +12,13 @@ import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
-import {defaultLocalModelsSettings} from '@marimo/protocol';
+import {
+  DEFAULT_MODEL_SERVER_URL,
+  defaultModelServerSettings,
+} from '@marimo/protocol';
 
 import {
-  mergeLocalModels,
+  mergeModelServer,
   readLegacyProfileSeed,
   SettingsStore,
 } from './settings.js';
@@ -90,9 +93,10 @@ describe('SettingsStore', () => {
     });
   });
 
-  it('starts a fresh install with local models and no provider block', async () => {
+  it('starts a fresh install on the local server and no provider block', async () => {
     const settings = await store.load();
-    expect(settings.localModels).toEqual(defaultLocalModelsSettings());
+    expect(settings.modelServer).toEqual(defaultModelServerSettings());
+    expect(settings.modelServer.url).toBe(DEFAULT_MODEL_SERVER_URL);
     expect('providers' in settings).toBe(false);
     expect('availableModels' in settings).toBe(false);
   });
@@ -102,7 +106,7 @@ describe('SettingsStore', () => {
    * this schema does not know. It is stripped, and the local model choices fill
    * from the defaults — the preferences beside it survive.
    */
-  it('reads a provider-era file and fills the local models', async () => {
+  it('reads a provider-era file and fills the model server', async () => {
     await writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({
@@ -127,11 +131,11 @@ describe('SettingsStore', () => {
     const settings = await store.load();
     expect(settings.sidebarWidth).toBe(331);
     expect(settings.setupSeen).toBe(true);
-    expect(settings.localModels).toEqual(defaultLocalModelsSettings());
+    expect(settings.modelServer).toEqual(defaultModelServerSettings());
     expect('providers' in settings).toBe(false);
   });
 
-  it('moves a version 1 install through Omni to the current model, once', async () => {
+  it('moves a version 1 install through every model era to the server, once', async () => {
     await writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({
@@ -150,84 +154,67 @@ describe('SettingsStore', () => {
     );
 
     const settings = await store.load();
-    expect(settings.localModels.tasks).toEqual({
-      chat: 'qwen2.5-vl-7b',
-      vision: 'qwen2.5-vl-7b',
-    });
-    expect(settings.localModels.idleMinutes).toBe(5);
+    // The old block is gone, and the address is llama.cpp's default: the
+    // assignments named models no server is running.
+    expect(settings.modelServer).toEqual(defaultModelServerSettings());
+    expect(settings.setupSeen).toBe(true);
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(3);
+    expect(raw['version']).toBe(4);
+    expect(raw['localModels']).toBeUndefined();
+    expect(raw['modelServer']).toBeDefined();
   });
 
-  it('keeps the useful preferences when a version 2 file moves', async () => {
-    await writeFile(
-      join(dir, 'settings.json'),
-      JSON.stringify({
-        version: 2,
-        setupSeen: true,
-        localModels: {
-          tasks: {
-            chat: 'lfm3-omni-2b',
-            vision: 'lfm3-omni-2b',
-            voice: 'lfm3-omni-2b',
-          },
-          idleMinutes: 10,
-          engineBackend: 'cuda',
-        },
-      }),
-      'utf8',
-    );
-
-    const settings = await store.load();
-    expect(settings.localModels.tasks).toEqual({
-      chat: 'qwen2.5-vl-7b',
-      vision: 'qwen2.5-vl-7b',
-    });
-    expect(settings.localModels.idleMinutes).toBe(10);
-    expect(settings.localModels.engineBackend).toBe('cuda');
-  });
-
-  it('merges a task patch one task at a time', async () => {
+  it('merges a model-server patch one field at a time', async () => {
     await store.load();
-    await store.patch({localModels: {tasks: {chat: 'qwen2.5-vl-7b'}}});
+    await store.patch({modelServer: {model: 'qwen3-8b'}});
+    await store.patch({modelServer: {url: 'http://localhost:9000/'}});
 
     const settings = await store.load();
-    expect(settings.localModels.tasks.chat).toBe('qwen2.5-vl-7b');
-    // The other task is still the default, not whatever a stale window sent.
-    expect(settings.localModels.tasks.vision).toBe('qwen2.5-vl-7b');
+    expect(settings.modelServer.model).toBe('qwen3-8b');
+    // The address is normalised on the way in, not stored as it was typed.
+    expect(settings.modelServer.url).toBe('http://localhost:9000/v1');
+    // And the window the first patch did not mention is still the default.
+    expect(settings.modelServer.contextTokens).toBe(32_768);
   });
 
-  it('stores the idle timeout and keeps every other preference', async () => {
-    await store.load();
-    await store.patch({
-      localModels: {idleMinutes: 10},
-      sidebarWidth: 300,
+  it('merges a model server over one that is stored', () => {
+    expect(
+      mergeModelServer(
+        {...defaultModelServerSettings(), model: 'old'},
+        {contextTokens: 8192},
+      ),
+    ).toEqual({
+      url: DEFAULT_MODEL_SERVER_URL,
+      model: 'old',
+      contextTokens: 8192,
     });
+  });
+
+  it('stores a preference and keeps every other one', async () => {
+    await store.load();
+    await store.patch({modelServer: {contextTokens: 8192}, sidebarWidth: 300});
     const settings = await store.load();
-    expect(settings.localModels.idleMinutes).toBe(10);
+    expect(settings.modelServer.contextTokens).toBe(8192);
     expect(settings.sidebarWidth).toBe(300);
   });
 
   /*
    * A block that does not validate costs the block, not the document. This is
-   * the hand-edited case: a model id this build does not ship cannot answer, and
-   * the safe answer is the defaults rather than a turn whose prompt is wrong for
-   * the weights.
+   * the hand-edited case that matters most: an address off the machine is the
+   * one thing the app's privacy promise depends on, so it falls back to the
+   * loopback default rather than being dialled.
    */
-  it('falls back on a local models block that cannot do its tasks', async () => {
+  it('falls back on a model server that is not on this computer', async () => {
     await writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({
-        version: 3,
+        version: 4,
         sidebarWidth: 333,
-        localModels: {
-          tasks: {
-            chat: 'lfm3-1.7b',
-            vision: 'lfm3-1.7b',
-          },
-          idleMinutes: 3,
+        modelServer: {
+          url: 'https://api.example.com/v1',
+          model: 'something-hosted',
         },
       }),
       'utf8',
@@ -235,7 +222,26 @@ describe('SettingsStore', () => {
 
     const settings = await store.load();
     expect(settings.sidebarWidth).toBe(333);
-    expect(settings.localModels).toEqual(defaultLocalModelsSettings());
+    expect(settings.modelServer).toEqual(defaultModelServerSettings());
+  });
+
+  it('reads a version 3 file and leaves the old model block behind', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 3,
+        sidebarWidth: 334,
+        localModels: {
+          tasks: {chat: 'qwen2.5-vl-7b', vision: 'qwen2.5-vl-7b'},
+          idleMinutes: 10,
+        },
+      }),
+      'utf8',
+    );
+
+    const settings = await store.load();
+    expect(settings.sidebarWidth).toBe(334);
+    expect(settings.modelServer).toEqual(defaultModelServerSettings());
   });
 
   it('writes a current document, with no provider block', async () => {
@@ -244,11 +250,12 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(3);
+    expect(raw['version']).toBe(4);
     expect(raw['setupSeen']).toBe(true);
     expect(raw['providers']).toBeUndefined();
     expect(raw['availableModels']).toBeUndefined();
-    expect(raw['localModels']).toBeDefined();
+    expect(raw['localModels']).toBeUndefined();
+    expect(raw['modelServer']).toBeDefined();
   });
 
   it('keeps the companion block of an old file, without the speech keys', async () => {
@@ -272,29 +279,5 @@ describe('SettingsStore', () => {
     expect(settings.companion.answerLength).toBe('detailed');
     expect(settings.companion).not.toHaveProperty('speakReplies');
     expect(settings.companion).not.toHaveProperty('speechVoice');
-  });
-});
-
-describe('mergeLocalModels', () => {
-  it('keeps every task a patch does not name', () => {
-    const current = defaultLocalModelsSettings();
-    expect(mergeLocalModels(current, {tasks: {chat: 'qwen2.5-vl-7b'}})).toEqual({
-      tasks: {
-        chat: 'qwen2.5-vl-7b',
-        vision: 'qwen2.5-vl-7b',
-      },
-      idleMinutes: 3,
-      engineBackend: 'vulkan',
-    });
-  });
-
-  it('moves the engine backend without touching the tasks', () => {
-    const current = defaultLocalModelsSettings();
-    const patched = mergeLocalModels(current, {engineBackend: 'cuda'});
-    expect(patched.engineBackend).toBe('cuda');
-    expect(patched.tasks).toEqual(current.tasks);
-
-    const kept = mergeLocalModels({...current, engineBackend: 'cuda'}, {});
-    expect(kept.engineBackend).toBe('cuda');
   });
 });

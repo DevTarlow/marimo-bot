@@ -13,8 +13,6 @@
  * to, because each of these fails silently in a different way.
  */
 import type {EmbeddingPooling} from './manifest.js';
-import type {LocalModelSpec} from './files.js';
-import {QWEN_VL_CHAT_TEMPLATE} from './qwen-vl-template.js';
 
 /**
  * The id the recall engine answers to, as `--alias` and as the request's `model`.
@@ -116,71 +114,4 @@ export interface EmbeddingSpec {
   port: number | string;
   contextSize: number;
   pooling: EmbeddingPooling;
-}
-
-/**
- * The command line for one model.
- *
- * Every flag here was run against the pinned engine and the real weights before
- * it was written down, because each one fails silently in its own way:
- *
- * - `--jinja` is what makes tool calls work, and `--chat-template` is what
- *   gives the vision model a template that can describe them at all. The
- *   template the GGUF carries renders pictures but no tools; without the
- *   override the model answers prose and the harness sees no call. The template
- *   is passed inline so the window and the headless runner cannot disagree
- *   about a file path.
- * - `--flash-attn on` turns Flash Attention on, which is what makes a 32K window
- *   on a 7B model affordable. It is spelled with the value because the pinned
- *   build's flag takes an optional one and a bare `-fa` swallows the next
- *   argument (measured: the engine refused `-fa --n-gpu-layers` as a value).
- * - `--n-gpu-layers 999` asks the Vulkan or Metal build to put every layer on
- *   the card. The number is above any model family's layer count, so llama.cpp
- *   clamps it to all of them. The archive also contains the CPU backend: a
- *   machine with no usable device still runs, because the request is not a
- *   dependency. `embeddingArgs` keeps its own zero, for the reason documented
- *   there.
- * - `--ctx-size` is the descriptor's working window, not the model's maximum.
- *   The 128K window the GGUF advertises would cost more KV cache than the
- *   weights; the harness compacts inside the smaller one.
- * - Sampling travels here rather than in the request so every turn uses the
- *   model card's recipe, including a turn with no settings of its own.
- * - `--no-ui` is the engine's own browser; there is no browser to serve.
- */
-export function localModelArgs(spec: LocalModelSpec, port: number | string): string[] {
-  const sampling = spec.sampling;
-  return [
-    '--model',
-    spec.files.model,
-    ...(spec.files.projectorPresent && spec.files.projector.length > 0
-      ? ['--mmproj', spec.files.projector]
-      : []),
-    '--alias',
-    spec.alias,
-    '--host',
-    '127.0.0.1',
-    '--port',
-    String(port),
-    '--ctx-size',
-    String(spec.contextSize),
-    '--flash-attn',
-    'on',
-    '--n-gpu-layers',
-    '999',
-    '--parallel',
-    '1',
-    '--no-ui',
-    '--jinja',
-    '--chat-template',
-    QWEN_VL_CHAT_TEMPLATE,
-    '--temp',
-    String(sampling.temperature),
-    '--top-k',
-    String(sampling.topK),
-    '--repeat-penalty',
-    String(sampling.repeatPenalty),
-    ...(sampling.topP === undefined
-      ? []
-      : ['--top-p', String(sampling.topP)]),
-  ];
 }

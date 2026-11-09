@@ -9,25 +9,24 @@ easy to get wrong and expensive to discover.
 
 A standalone, always-on desktop agent. A chat window and a floating companion,
 an agent harness whose capabilities are opt-in, and a headless runner that keeps
-scheduled jobs going while the app is closed. It answers with **one vision-language
-model, Qwen2.5 VL 7B**, run by a pinned llama.cpp on the user's own computer, with
-the graphics card when there is one. There is no hosted provider, no account and
-no API key for the model. The first run downloads the 4-bit copy and its F16
-image encoder, which answer text and read pictures; there is no speech model in
-this build, and an old install can remove its LFM3 files in Settings. The folder
-it works
-in is what the user calls a **Space**. Marimo Bot is the agent the person talks
-to; they also make **bots**, each with its own name, instructions, tools and
-permissions. A chat can hold more than one of them, and Marimo Bot can hand work
-to one.
+scheduled jobs going while the app is closed. It answers with **an
+OpenAI-compatible model server the person runs on the same computer** — llama.cpp
+on `127.0.0.1:8080`, or anything else that speaks the API. The app does not ship,
+download, start or stop that server; it probes it, discovers the model and window,
+and sends each turn there. There is no hosted provider, no account and no API key
+for the model. The folder it works in is what the user calls a **Space**. Marimo
+Bot is the agent the person talks to; they also make **bots**, each with its own
+name, instructions, tools and permissions. A chat can hold more than one of them,
+and Marimo Bot can hand work to one. Recall still downloads its own small
+embedding model; nothing else does.
 
 ## Layout
 
 ```
 packages/protocol   The typed contract: zod schemas for every IPC call, the
-                    AgentUiEvent union, the local model catalogue and task
-                    schema, cron, the profile and job documents, and the
-                    Role/Persona seeds. No Electron, no Node, no React.
+                    AgentUiEvent union, the model server block and status,
+                    cron, the profile and job documents, and the Role/Persona
+                    seeds. No Electron, no Node, no React.
 packages/agent      Everything ADK: the OpenAI-compatible client, tool set,
                     skills that compose the system instruction, the file-backed
                     memory and session stores, AgentHost, and the
@@ -35,9 +34,9 @@ packages/agent      Everything ADK: the OpenAI-compatible client, tool set,
 packages/runtime    The Electron-free half of the app proper: where files live,
                     secrets with the cipher injected, the jobs/profiles/
                     workspaces/settings/skills/proposals stores, the documents
-                    service, and the chat-model installer/host plus the
-                    recall supervisor and pins. Re-exports the version machinery
-                    it uses.
+                    service, the model-server probe, and the recall supervisor,
+                    installer and pins. Re-exports the version machinery it
+                    uses.
 apps/desktop        The Electron app: src/main (window, IPC, tray, adapters),
                     src/preload (the sandboxed bridge), src/runner (the headless
                     job runner), src/renderer (React), src/shared.
@@ -66,8 +65,8 @@ Each of these is silent when it breaks. That is the whole reason they are listed
    on that turn _and every later turn of that conversation_.
 4. **Reasoning is replayed.** A reasoning model rejects a tool-carrying turn whose
    `reasoning_content` is missing from a later request. It is not decoration.
-   This model has no thinking mode and the engine is not asked for one, but a
-   thought part that did arrive is still preserved and replayed.
+   This build does not ask for a thinking mode, but the model server is whatever
+   the person loaded: a thought part that did arrive is preserved and replayed.
 5. **Gated means gated in code, not in the prompt.** Whether a call pauses the
    turn is decided before the tool is offered to the model.
 6. **A refused path is refused after resolution.** `..`, an absolute path outside
@@ -87,9 +86,10 @@ Each of these is silent when it breaks. That is the whole reason they are listed
 12. **A newer document is never overwritten.** See "Documents" below.
 13. **The app and the runner resolve the same user-data directory.** When they do
     not, nothing errors: the window writes one `jobs.json`, the service reads
-    another, finds nothing due, and exits 0. The model directory is the second
-    half of the same fact and is resolved by the same `modelDir` helper: under
-    `userData/model/`, or wherever `MARIMO_MODEL_DIR` points. The folder was
+    another, finds nothing due, and exits 0. Recall's model directory is the
+    second half of the same fact and is resolved by the same `modelDir` helper:
+    under `userData/model/`, or wherever `MARIMO_MODEL_DIR` points. The chat
+    model is not a directory any more; it is the address in settings. The folder was
     `Marimo Agent` for the whole life of the app called Marimo, so the rename is
     `adoptFormerUserDataDir` in `shared/product.ts`, called by both entry points.
 14. **An MCP server's tools cannot take a built-in name.** The reserved set is
@@ -104,15 +104,17 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     read it.** The headless runner has no `app`, therefore no `safeStorage`, so a
     connector's secret is stored readable only when the user ticks that
     connector's "let the background runner read it" box. `keysReadableIn` answers
-    for every enabled connector together. There is no provider key and no
-    provider address in this build.
-17. **A model is a pair, and both tasks use the one model.** `{provider: 'local',
-    model: 'qwen2.5-vl-7b'}` is the only shape stored or sent. Chat and Images
-    both point at it; the Settings card has no task picker. A picture is an
-    `image_url` part on the same weights, not a second model. A resume uses the
-    pair the turn started with; a pair naming a model this build no longer ships
-    falls back to `tasks.chat` in `harness-runtime.ts`, which is what lets a card
-    from before an upgrade still be answered.
+    for every enabled connector together. There is no provider key, no hosted
+    provider address and no model key in this build; the model server is a
+    loopback address the settings schema validates.
+17. **A model is a pair, and the live server settles it.**
+    `{provider: 'local', model: '<the name the server reported>'}` is what a turn
+    records and what a harness version freezes. The app no longer chooses a
+    model: `resolveModel` probes the address in settings and returns the model and
+    window, and `HarnessRuntime.prepare` uses them per turn and per resume. A
+    stored pair is history; a resume re-probes rather than replaying an address
+    that may be dead. A picture is still an `image_url` part on the same request;
+    whether the server can see it depends on the projector it was started with.
 18. **A delegation is a tool call in the same conversation.** `ask_agent` builds
     the helper over the parent's session service and session id — never
     `this.host(childProfileId)`. Depth is one by construction. A helper's gate is
@@ -150,32 +152,28 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     `load_skill` reads the body when a task matches. `enabledSkills` is the one
     grant and three things read it — the prompt, the library behind `load_skill`,
     and the Settings switches. A grant change is not a reason to drop a host.
-24. **One model is resident, and it is never stopped under a request.**
-    `LocalModelHost` starts the model a turn needs and stops it after the
-    configured quiet period (three minutes by default). `isBusy` keeps the idle
-    timer from pulling the weights out between a tool call and its answer. The
-    encoder is loaded with the weights, so a text turn pays for it too; that is
-    the price of one model rather than two. A pid file under
-    `model/local-model.pid` lets the next launch reap an engine whose window
-    crashed.
+24. **The app starts no chat model.** The server is the person's process.
+    `ModelServer` in `packages/runtime/src/model-server.ts` probes it and answers
+    where a turn goes; nothing downloads weights, picks a port, spawns an engine,
+    sleeps it or writes a pid file. The only child process left is recall's own
+    engine under `LocalModelService`. A probe is a read: `resolve()` per turn,
+    `status()` cached for the badge, and a watcher that emits only when something
+    the person can see changed.
 25. **A download is verified before it is used, and a marker is not a hint.**
-    `installLocalModel` checks every file against a pinned SHA-256 and writes
-    `local-model.json` only when all of them are in place. `localModelOnDisk`
-    compares the marker's revision and file list against the pins; a size match
-    under the wrong name is not installed. The shared engine carries its own
-    `.pinned` marker, so a build that moves from the CPU archive to the GPU one,
-    or from Vulkan to CUDA, replaces the binary instead of running the old
-    engine. A half-written file is never loaded.
-26. **The chat template is an app asset, because the model's own cannot describe
-    tools.** Qwen2.5-VL's GGUF template renders pictures but has no `tools`
-    block, no `tool_calls` rendering and no `tool` role. Started with it,
-    llama.cpp never shows the tool schemas and never parses a call, so every
-    tool-driven turn becomes prose. `qwen-vl-template.ts` carries a tools-capable
-    multimodal template and `localModelArgs` passes it inline with
-    `--chat-template`; a file path would be a second thing the window and the
-    runner could disagree about. The live check must see a real `tool_calls`
-    reply — a template that parses as content is a broken agent, not a broken
-    prompt.
+    Recall's installer checks every file against a pinned SHA-256 and writes its
+    marker only when all of them are in place; `installLocalModel` is gone with
+    the chat model. The engine carries its own `.pinned` marker, so a build that
+    moves to a new llama.cpp tag replaces the binary instead of running the old
+    one. A half-written file is never loaded.
+26. **Tool calls depend on the server's chat template, and the app cannot patch
+    one it did not start.** `--jinja` or a model whose own template renders
+    `tool_calls` is the person's setup. The probe reads `/props.chat_template_caps`
+    first and the template text only as a fallback, and reports `tools: false` as
+    a warning on the card rather than a refusal. The app's old template asset and
+    `localModelArgs` are gone with the engine they configured; a tools-capable
+    Qwen2.5-VL example lives in `docs/qwen2.5-vl-tools.jinja` for a person to pass
+    to their own server. A turn that gets prose where a call was wanted is a
+    server setting to fix, not a prompt bug.
 27. **A false file-tool denial is corrected in the prompt, never in the log.** A
     replayed assistant message that says it cannot edit files is replaced with a
     user-role correction when the turn actually offers `write_file`; the stored
@@ -282,51 +280,50 @@ silently changing the grant.
 
 ## Models
 
-The one model, its licence, its task capabilities and the retired ids are in
-`packages/protocol/src/local-models.ts`. The repository revisions, file names,
-sizes and digests are in `packages/runtime/src/local-model/chat-pins.ts`. The
-default engine is a pinned llama.cpp build with one archive per platform —
-Vulkan on Linux and Windows, Metal on macOS — and each archive contains the CPU
-backend. `localModelArgs` asks for every layer, so a machine with a card offloads
-the model and one without a usable device falls back to the processor.
-`localModelArgs` is the one place the flags are written: `--flash-attn on` for the 32K
-window, and `--chat-template` with the tools-capable template the GGUF lacks.
-The recall engine keeps its own zero: that model's card warns about float16 NaN,
-and the CPU backend accumulates in f32.
+There is no chat model catalogue any more. The contract is
+`packages/protocol/src/model-server.ts` — the settings block, the loopback URL
+rule, the status the card draws and the leftover enum — and the probe is
+`packages/runtime/src/model-server.ts`.
 
-CUDA is an opt-in variant, not the default: the engine and its runtime are about
-776 MB on Linux and 671 MB on Windows, and the pinned builds require a new enough
-NVIDIA driver. `cuda.ts` owns the `nvidia-smi` probe and the driver floor;
-`engineFilesFor` returns the two-archive bundle when the settings ask for CUDA,
-and the host falls back to Vulkan when the probe says no. The switch lives in
-Settings → Models, and switching back to Vulkan replaces the engine again.
+The block is `{url, model, contextTokens}`. `url` is normalised and loopback-only:
+`localhost`, a `127.*` literal or `[::1]`, with a blank path becoming `/v1` and a
+missing scheme becoming `http://`. `model` blank means the first model the server
+reports. `contextTokens` is the fallback window when `/props` does not say.
 
-Defaults: Chat and Images → `qwen2.5-vl-7b`. One download answers and sees, so
-a first run never asks which model to use. Q4 is the default: about 4.7 GB of
-weights plus 1.4 GB of encoder. Q8 is the quality choice and the host suggests
-it only at 24 GB of RAM or more. There is no speech model in this build.
+The probe reads `GET /v1/models`, then `/props` (`default_generation_settings.n_ctx`,
+`chat_template`, `chat_template_caps` and `modalities`). The status says which
+source supplied the window, whether the template can render tool calls, and
+whether the server reports vision. A model listing's `max_model_len` is the second
+source for the window. `workContextTokens` keeps a quarter back for the reply and
+the tool schemas.
 
-The surfaces are split on purpose: Settings → Models shows the one model and
-owns its download, variant, removal, sleep and the cleanup list for an old
-install's LFM3 files; the composer's badge only reports whether it is warm and
-opens that card; the first run owns the required download. Do not put a second
-task picker in the composer — the assignment is an app-wide fact, not a fact
-about one conversation.
+There is no API key, no hosted provider and no provider address. A server started
+with `--api-key` is refused with a sentence rather than sent an empty credential.
+A server on another machine is refused by the URL schema; that is the privacy
+promise in code, not a preference.
 
-**A live run needs weights.** `MARIMO_MODEL_DIR` points at a directory laid out
-the way the app uses it:
+Settings → Model server owns the address, the model, the fallback window, **Test
+connection** and the cleanup list for the old Qwen, engine and LFM3 directories.
+The composer's badge reports the state and opens that card. The first run owns the
+required connection: Continue waits for a test that answers. Do not bring back a
+model catalogue, a task picker, a download, a sleep button or an engine switch.
+
+Recall is the only model the app still downloads. Its pins are in
+`packages/runtime/src/local-model/pins.ts`; its engine and weights live under
+`model/recall/`. `MARIMO_MODEL_DIR` points a checkout or a live run at a directory
+laid out the way recall expects:
 
 ```
 model/
-  engine/llama-server
-  qwen2.5-vl-7b/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf
-  qwen2.5-vl-7b/mmproj-F16.gguf
-  qwen2.5-vl-7b/local-model.json
+  recall/
+    engine/llama-server
+    embeddinggemma-2-Q8_0.gguf
+    mmproj-Q8_0.gguf
 ```
 
-The marker is written by the installer, not by hand in normal use; a fixture for
-a test or smoke check writes the same shape. The live check in this repository
-uses the spike assets under `apps/desktop/.model-cache/`, which are gitignored.
+The two live tests under `packages/runtime/src/recall/` use it. The chat model has
+no live check in the repository: a manual run against a real llama.cpp is the only
+thing that proves a turn returns `tool_calls` and an image reaches the encoder.
 
 ## Learning
 
@@ -365,9 +362,10 @@ paragraph between them is not an update.
 
 What counts, and where it goes:
 
-- **A model** — its name, size, licence, the task it answers, what the first run
-  downloads — lives in *Models*, *Getting started*, *Questions* and
-  *Requirements*, and every number in those four comes from the pins.
+- **The model server** — its address, the model it reports, the window, what the
+  first run requires and what the app does not download — lives in *Model
+  server*, *Getting started*, *Questions* and *Requirements*. Recall's download,
+  its size and its licence stay in the same four places.
 - **A capability, tool, permission or shortcut** gets a line in the short list
   and a place under *What it can do*, plus a bullet under *Privacy and control*
   when it reaches the network. Removing one removes it from all of them, and from
@@ -427,8 +425,8 @@ anything the package step assumes about `apps/desktop/release/`.
 
 Every `package*` script passes `--publish never`, because electron-builder
 publishes implicitly when it detects CI. `${{ runner.temp }}` is the expression to
-watch in the workflow. The smoke check's model fixture is local and sparse, so CI
-does not download four gigabytes to prove a window opens.
+watch in the workflow. The smoke check's model server is a local stand-in, so CI
+does not start a real model to prove a window opens.
 
 `concurrency` cancels a superseded run, the job has a twenty-minute timeout, a
 prose-only change is skipped through one `paths-ignore` list both triggers share,
@@ -527,9 +525,10 @@ else does.
 - Unit and integration tests sit beside the code (`src/**/*.test.ts`) in packages,
   and in `apps/desktop/tests` for the app.
 - `scripts/smoke.mjs` boots a real window, attaches over the DevTools protocol and
-  asserts the bridge answers and React mounted — then screenshots it. It writes a
-  sparse model fixture and a stand-in engine so it never downloads the real
-  weights. `--theme light` checks the other token block.
+  asserts the bridge answers and React mounted — then screenshots it. It starts a
+  stand-in OpenAI-compatible server on an ephemeral loopback port and writes the
+  settings that point at it, so it never starts a real model. `--theme light`
+  checks the other token block.
 - Tests that touch the filesystem use `mkdtemp` under the working directory
   (`.marimo-*`, gitignored) rather than `/tmp`.
 - **Two tests load the real embedding model, and both are skipped unless asked
@@ -546,12 +545,11 @@ else does.
   directory. The directory has to be laid out the way the app uses it — weights at
   the root or in a model's own subdirectory, engine in `engine/` — because that is
   where the supervisor takes the shared libraries from.
-- The chat model has its own live check. The repository's spike assets are under
-  `apps/desktop/.model-cache/`; a manual run of `LocalModelHost` with
-  `MARIMO_MODEL_DIR` pointing at a directory of real weights is the only thing
-  that proves the pinned engine, the projector and the tools-capable template
-  together — a text turn must return `tool_calls`, and an image must still reach
-  the encoder.
+- The chat model has no live check in the repository any more. A manual run
+  against a real llama.cpp (its model and, for pictures, `--mmproj`) is the only
+  thing that proves the transport, the tools-capable template and the image path
+  together; the smoke check uses a stand-in server and proves the window, not a
+  model.
 
 ## Packaging
 
@@ -559,9 +557,10 @@ else does.
 pnpm --filter @marimo/desktop package   # AppImage into apps/desktop/release/
 ```
 
-**Packaging ships no model.** The app downloads the one the user chooses, so the
-installer is small and the same on every machine. `package`, `package:win` and
-`package:mac` are plain builds and there is no variable to remember.
+**Packaging ships no model.** The chat model is a server the person runs and
+Recall downloads its own, so the installer is small and the same on every
+machine. `package`, `package:win` and `package:mac` are plain builds and there is
+no variable to remember.
 
 **`asar` stays off.** The runner is this binary started with
 `ELECTRON_RUN_AS_NODE=1`, and Node mode has no asar support: reading a file inside
@@ -572,8 +571,8 @@ development, so nothing catches it until somebody installs the app.
 Packaging changes what `app.getAppPath()` returns, and the OS service plan writes
 the runner's path into a systemd unit. Check that
 `pnpm --filter @marimo/desktop package` still produces a runnable runner when that
-path moves. The model downloads land under the user-data directory, not inside the
-installer, so a packaged app and a checkout find them the same way.
+path moves. Recall's download lands under the user-data directory, not inside the
+installer, so a packaged app and a checkout find it the same way.
 
 ## House style
 
@@ -585,7 +584,8 @@ installer, so a packaged app and a checkout find them the same way.
 - Reach for the existing helper before writing a new one. `window-state.ts`,
   `migrations.ts` and the theme tokens all exist because a version of this app
   got them wrong once.
-- A local model is a process, a file and a licence. When adding one, update the
-  protocol catalogue, the pins, the installer's asset lookup, the task defaults
-  and the Models card — in one change. A model the UI offers and the installer
-  cannot fetch is a download button that fails at 0 percent.
+- A chat model is an address, a model name and a window; a downloaded model is
+  recall's, and it is a process, a file and a licence. Adding a download means
+  updating the pins, the installer's asset lookup and the recall card together —
+  a model the UI offers and the installer cannot fetch is a button that fails at
+  0 percent.

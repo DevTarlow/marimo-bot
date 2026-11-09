@@ -15,10 +15,15 @@
  *   first read lands, and a screen decided from it would flash a wizard at
  *   somebody who has been using the app for months. `waiting` is the answer
  *   until a payload exists to have an opinion about.
- * - **The flow is sticky once it is up.** Its own model step is what turns
- *   `modelReady` true, and a rule that closed the flow the moment the app could
- *   answer would yank the screen away between a download finishing and reading
- *   what happened. `inSetup` outranks `modelReady` for exactly that reason.
+ * - **The flow is sticky once it is up.** Its own server step is what makes the
+ *   app able to answer, and a rule that closed the flow the moment the probe
+ *   succeeded would yank the screen away between a test and reading what
+ *   happened. `inSetup` outranks everything for exactly that reason.
+ *
+ * There is no "cannot answer" screen any more. A model server is a process the
+ * person starts and stops outside this window; a launch with it off is a chat
+ * with a notice above it, not a first run. Blocking the whole window on a
+ * process this app does not own would make every start a diagnostic screen.
  *
  * It lives here rather than inside `App.tsx` because this package has no DOM
  * test environment: the decision is the part worth a test, and a decision buried
@@ -37,16 +42,12 @@ export type FirstRunScreen =
   | 'waiting'
   /** The setup flow. */
   | 'setup'
-  /** The short card: it cannot answer, and Settings is where that changes. */
-  | 'cannotAnswer'
   /** A conversation, with a composer. */
   | 'app';
 
 export interface FirstRunRead {
   /** Whether a settings payload has arrived at all. */
   loaded: boolean;
-  /** Whether the app could answer a question right now, from that payload. */
-  modelReady: boolean;
   /** Whether the flow has had its turn before, from settings. */
   setupSeen: boolean;
   /** Where this window is in the flow. */
@@ -61,19 +62,14 @@ export function firstRunScreen(read: FirstRunRead): FirstRunScreen {
     return 'setup';
   }
   /*
-   * The flow is the first run, not the "cannot answer" screen. A model can
-   * already be on disk — preinstalled by a future build, or left by a previous
-   * install that lost its settings — and the flow still asks what a working
-   * model does not answer: which setup style and goals to use, which Space, and
-   * whether a bot should be made. The other order made a preinstalled model
-   * skip the introduction entirely, which is the one case where a person meets
-   * the app with nothing configured.
+   * The flow is the first run, not a check on the server. A running server does
+   * not answer what the flow asks: which setup style and goals to use, which
+   * Space, and whether a bot should be made. The other order made a person with
+   * a server already running skip the introduction entirely, which is the one
+   * case where somebody meets the app with nothing configured.
    */
   if (!read.setupSeen) {
     return 'setup';
   }
-  if (read.modelReady) {
-    return 'app';
-  }
-  return 'cannotAnswer';
+  return 'app';
 }

@@ -1,18 +1,18 @@
 /**
- * The OpenAI-compatible client for Google ADK-JS, over the local engine.
+ * The OpenAI-compatible client for Google ADK-JS, over the local model server.
  *
  * ADK ships Gemini and Apigee model classes only, so an OpenAI-compatible client
  * is a normal `BaseLlm` implementation registered with `LLMRegistry`. Everything
  * here is transport: message translation lives in `openai-mapping.ts`, SSE
  * framing in `sse.ts`.
  *
- * There is one endpoint now: a llama.cpp server the app started on loopback, from
- * weights it downloaded. The transport is still generic on purpose — it is the
- * same dialect, and a future engine would be a base URL rather than a second
+ * There is one endpoint now: an OpenAI-compatible server the person runs on
+ * loopback, with a model they chose. The transport stays generic on purpose — it
+ * is the same dialect, and a different engine is a base URL rather than a second
  * client — but the two endpoint facts that used to arrive from a provider
- * descriptor are now constants the pinned build has been tested for:
- * `stream_options.include_usage` is accepted, and thinking arrives as
- * `reasoning_content`.
+ * descriptor are now constants this build expects: `stream_options.include_usage`
+ * is accepted, and thinking arrives as `reasoning_content`. A server that
+ * implements neither is not one a turn can use.
  *
  * Protocol references:
  *   https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
@@ -37,7 +37,7 @@ import {iterateSseData} from './sse.js';
 export interface OpenAiCompatLlmOptions {
   model: string;
   /**
-   * Where requests go: the loopback address of the engine this process started.
+   * Where requests go: the loopback address of the person's model server.
    *
    * Required rather than defaulted, because a client built without one would post
    * a conversation to `undefined` — and the mistake would look like a model that
@@ -89,7 +89,7 @@ export class OpenAiCompatLlm extends BaseLlm {
   static override readonly supportedModels: Array<string | RegExp> = [];
 
   private readonly baseUrl: string;
-  private readonly label = 'The local model';
+  private readonly label = 'The model server';
   private readonly apiKey: string;
   private readonly maxOutputTokens?: number;
   private readonly timeoutMs: number;

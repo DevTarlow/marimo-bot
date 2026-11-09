@@ -68,7 +68,7 @@ export function Composer({
   disabled,
   modelLabel,
   modelState,
-  onOpenModels,
+  onOpenModelServer,
   onPickFiles,
   commands,
   onRunCommand,
@@ -95,12 +95,12 @@ export function Composer({
   onStop: () => void;
   busy: boolean;
   disabled: boolean;
-  /** The local model's name, for the badge at the foot of the box. */
+  /** The model the server reports, for the badge at the foot of the box. */
   modelLabel?: string;
   /** Its process state, drawn as a dot: awake, waking, resting, failed. */
   modelState?: 'awake' | 'waking' | 'resting' | 'failed';
-  /** Opens Settings → Models. The badge is the route to managing them. */
-  onOpenModels?: () => void;
+  /** Opens Settings → Model server. The badge is the route to managing it. */
+  onOpenModelServer?: () => void;
   /**
    * Asks for files, judged against the space this conversation works in.
    *
@@ -524,8 +524,8 @@ export function Composer({
             <button
               type="button"
               className={`composer-model-badge is-${modelState ?? 'resting'}`}
-              title="The local model that answers. Open Settings → Models to manage it."
-              onClick={onOpenModels}
+              title={`${modelLabel ?? 'No model server'} — open Settings → Model server to change it.`}
+              onClick={onOpenModelServer}
             >
               <span className="composer-model-dot" aria-hidden="true" />
               <span>{modelLabel}</span>

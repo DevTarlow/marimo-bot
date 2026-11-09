@@ -109,7 +109,7 @@ export function SetupDirection({
               <em className="capability-blurb">{preset.blurb}</em>
               <em className="capability-blurb">
                 {direction.id === 'regular'
-                  ? 'A shorter setup: the model, a Space, and the bots you ask for. It already sees pictures.'
+                  ? 'A shorter setup: the model server, a Space, and the bots you ask for. Pictures need a server with an image projector.'
                   : 'Every tool, plus the extra steps — scheduled jobs included when you pick them.'}
               </em>
             </button>

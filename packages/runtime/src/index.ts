@@ -86,21 +86,29 @@ export {
 export type {FileLockOptions, ProcessLock, ProcessLockOptions} from './lock.js';
 
 /*
- * The local models: their pins, their downloads, the engine that serves them,
- * and the host that decides which one is in memory.
+ * The model server the person runs, and the old chat files it replaces.
  *
- * Here rather than in the desktop app because both halves of the app need it —
- * the window to answer while somebody is looking, the headless runner to answer
- * a scheduled job with the window closed — and this is the package both of them
- * already share. The recall model is still below: a different download with its
- * own engine pin, under the same model directory.
+ * The app no longer owns a chat process, so this is a probe and a resolver
+ * rather than a host: it reads the address from settings, asks the server what
+ * it is serving, and answers where a turn should send its request. It is here
+ * rather than in the desktop app because the headless runner needs the same
+ * answer for a scheduled job.
+ */
+export {ModelServer} from './model-server.js';
+export type {
+  ModelServerOptions,
+  ResolvedModelEndpoint,
+} from './model-server.js';
+
+/*
+ * Recall: its engine, its pinned download, and the one child process left.
+ *
+ * Beside the model server because it *is* a model — a second engine, its own
+ * pins, its own directory under the same model directory — and apart from it
+ * because none of what is above applies: no URL, no probe, no GPU, and a
+ * download whose pins are part of the build.
  */
 export {
-  CHAT_PINS,
-  CHAT_PIN_KEYS,
-  chatModelParts,
-  chatModelUrl,
-  defaultVariantFor,
   EMBEDDING_ALIAS,
   EMBEDDING_PIECES,
   EMBEDDING_PINS,
@@ -117,39 +125,22 @@ export {
   freePort,
   installEmbeddingPiece,
   installEngine,
-  installLocalModel,
   InstallError,
-  localModelArgs,
-  localModelDir,
-  localModelMarkerFile,
-  localModelOnDisk,
-  localModelSpec,
-  LocalModelHost,
   LocalModelService,
   ManifestError,
-  missingProblem,
   MODEL_DIR_ENV,
   MODEL_DIR_NAME,
   modelDir,
-  parseChatModelManifest,
   parseEmbeddingManifest,
   platformKey,
-  readLocalModelMarker,
   RECALL_DIR_NAME,
   recallDir,
   recallPiecesInstalled,
   recallSpec,
-  resolveLocalModelFiles,
   resolveRecallFiles,
   unpackEngine,
-  unpackEngineBundle,
-  writeLocalModelMarker,
 } from './local-model/index.js';
 export type {
-  ChatModelFilePin,
-  ChatModelManifest,
-  ChatModelPin,
-  ChatModelVariantPin,
   DownloadProgress,
   EmbeddingInstallOptions,
   EmbeddingManifest,
@@ -163,17 +154,8 @@ export type {
   EngineManifest,
   EngineRunSpec,
   EngineStatus,
-  EnsureModelResult,
   InstallOptions,
-  LocalModelDiskState,
-  LocalModelFiles,
-  LocalModelHostOptions,
-  LocalModelInstallOptions,
-  LocalModelMarker,
-  LocalModelMarkerFile,
   LocalModelOptions,
-  LocalModelSampling,
-  LocalModelSpec,
   RecallFiles,
   RecallSpec,
 } from './local-model/index.js';

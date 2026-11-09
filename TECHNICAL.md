@@ -24,11 +24,12 @@ pnpm --filter @marimo/desktop dev
 pnpm --filter @marimo/desktop smoke
 ```
 
-**A checkout answers with a local model.** The first run downloads the model,
-and a development run can skip that by placing the weights under `model/`
-(or pointing `MARIMO_MODEL_DIR` at a directory already laid out that way). The
-same variable is how a live run finds recall's weights, and a run without them
-skips the two live tests rather than failing.
+**A checkout answers with a local model server.** Start llama.cpp (or another
+OpenAI-compatible server) and point Settings → Model server at it; the app
+downloads nothing for the chat. A development run that wants Recall places its
+weights under `model/recall/`, or points `MARIMO_MODEL_DIR` at a directory already
+laid out that way; a run without them skips the two live tests rather than
+failing.
 
 Two environment quirks are worth knowing about up front, both covered in
 [AGENTS.md](./AGENTS.md):
@@ -63,9 +64,9 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 
 | State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Done        | One Qwen2.5 VL 7B vision-language model in the catalogue, at Q8 or Q4 with a shared F16 image encoder, run on a pinned GPU-capable llama.cpp build that offloads every layer when a device exists and falls back to the CPU when it does not. One model is resident at a time; the host starts it for the turn and lets it go after three quiet minutes |
-| Done        | Vision: an image attached to a message becomes bytes for the model, not a path the file tools would refuse, and the chat draws it as a thumbnail that opens larger. The model's own chat template cannot describe tools, so the runtime starts the engine with a tools-capable template of its own |
-| Done        | The first run downloads the model and its encoder, checks every byte against a pinned digest and only then offers the chat. Settings → Models owns that one card, its Q8/Q4 choice and its encoder, and lists any LFM3 files an older install left behind for removal |
+| Done        | The chat model is an OpenAI-compatible server the person runs on this computer. The app discovers the model and window from `/v1/models` and `/props`, refuses any address that is not loopback, and starts nothing; Settings → Model server owns the address, the model name, the fallback window and the old files |
+| Done        | Vision: an image attached to a message becomes an `image_url` part for the server, not a path the file tools would refuse, and the chat draws it as a thumbnail that opens larger. A picture reaches the model only when the server was started with an image projector |
+| Done        | The app downloads no chat model. The first run connects a server, tests the address and names the model; Settings → Model server owns that connection and lists any Qwen, engine or LFM3 files an older install left behind for removal |
 | Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
 | Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                               |
 | Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                            |
@@ -75,10 +76,10 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 | Done        | MCP connectors: add one from either settings screen, test it from the same form, and choose whether to trust it — untrusted servers ask before every call. An agent uses the ones it was granted, and a scheduled job dials them too                                                                                                                                                                                                                                                                                               |
 | Done        | Per-agent capabilities: every tool is a switch, and a tool that is off is not offered to the model at all                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Done        | The stores: jobs, profiles, settings, skills, memory proposals — with format versioning that refuses to overwrite a document it cannot read                                                                                                                                                                                                                                                                                                                                                                                        |
-| Done        | Connector secrets: one file per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear. The models need no key                                                                                                                                                                                                                                                  |
+| Done        | Connector secrets: one file per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear. The model server needs no key                                                                                                                                                                                                                                                  |
 | Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                             |
-| Done        | A first run as a step graph: choose Regular or Power setup, say what you want to do, then only the steps that need it — the model, a Space, a bot when a goal calls for one, its Persona, the jobs service for Power with scheduling, and a review. No message box appears until the app can answer, and one flag makes it a first run rather than a screen that comes back                                                                                                                                          |
+| Done        | A first run as a step graph: choose Regular or Power setup, say what you want to do, then only the steps that need it — the model server, a Space, a bot when a goal calls for one, its Persona, the jobs service for Power with scheduling, and a review. Continue on the server step waits for a test that answers, and one flag makes it a first run rather than a screen that comes back                                                                                                                                          |
 | Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                                  |
 | Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
 | Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -114,84 +115,75 @@ that path in.
 
 ### What answers, and what stays running
 
-**The app runs its own models again, and the trade is different this time.** The
-version before the provider build bundled a 4B Qwen and a CUDA build, which meant
-2.7 GB, a graphics card as a hard requirement, and a model whose ceiling was the
-machine it ran on. The provider build removed all of that and made a fresh
-install useless until somebody typed an API key.
+**The app answers with a server the person runs, and owns no chat process.** The
+build before this one downloaded a Qwen2.5 VL 7B, started a pinned llama.cpp on
+loopback, and stopped it after a quiet spell. That was the right answer to "no
+provider account" and the wrong answer to "any model": the app chose the weights,
+the quantization and the GPU backend, and a first run paid about six gigabytes
+for them. Now the app starts nothing. It talks to an OpenAI-compatible server on
+the same computer — llama.cpp on `127.0.0.1:8080`, or anything else that speaks
+the API — and the model is whatever that server loaded.
 
-This build takes the third position: one Qwen2.5 VL 7B vision-language model, a
-pinned GPU-capable build of llama.cpp, and no account. The model is downloaded
-rather than bundled, so a checkout and a packaged app are the same thing and a
-release does not carry gigabytes. The default archives are Vulkan on Linux and
-Windows and Metal on macOS, and every one of them contains the CPU backend: a
-card gets every layer, a machine without a usable device gets the processor, and
-the same archive serves both. NVIDIA users can opt into the larger CUDA build in
-Models. The model answers a short question in a few seconds on an ordinary
-laptop, reads a picture with the encoder that ships beside it, and is faster on a
-card such as a 12 GB RTX 3060.
+**One endpoint, and it is on this computer.** `packages/protocol/src/model-server.ts`
+holds the block and the rules: a base URL, a model name and a fallback window.
+The URL schema accepts only `localhost`, a `127.*` literal or `[::1]`, normalises
+a missing scheme to `http://` and a blank path to `/v1`, and refuses credentials,
+a query, a fragment and the completions path. That check is the privacy promise
+in code: there is no provider key, no provider address and no provider catalogue
+in this build, and a hand-edited file cannot smuggle a public address through,
+because a block that does not validate is replaced with the default rather than
+merged.
 
-**The catalogue is one file and it is data.** `packages/protocol/src/local-models.ts`
-holds the id, what it can do, the licence, the context length, and the byte sizes
-per variant, plus the retired ids the Models card offers to clean up. The pinned repository revisions, file names and SHA-256
-digests live beside the installer in `packages/runtime/src/local-model/chat-pins.ts`.
-The split is deliberate: the protocol is what the window may render and what the
-schema accepts, while a digest is a download fact that belongs with the download.
+**The server names the model and the window.** `ModelServer` in
+`packages/runtime/src/model-server.ts` probes `GET /v1/models`, listens for a
+401 or a 404 rather than a bare transport error, and picks the model the settings
+name or the first one the server reports. When the server has `/props`, it reads
+`default_generation_settings.n_ctx` and the chat template; a model listing with
+`max_model_len` is the second source, and the settings' Context window is the
+fallback. The status carries which source won, so the card can say "from the
+server" rather than presenting the fallback as a fact.
 
-**One model is resident, and the task map says which copy answers.** Chat and
-Images both use the one model; the Settings card no longer offers a task picker.
-The same weights answer a sentence and a picture, so there is no second model to
-swap in. The picture is handed to the model as an `image_url` part because the
-file tools cannot read binary; the text file beside it still travels as a path,
-because the agent's own reader is the one that opens it.
+**A turn resolves the endpoint; a badge caches it.** `resolveModel` is the seam
+between the turn path and the probe. It is called in `HarnessRuntime.prepare`,
+per turn and per resume, because the address is a preference the person can
+change while the window is open and a cached success would send a request to a
+server they have since stopped. `status()` is the other half: an eight-second
+cache for the card and the composer, refreshed by a twenty-second watcher that
+emits `model.status` only when something the person can see changed. Neither
+half starts a process.
 
-**The template is an app asset, because the model's own cannot describe tools.**
-Qwen2.5-VL's GGUF template renders pictures but has no `tools` block, no
-`tool_calls` rendering and no `tool` role. Started with it, llama.cpp would never
-show the tool schemas and never parse a call. So `qwen-vl-template.ts` carries a
-tools-capable multimodal template, adapted from Qwen's revised template, and
-`localModelArgs` passes it inline with `--chat-template` — one string, so the
-window and the headless runner cannot disagree about a file path. The live check
-is what holds it honest: a tool call must come back as `tool_calls`, and an image
-must still reach the encoder.
+**A model is still a pair, and the live server settles it.**
+`{provider: 'local', model: '<the name the server reported>'}` is what a turn
+records and what a harness version freezes. A resume probes again rather than
+replaying the stored pair: the turn is answered by the endpoint the person has
+configured now, and the stored pair is history. That is the opposite of the old
+rule, and the old rule existed because the app was the one starting a specific
+model; when the server is the authority, freezing yesterday's address would be a
+request to a process that may not exist.
 
-**The address exists only in the process that started the engine.** `LocalModelHost`
-picks a free loopback port, starts `llama-server` there, and hands the base URL to
-the turn. Nothing stores it; a stored port is an address pointing at a process
-that died a minute ago. The host starts the model in `ensure` and stops it after three quiet
-minutes — never between a tool call and its answer, which is what `isBusy` is
-for.
-A pid file under `model/local-model.pid` lets the next launch reap an engine whose
-window crashed.
+**Tool calls depend on the server's chat template.** The app no longer starts
+llama.cpp, so it cannot pass a template of its own. `--jinja` makes llama.cpp use
+the model's tools-aware template; a model whose template renders no `tool_calls`
+answers in prose. The probe reads `/props.chat_template` when it can and sets
+`tools: false` on a template with no tools block, which is a warning on the card
+rather than a refusal: the turn can still run, it just will not get the call it
+asked for. A server without `/props` leaves the answer unknown rather than
+guessing.
 
-**Installation is verified, resumable and reversible.** `installLocalModel`
-fetches the pinned engine once, then the weights and the projector for the
-chosen variant, checks each against its digest, and writes `local-model.json`
-only after every file is in place. A marker that does not match the pin's
-revision or file list is "not installed", so a half-written file is never loaded.
-Removing a model stops the engine first and deletes only its directory.
-
-**A model is still a pair.** `{provider: 'local', model: '<qwen id>'}` is what a
-turn records and what a harness version freezes. The provider is a constant now
-rather than a choice, but the pair is what lets a resume use the model the turn
-started with — five minutes later, after a task assignment has moved, the card
-must be answered by the model that asked the question. The task routing happens
-once, before the turn starts, in `AgentService.send`; `HarnessRuntime.prepare` is
-what starts the model and hands its address to `resolveAgentConfig`.
-
-**The one key left is a connector's.** Secrets are one file per connector under
-`secrets/`, encrypted with the OS keychain. The headless runner has no `app`
-object and therefore no `safeStorage`, so it can only read a secret the user
-chose to store readable; a job whose connector needs an encrypted one says so
-rather than dialling without a credential. There is no provider key, no provider
-address and no provider catalogue in this build.
+**Installation is recall's, and the old chat files are cleaned up explicitly.**
+`installEngine` and `installEmbeddingPiece` still verify, resume and mark every
+byte they fetch for Recall's engine and model. The chat model has no installer.
+An upgrade leaves the old Qwen directory and the old `model/engine` behind; the
+Model server card lists them against a fixed enum and removes one only when the
+person presses the button. `model/recall/engine` is a different path and is never
+in that list.
 
 **Recall is still a separate engine.** It downloads its own embedding model and
-runs its own pinned llama.cpp build under `model/recall/`, supervised by the same
-`LocalModelService` the chat engine uses. The pin discipline, the verified
-resumable download and the never-leave-an-engine-behind rule all apply to both.
-The chat models and recall's model cannot share a process: each is a different
-architecture with a different projector, and one resident model is the rule.
+runs its own pinned llama.cpp build under `model/recall/`, supervised by
+`LocalModelService`. The pin discipline, the verified resumable download and the
+never-leave-an-engine-behind rule all apply there. It is the only chat-adjacent
+model the app owns now, and it stays on the processor because its model card
+warns that the activations overflow float16.
 
 ### A connector belongs to the install; a grant belongs to an agent
 
@@ -266,8 +258,8 @@ been verified against anything.
 
 **It is off until somebody asks.** Turning it on downloads 310 MB and starts a
 process of its own, so it is not a default; the question is asked once, on the
-screen that follows the model download, and afterwards the switch lives in
-Settings where every other capability does. The corpora are separate switches
+screen that follows the model server first answering, and afterwards the switch
+lives in Settings where every other capability does. The corpora are separate switches
 because they are separate consents: the folder is the work, memory is what the
 agent wrote down _about_ the user, a conversation is everything they said, and
 media needs a second
@@ -502,11 +494,11 @@ custom. All of them write `enabledTools`, the card that is lit is worked out by
 comparing that grant against the lists, and the profile remains the one source of
 truth for what an agent may do.
 
-The Models card is not tuning: a fresh install cannot answer until the model and
-its encoder are on disk, and the card is where that download, variant, sleep
-state and removal are visible. Older installs may still have the LFM3 files; the
-card lists those leftovers for removal rather than offering them as a task
-choice. The connector list is on the same screen
+The Model server card is not tuning: a fresh install cannot answer until the
+address answers, and the card is where that address, the model name, the fallback
+window and the live status are visible. Older installs may still have the Qwen,
+engine or LFM3 files; the card lists those leftovers for removal rather than
+offering them as a task choice. The connector list is on the same screen
 for the reason from the other end — a capability nobody can see is one nobody
 turns on. The per-bot connector grant lives with the bot, above.
 
@@ -571,7 +563,7 @@ moment before a turn, and it uses the same mechanism: a compacted event is an
 ordinary event carrying a summary and the span it stands for, so nothing on disk
 is rewritten and ADK's `getActiveEvents` does the rest. The trigger is a character
 budget (`AUTO_COMPACT_AT_CHARS`), not a token count: this app has no tokenizer and
-the model catalogue carries a context length but the conversation's actual use
+the server reports a context length but the conversation's actual use
 is not tokenized, so the number is a deliberately conservative estimate — four characters to a token is ADK's own
 rule — with room left for the instruction, tool schemas and the reply. The
 measurement counts reasoning, tool arguments and full tool results, which the
@@ -612,7 +604,7 @@ the work.
 which steps exist:
 
 ```
-direction → goals → model → space → [bot → (persona → more)?] → [jobs] → finish
+direction → goals → server → space → [bot → (persona → more)?] → [jobs] → finish
 ```
 
 The bot step exists only when a goal needs a bot, Persona
@@ -620,25 +612,26 @@ and more-bots only after one was made, and Jobs only for Power plus automation.
 The progress bar draws that list and `previousStage` is the step before it, so a
 step cannot be on screen without being on the path, and Persona backs to the bot
 list rather than to the form that would make a second bot. The flow is still
-_sticky_ once it is up: its own model step is what turns `modelReady` true, and a
-screen recomputed from settings alone would vanish between a download finishing
-and the sentence saying it worked.
+_sticky_ once it is up: its own server test is what turns `modelReady` true, and a
+screen recomputed from settings alone would vanish between the test and the
+sentence saying it worked.
 
-The model is the only required step: until the weights and the encoder are on
-disk the window offers no message box at all, and a download that has not
-finished is the one thing a step will not walk away from. The LFM3 models are not
-offered; an older install can remove their leftover files from Settings →
-Models. The jobs step reuses
+The server connection is the only required step: until the address answers and
+names a model, Continue stays disabled. The app does not start that server, so
+there is no load to wait for and nothing it can cancel; "Set this up later" leaves
+the flow and the chat opens with a notice. The old Qwen, engine and LFM3 files are
+not offered; an older install can remove them from Settings → Model server. The
+jobs step reuses
 `KeepRunning`, so there is one service switch and one set of failure messages,
 and it says plainly that an unattended
 approval stays unapproved and that an encrypted connector secret is one the
 background runner cannot read.
 
 It writes as it goes, exactly as Settings does, so quitting in the middle loses
-only answers that were not yet applied. The review at the end reads settings and
-disk rather than the goals, so a goal whose download was skipped is reported as
-not downloaded rather than ticked because it was once chosen. Each step reads what
-already exists rather than creating a second copy of it.
+only answers that were not yet applied. The review at the end reads the settings
+and the live probe rather than the goals, so a server that is not answering is
+reported as such rather than ticked because a goal was once chosen. Each step
+reads what already exists rather than creating a second copy of it.
 
 **Finishing the flow lands in the Space the person chose, with a new chat.** The
 conversation the window opened on was created by the app before the flow ran, in
@@ -684,22 +677,21 @@ and only their Create press reaches `profiles.create`. `createdFromCall` on the
 profile is what stops a card revisited after a reload making the same bot twice.
 
 Which screen a launch gets is `firstRunScreen` in
-`apps/desktop/src/renderer/first-run.ts` — four answers (`waiting`, `setup`,
-`cannotAnswer`, `app`) from four facts — and it lives outside `App.tsx` because
-this package has no DOM test environment: the arithmetic is worth testing, and two
-of its four rules are about moments rather than states. Nothing loaded is not a
+`apps/desktop/src/renderer/first-run.ts` — three answers (`waiting`, `setup`,
+`app`) from three facts — and it lives outside `App.tsx` because this package has
+no DOM test environment: the arithmetic is worth testing, and two of its rules are
+about moments rather than states. Nothing loaded is not a
 state to draw, or every launch flashes a wizard at somebody whose app works. And
-the flow is _sticky_ once it is up, because its own model step is what turns
+the flow is _sticky_ once it is up, because its own server test is what turns
 `modelReady` true and a screen recomputed from settings alone would vanish between
-a download finishing and the sentence saying it worked.
+the test and the sentence saying it worked.
 
 `setupSeen` is what makes the flow a first run rather than a screen that returns
 whenever the app cannot answer. It is set when the flow closes either way — a
-model loaded, or "set this up later" — and an install that still cannot answer
-afterwards gets the short card that names the problem and opens Settings, which is
-also where an existing install lands when its key stops being readable later. The
-flag is not a claim about readiness; `modelReady` is that claim, and it is the main
-process's.
+server connected, or "set this up later" — and an install that still cannot
+answer afterwards opens the chat with a notice that names the address and opens
+Settings. The flag is not a claim about readiness; `modelReady` is that claim, and
+it is the main process's, derived from the probe.
 
 The one grant the flow writes on the user's behalf is `ask_agent` on the lead,
 offered as a checkbox in plain words: Marimo Bot is told by its own identity to hand
@@ -1208,14 +1200,10 @@ Known gaps, stated plainly:
   the schemas are there and the settings schema still carries the fields, but
   nothing in the window configures them, so they are unreachable. They are
   scheduled for nothing — somebody should either wire them or remove them.
-- **CUDA is opt-in, and the recall engine deliberately does not use a GPU.**
-  macOS's Metal needs no choice. The default Vulkan archive is about 35 MB and
-  covers NVIDIA, AMD and Intel from one asset per platform; the CUDA engine and
-  the runtime the release publishes beside it are about 776 MB on Linux and
-  671 MB on Windows, so the Models card offers CUDA only when `nvidia-smi`
-  reports a driver new enough for the pinned build. ROCm is not pinned. The chat
-  engine asks for every layer; the recall engine starts with zero because its
-  model card warns about float16 NaN — see `args.ts`.
+- **CUDA is llama.cpp's choice, not this app's.** The chat model is the server the
+  person started, so the graphics backend, the offload and the driver floor are
+  its settings. The recall engine deliberately starts with zero offload because
+  its model card warns about float16 NaN — see `args.ts`.
 - **The recall download is verified but not signed.** Each file is checked against
   a sha256 pinned in the app, which catches a corrupted or substituted download
   over a hostile network only as far as the pin itself is trusted — there is no
@@ -1236,8 +1224,9 @@ All four are plain builds. They used to fetch the model first and copy ~1.1 GB o
 weights into the app's resources, with `MARIMO_SKIP_MODEL=1` as the escape hatch
 CI needed; then a first run downloaded a pinned model instead. Now there is no
 chat model anywhere in the chain, so there is nothing to fetch and no variable to
-remember. A packaged app ships an app that asks which service should answer, which
-is also the state a checkout is in and the state the smoke check runs in.
+remember. A packaged app ships an app that asks for the address of a model server,
+which is also the state a checkout is in and the state the smoke check runs in
+against a stand-in server.
 
 Each is built on its own platform in the normal way. What has actually been
 verified, and where:

@@ -4,8 +4,8 @@
  * It lives here because the bug it fixes was invisible from the outside and easy
  * to write again. `settings` is `null` until the first read lands, and a
  * `modelReady` derived from it reads `false` in the meantime — the same `false` a
- * launch *missing* the model reports. An effect that watched `modelReady` alone
- * therefore saw a real transition into ready on every launch, and asked the
+ * launch with the model server off reports. An effect that watched `modelReady`
+ * alone therefore saw a real transition into ready on every launch, and asked the
  * once-ever question every time the app was opened.
  *
  * So a read answers two things, and the second is the one that was missing: raise
@@ -36,10 +36,10 @@ export interface RecallOfferAnswer {
 /**
  * The offer stands when five things hold, and each rules out a different way of
  * asking twice or asking at the wrong moment: a payload has arrived, the last one
- * said the model was missing, this one says it is here, the user has not already
+ * said the server was not answering, this one says it is, the user has not already
  * switched the feature on, and they have not already answered the card. The last
- * two are what make "once" mean once rather than "once per download": somebody who
- * pressed "Not now" and later replaced the weights is not a new question.
+ * two are what make "once" mean once rather than "once per restart": somebody who
+ * pressed "Not now" and later started their server is not a new question.
  */
 export function recallOfferOnRead(seen: RecallOfferRead): RecallOfferAnswer {
   return {

@@ -8,42 +8,36 @@
  * When the two disagreed nothing errored: the window answered questions while a
  * scheduled job reported the model as not installed.
  *
- * That whole class of failure is gone, because the model is no longer shipped. It
- * is downloaded into the user-data directory, which both processes already resolve
- * through `resolveAppPaths` and which invariant 13 is about. There is one
- * derivation now instead of two, and it is the one that already had a test.
+ * That whole class of failure is gone, because the chat model is no longer shipped
+ * or downloaded: it is a server the person runs, addressed in settings. What is
+ * left here is recall's own engine and weights, downloaded into the user-data
+ * directory both processes already resolve through `resolveAppPaths` — which is
+ * what invariant 13 is about — plus the directory the old chat downloads lived in,
+ * so the Model server card can still clean them up.
  *
- * What survives is `MARIMO_MODEL_DIR`: a development checkout and the smoke check
- * both point at a directory of their own, and it wins over the default rather than
- * the other way round — a directory a shipped path can silently outrank is one
- * that does not work.
+ * What survives is `MARIMO_MODEL_DIR`: a development checkout and a live run point
+ * at a directory of their own, and it wins over the default rather than the other
+ * way round — a directory a shipped path can silently outrank is one that does not
+ * work.
  */
 import {statSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 
-import type {
-  LocalModelId,
-  LocalModelVariant,
-} from '@marimo/protocol';
-import {LOCAL_MODELS} from '@marimo/protocol';
-
 import {EMBEDDING_PIECES} from './manifest.js';
 import type {
-  ChatModelManifest,
   EmbeddingManifest,
   EmbeddingPieceName,
   EmbeddingPooling,
 } from './manifest.js';
-import type {EngineFiles, EngineRunSpec} from './service.js';
 
 /**
  * Points both processes at a directory of their own.
  *
- * What a development checkout uses — the recall weights are not in the
- * repository, and a live run is pointed at a directory assembled by hand. It is
- * also what the smoke check sets, so a run that has no model says so rather than
- * starting a search. The chat weights this used to fetch with `pnpm model:fetch`
- * are gone with the engine that served them.
+ * What a development checkout and a live run use: recall's weights are not in
+ * the repository, and pointing at a directory assembled by hand keeps a checkout
+ * from filling the real user-data folder. The chat weights this used to fetch are
+ * gone with the engine that served them; recall's weights are the only ones
+ * still downloaded here.
  */
 export const MODEL_DIR_ENV = 'MARIMO_MODEL_DIR';
 
@@ -235,131 +229,3 @@ export function recallPiecesInstalled(options: {
 function isFile(path: string): boolean {
   return sizeOf(path) >= 0;
 }
-
-/** Where one model's files live, under the shared model directory. */
-export function localModelDir(root: string, modelId: LocalModelId): string {
-  return join(root, modelId);
-}
-
-/**
- * The marker that records which copy was installed.
- *
- * It lives beside the weights rather than in settings because the files are the
- * fact: a user who deletes a directory by hand, or a build that changes the
- * variant, must not be described by a preference written weeks ago.
- */
-export function localModelMarkerFile(dir: string): string {
-  return join(dir, 'local-model.json');
-}
-
-/**
- * What the chat engine would be started with.
- *
- * The engine is shared by both copies, so it is resolved from the root while
- * the weights come from the model's own directory. `projector` is `''` for the
- * text model and for an install that has not finished downloading the encoder;
- * the args builder then leaves `--mmproj` off rather than handing the engine a
- * path that is not there.
- */
-export interface LocalModelFiles extends EngineFiles {
-  dir: string;
-  modelId: LocalModelId;
-  variant: LocalModelVariant;
-  projector: string;
-  projectorPresent: boolean;
-}
-
-/** The files one model variant resolves to, and whether each is on disk. */
-export function resolveLocalModelFiles(options: {
-  root: string;
-  manifest: ChatModelManifest;
-  modelId: LocalModelId;
-  variant: LocalModelVariant;
-  platform?: NodeJS.Platform;
-}): LocalModelFiles {
-  const {root, manifest, modelId, variant} = options;
-  const dir = localModelDir(root, modelId);
-  const engine =
-    root.length > 0
-      ? join(engineDir(root), engineBinaryName(options.platform))
-      : '';
-  const variantPin = manifest.models[modelId].variants[variant];
-  const model = join(dir, variantPin.weights.file);
-  const projector =
-    variantPin.projector === undefined
-      ? ''
-      : join(dir, variantPin.projector.file);
-
-  return {
-    dir,
-    modelId,
-    variant,
-    engine,
-    libraryDir: engine.length > 0 ? dirname(engine) : '',
-    model,
-    projector,
-    enginePresent: isFile(engine),
-    modelPresent: isFile(model),
-    projectorPresent: projector.length > 0 && isFile(projector),
-  };
-}
-
-/** How a model's sampling is started. The values are the model card's. */
-export interface LocalModelSampling {
-  temperature: number;
-  topK: number;
-  topP?: number;
-  repeatPenalty: number;
-}
-
-/**
- * The command-line facts the engine needs, beyond the files.
- *
- * The sampling is the model card's, and it is written down rather than defaulted
- * so a turn with no settings of its own still gets the same recipe as every
- * other. The chat template is a fact about the engine, not a preference: see
- * `args.ts`.
- */
-export interface LocalModelSpec extends EngineRunSpec<LocalModelFiles> {
-  modelId: LocalModelId;
-  variant: LocalModelVariant;
-  alias: string;
-  sampling: LocalModelSampling;
-}
-
-/**
- * The spec for one model.
- *
- * The alias is the model id, never the file name: the request names the alias,
- * and a quantization in the id would be a second place the variant is written
- * down.
- */
-export function localModelSpec(options: {
-  root: string;
-  manifest: ChatModelManifest;
-  modelId: LocalModelId;
-  variant: LocalModelVariant;
-  platform?: NodeJS.Platform;
-}): LocalModelSpec {
-  return {
-    files: resolveLocalModelFiles(options),
-    contextSize: LOCAL_MODELS[options.modelId].contextTokens,
-    modelId: options.modelId,
-    variant: options.variant,
-    alias: options.modelId,
-    sampling: samplingFor(),
-  };
-}
-
-/**
- * The model card's sampling, in one place.
- *
- * Temperature 0.2 and top-k 50 are the recipe the app was pointed at for this
- * family: low enough that a tool call is repeatable, not greedy. The repeat
- * penalty is Qwen's own generation setting; the app's older 1.1 was chosen for
- * a different model.
- */
-function samplingFor(): LocalModelSampling {
-  return {temperature: 0.2, topK: 50, repeatPenalty: 1.05};
-}
-

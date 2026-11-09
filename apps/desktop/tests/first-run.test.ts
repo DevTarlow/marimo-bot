@@ -1,11 +1,11 @@
 /**
  * Which screen a launch opens on.
  *
- * The flow, the short card and the chat are three answers to "can this app
- * reply", and two of the rules that pick between them are about moments rather
- * than states. Those are what this file drives: the payload in flight, and the
- * flow's own last write turning the app ready while somebody is still reading
- * the step.
+ * Two screens answer to "has this person been through the first run": the flow
+ * and the chat. The probe is not one of them. A model server is a process the
+ * person starts and stops outside this window, so a launch with it off is a chat
+ * with a notice above it, not a first run — blocking the window on a process the
+ * app does not own would make every start a diagnostic screen.
  *
  * A launch is driven in order rather than asserted one case at a time, because
  * what the window *remembers* is as much of the answer as what it decides — the
@@ -20,8 +20,6 @@ import type {FirstRunPhase} from '../src/renderer/first-run.js';
 function inFlight(phase: FirstRunPhase = 'unknown'): string {
   return firstRunScreen({
     loaded: false,
-    // Whatever the machine is like, there is no payload to say so yet.
-    modelReady: false,
     setupSeen: false,
     phase,
   });
@@ -34,7 +32,6 @@ describe('firstRunScreen', () => {
     expect(
       firstRunScreen({
         loaded: false,
-        modelReady: true,
         setupSeen: true,
         phase: 'left',
       }),
@@ -45,7 +42,6 @@ describe('firstRunScreen', () => {
     expect(
       firstRunScreen({
         loaded: true,
-        modelReady: false,
         setupSeen: false,
         phase: 'unknown',
       }),
@@ -53,27 +49,25 @@ describe('firstRunScreen', () => {
   });
 
   /*
-   * A model can already be on disk before the flow has ever run — preinstalled,
-   * or left by an install whose settings were lost. The flow still owns the
-   * first run: it asks for a Space and a first bot, which a working model does
-   * not answer. Once it has run, a working model opens the chat.
+   * A server can already be running before the flow has ever run. The flow still
+   * owns the first run: it asks for a Space and a first bot, which a working
+   * server does not answer. Once it has run, the chat opens with or without the
+   * server, and the notice says which.
    */
-  it('offers the flow once even when a model is already on disk', () => {
+  it('offers the flow once even when a server is already answering', () => {
     expect(
       firstRunScreen({
         loaded: true,
-        modelReady: true,
         setupSeen: false,
         phase: 'unknown',
       }),
     ).toBe('setup');
   });
 
-  it('opens on the chat when the flow has already run and the app can answer', () => {
+  it('opens on the chat when the flow has already run', () => {
     expect(
       firstRunScreen({
         loaded: true,
-        modelReady: true,
         setupSeen: true,
         phase: 'left',
       }),
@@ -81,54 +75,39 @@ describe('firstRunScreen', () => {
   });
 
   /*
-   * The reported failure this exists for: the flow's own provider step is what
-   * turns `modelReady` true, and saving a key must not swap the screen out
-   * between the save and the sentence saying it worked.
+   * The reported failure this exists for: the flow's own server test makes the
+   * app able to answer, and that must not swap the screen out between the test
+   * and the review that says what was configured.
    */
-  it('stays on the flow while its own write makes the app ready', () => {
+  it('stays on the flow while its own step makes the app able to answer', () => {
     expect(
       firstRunScreen({
         loaded: true,
-        modelReady: true,
         setupSeen: false,
         phase: 'inSetup',
       }),
     ).toBe('setup');
   });
 
-  it('shows the chat once the flow closes on a working provider', () => {
+  /*
+   * The state `setupSeen` is stored for. Somebody who deferred gets the chat and
+   * the notice, not the flow again, which would ask them to name a first bot
+   * they already have.
+   */
+  it('shows the chat to somebody who has been through it and deferred', () => {
     expect(
       firstRunScreen({
         loaded: true,
-        modelReady: true,
         setupSeen: true,
         phase: 'left',
       }),
     ).toBe('app');
   });
 
-  /*
-   * The state `setupSeen` is stored for. Somebody who deferred, or whose key
-   * stopped being readable later, gets the card that names the problem and opens
-   * Settings — not the flow again, which would ask them to name a first bot they
-   * already have.
-   */
-  it('shows the short card to somebody who has been through it', () => {
-    expect(
-      firstRunScreen({
-        loaded: true,
-        modelReady: false,
-        setupSeen: true,
-        phase: 'left',
-      }),
-    ).toBe('cannotAnswer');
-  });
-
   it('gives a file from before the flag the flow once more', () => {
     expect(
       firstRunScreen({
         loaded: true,
-        modelReady: false,
         setupSeen: false,
         phase: 'left',
       }),

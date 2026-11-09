@@ -115,8 +115,8 @@ export interface EngineRunSpec<T extends EngineFiles> {
 /**
  * What the supervisor answers when anything asks what it is doing.
  *
- * The shape came from `@marimo/protocol`, where it was the chat model card's
- * status and went when that card did. A status is a fact about a *process this
+ * The shape came from the old chat model card's status and stayed when that card
+ * did. A status is a fact about a *process this
  * class started*, so it belongs beside the class rather than in the IPC contract,
  * and the recall card is the one reader left.
  *
@@ -159,9 +159,9 @@ export class LocalModelService<
    *
    * The two presence flags are here because a failure about *missing files* has a
    * shelf life: it is the answer to a question a download changes. Reported after
-   * the files have arrived, it is what leaves a first run on the welcome screen
-   * that says the model is not installed — the window's gate reads this, not the
-   * disk — and the download that just finished is the one thing that disproves it.
+   * the files have arrived, it is what leaves the Recall card saying the model is
+   * not installed — the card reads this, not the disk — and the download that
+   * just finished is the one thing that disproves it.
    */
   private failure:
     | {problem: string; enginePresent: boolean; modelPresent: boolean}
@@ -449,8 +449,8 @@ export class LocalModelService<
    * The recorded failure, while it still describes these files.
    *
    * A failure is recorded once and read on every settings load, and what it was
-   * about can change underneath it — that is what a first run *is*: the window
-   * asks for the engine at launch, is told there is none, and then downloads one.
+   * about can change underneath it — that is what a download *is*: the card asks
+   * for the engine, is told there is none, and then downloads one.
    * Only a change in which files are present invalidates the answer, because that
    * is the premise the sentence was built on. An engine that is here and crashes
    * is a failure about the engine, and it stands until the next start.

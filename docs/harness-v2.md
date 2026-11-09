@@ -43,7 +43,7 @@ invariants have a named test in the new engine. See
 | Tool policy and the built-in tool set                               | New                                                  |
 | Delegation and group collaboration                                  | New                                                  |
 | Learning: traces, proposals, versions, rollback                     | New                                                  |
-| OpenAI-compatible transport, local model catalogue                   | Ported                                               |
+| OpenAI-compatible transport, local model server                       | Ported                                               |
 | MCP client and wire format                                          | Ported                                               |
 | Profiles, Spaces, documents, jobs, text recall, secrets, OS service | Kept, adapted                                        |
 | Electron shell, preload, tray, companion window                     | Kept                                                 |
@@ -266,7 +266,8 @@ routes a message to a participant. Every event names its author.
 V2 starts clean. On first launch the old documents are moved, not deleted, to
 `userData/archive/v1-<timestamp>/`. Connector secrets and window state are preserved; re-entering a
 connector's token is a bad first run, and neither file is part of the rebuilt
-model. The chat models live outside this migration, under `model/`.
+model. Recall's engine and weights live outside this migration, under
+`model/recall/`; the chat model is a server the person runs.
 
 ```
 profiles.json                          v2 profile + harness overrides
@@ -316,7 +317,8 @@ forward.
 
 What the v2 path now has: memory, the user's skills, recall, literal workspace
 search, web search and fetch, jobs, bot drafting, direct @ addressing,
-`ask_agent`, `start_task` with posted results, per-conversation model and Space,
+`ask_agent`, `start_task` with posted results, the app-wide model server and a
+per-conversation Space,
 rename/delete, compaction, and the companion's turn instruction. Documents are
 the runtime's own service on both engines.
 

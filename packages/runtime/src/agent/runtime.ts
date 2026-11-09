@@ -61,12 +61,7 @@ import {
   LOCAL_PROVIDER_ID,
   MAIN_AGENT_NAME,
 } from '@marimo/protocol';
-import type {
-  BotDraft,
-  LocalModelId,
-  ProviderId,
-  SessionPurpose,
-} from '@marimo/protocol';
+import type {BotDraft, ProviderId, SessionPurpose} from '@marimo/protocol';
 import type {
   AgentProfile,
   AgentUiEvent,
@@ -105,6 +100,7 @@ import {SettingsStore} from '../settings.js';
 import {SkillStore} from '../skills.js';
 import {RuntimeSkillService} from '../skill-service.js';
 import {WorkspaceStore, workspaceRootFor} from '../workspaces.js';
+import type {ResolvedModelEndpoint} from '../model-server.js';
 import {HarnessRuntime} from './harness-runtime.js';
 import {HarnessVersionStore} from '../harness-versions.js';
 
@@ -131,14 +127,13 @@ export interface AgentRuntimeOptions {
   /** Present in the window, absent in the runner, which has no browser. */
   webSearch?: WebSearchProvider;
   /**
-   * Starts the local model a turn needs, or says why it cannot.
+   * Finds the model server and answers where a turn should send its request.
    *
-   * Passed through to the v2 turn path; the app's host owns the engine. Absent
-   * in a test that never makes a request.
+   * The app's probe owns the address; this is the seam that lets the same turn
+   * path run in the window and in the headless runner. Absent in a test that
+   * never makes a request.
    */
-  ensureModel?: (
-    modelId: LocalModelId,
-  ) => Promise<{ok: true; baseUrl: string} | {ok: false; problem: string}>;
+  resolveModel?: () => Promise<ResolvedModelEndpoint>;
   /**
    * The rest of the app's tools, resolved per profile and folder.
    *
@@ -383,7 +378,7 @@ export class AgentRuntime {
     const provider: ProviderId = LOCAL_PROVIDER_ID;
     const tools = describeTools({
       workspaceRoot,
-      model: settings.localModels.tasks.chat,
+      model: settings.modelServer.model || 'local',
       provider,
       ...(this.options.webSearch ? {webSearch: this.options.webSearch} : {}),
       /*
@@ -1149,8 +1144,8 @@ export class AgentRuntime {
    * Sets who is in a conversation. An empty list is "just the agent that owns it".
    *
    * This writes metadata about a chat, so it must work on an install whose model
-   * is not downloaded: adding somebody to a conversation is a decision about the
-   * next question, not a reason to refuse the write.
+   * server is not answering: adding somebody to a conversation is a decision
+   * about the next question, not a reason to refuse the write.
    */
   async setParticipants(
     profileId: string,
@@ -1510,9 +1505,9 @@ export class AgentRuntime {
       settings: this.settingsStore,
       profiles: this.profileStore,
       workspaces: this.workspaceStore,
-      ...(this.options.ensureModel === undefined
+      ...(this.options.resolveModel === undefined
         ? {}
-        : {ensureModel: this.options.ensureModel}),
+        : {resolveModel: this.options.resolveModel}),
       recallFor: async (profileId, workspaceRoot) =>
         (await this.options.services?.(profileId, workspaceRoot))
           ?.recallService,

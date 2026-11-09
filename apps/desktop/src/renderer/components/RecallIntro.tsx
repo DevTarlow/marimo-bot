@@ -1,9 +1,9 @@
 /**
- * The offer that follows the model download.
+ * The offer that follows the model server coming up.
  *
  * A fresh install has one moment where somebody is waiting for something and is
- * disposed to answer a question: right after their model lands. This is that
- * moment, and it is spent on the one capability that is invisible until it is
+ * disposed to answer a question: right after their server first answers. This is
+ * that moment, and it is spent on the one capability that is invisible until it is
  * used — a person cannot miss tools that write files, and they cannot *imagine*
  * search by meaning until they have tried it.
  *
@@ -16,7 +16,7 @@
  *   leaving the machine. A card that hid those would be asking for consent it
  *   had not earned.
  * - **`Not now` is a real answer.** It is not a nag: this appears once, in the
- *   session where the model was downloaded, and after that the switch lives in
+ *   session where the server first answered, and after that the switch lives in
  *   Settings where every other capability lives.
  */
 import {useCallback, useEffect, useState} from 'react';

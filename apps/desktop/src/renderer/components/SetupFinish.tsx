@@ -1,14 +1,14 @@
 /**
  * The review at the end of the first run.
  *
- * The summary deliberately reads the settings and the disk, not the goals. A
- * person who asked for pictures and then skipped the model download should see
- * "not downloaded", not a tick because they once said they wanted it; the goals
- * only decide which rows are worth showing. That is the same rule the Settings
- * cards follow — a claim about what is installed is a claim about a file.
+ * The summary deliberately reads the settings and the probe, not the goals. A
+ * person who asked for pictures and then left the server without an image
+ * projector should see that caveat, not a tick because they once said they
+ * wanted it; the goals only decide which rows are worth showing.
  *
- * The one model the flow installs covers text and pictures, so the Pictures row
- * says that rather than naming a second download.
+ * The Model row names what the server reported, and the Server row names the
+ * address. The Pictures row says what the server has to have been started with,
+ * because the app cannot see inside that process.
  *
  * Starting the app is the flow's existing close: App marks the first run as
  * seen, opens a new chat in the Space the person picked, and reloads. This
@@ -16,7 +16,6 @@
  */
 import {useEffect, useState} from 'react';
 
-import {LOCAL_MODELS} from '@marimo/protocol';
 import type {
   AgentProfile,
   PublicSettings,
@@ -71,10 +70,11 @@ export function SetupFinish({
     };
   }, [wantsJobs]);
 
-  const chatModel = LOCAL_MODELS[settings.localModels.tasks.chat];
-  const visionInstalled =
-    settings.localModels.models[settings.localModels.tasks.vision].installed;
-  const wantsPictures = effects.tasks.includes('vision');
+  const wantsPictures = effects.pictures;
+  const serverName =
+    settings.modelServer.model.length > 0
+      ? settings.modelServer.model
+      : (settings.modelServerStatus.model ?? 'The server’s default model');
 
   const jobsValue =
     service === null
@@ -101,11 +101,15 @@ export function SetupFinish({
         <div className="setup-summary-row">
           <dt>Model</dt>
           <dd>
-            {chatModel.label}
+            {serverName}
             {settings.modelReady
-              ? ' — ready for Chat and Images'
-              : ` — not ready${settings.modelProblem === undefined ? '' : `: ${settings.modelProblem}`}`}
+              ? ' — connected'
+              : ` — not connected${settings.modelProblem === undefined ? '' : `: ${settings.modelProblem}`}`}
           </dd>
+        </div>
+        <div className="setup-summary-row">
+          <dt>Server</dt>
+          <dd>{settings.modelServer.url}</dd>
         </div>
         <div className="setup-summary-row">
           <dt>Space</dt>
@@ -123,9 +127,8 @@ export function SetupFinish({
           <div className="setup-summary-row">
             <dt>Pictures</dt>
             <dd>
-              {visionInstalled
-                ? `Included in ${chatModel.label}.`
-                : 'Not downloaded — the model row above has the download.'}
+              Your server must have been started with an image projector
+              (<code>--mmproj</code> in llama.cpp) for pictures to reach it.
             </dd>
           </div>
         )}
@@ -145,13 +148,14 @@ export function SetupFinish({
       {!settings.modelReady && (
         <p className="settings-problem">
           {settings.modelProblem ??
-            'The app cannot answer yet. Go back to the model step to finish that download.'}
+            'The app cannot answer yet. Go back to the model server step and test the address.'}
         </p>
       )}
 
       <p className="onboarding-note">
-        Every switch is in Settings: the tools, the Models card, the companion,
-        the connectors, and the background service in Settings → Jobs.
+        Every switch is in Settings: the tools, the Model server card, the
+        companion, the connectors, and the background service in Settings →
+        Jobs.
       </p>
 
       <div className="onboarding-actions">

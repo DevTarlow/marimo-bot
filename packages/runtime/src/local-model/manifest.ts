@@ -4,7 +4,8 @@
  * `pins.ts` beside this file holds them, and this is the reader that decides
  * whether they are usable. It exists because the app carries no weights and no
  * engine: the file names, the digests, the sizes and the URLs travel with the
- * build, and they are the thing that decides what to *download* on a first run.
+ * build, and they are the thing that decides what to *download* when somebody
+ * turns recall on.
  *
  * That is the inversion worth understanding. The pins used to be read only at
  * package time, and a mistake in them was a broken release build — loud, and
@@ -12,13 +13,6 @@
  * on a user's machine, so the parse is strict and names the field that is
  * wrong.
  */
-import type {
-  EngineBackend,
-  LocalModelId,
-  LocalModelVariant,
-} from '@marimo/protocol';
-import {LOCAL_MODEL_IDS, LOCAL_MODEL_VARIANTS} from '@marimo/protocol';
-
 export interface EngineAsset {
   /** The release asset's file name, which is also its name in the cache. */
   file: string;
@@ -31,10 +25,9 @@ export interface EngineAsset {
  * One pinned llama.cpp release, by tag and by the digest of each platform's
  * archive.
  *
- * `assets` is the default GPU build — Vulkan on Linux and Windows, Metal on
- * macOS. `cuda` is the opt-in NVIDIA bundle: an engine archive and the CUDA
- * runtime archive beside it, both of which have to be unpacked into the same
- * directory for the binary to start.
+ * `assets` is one archive per platform — Vulkan on Linux and Windows, Metal on
+ * macOS. There is no CUDA variant: the chat engine that offered one is gone, and
+ * recall deliberately runs on the processor.
  *
  * A named shape rather than an inline one because the downloader takes this
  * rather than a whole manifest: `installEngine` fetches a build from a document
@@ -44,7 +37,6 @@ export interface EngineManifest {
   tag: string;
   baseUrl: string;
   assets: Record<string, EngineAsset>;
-  cuda?: Record<string, EngineAsset[]>;
 }
 
 /**
@@ -147,27 +139,17 @@ export function engineAssetFor(
 }
 
 /**
- * The archives one engine install needs, in the order they are fetched.
+ * The one archive an engine install needs, or `undefined` when this build has no
+ * archive for the platform.
  *
- * The default build is a single archive. CUDA is two: the engine and the runtime
- * it links against, which the release publishes separately and which both have
- * to land in the engine directory. An unavailable variant is `undefined`, the
- * same answer as a platform with no build at all.
+ * One rather than a list: recall ships one engine per platform, and the chat
+ * engine that needed a second CUDA runtime archive is gone.
  */
 export function engineFilesFor(
   manifest: {engine: EngineManifest},
-  options: {
-    backend?: EngineBackend;
-    platform?: NodeJS.Platform;
-    arch?: string;
-  } = {},
+  options: {platform?: NodeJS.Platform; arch?: string} = {},
 ): readonly EngineAsset[] | undefined {
-  const key = platformKey(options.platform, options.arch);
-  if (options.backend === 'cuda') {
-    const cuda = manifest.engine.cuda?.[key];
-    return cuda === undefined || cuda.length === 0 ? undefined : cuda;
-  }
-  const asset = manifest.engine.assets[key];
+  const asset = manifest.engine.assets[platformKey(options.platform, options.arch)];
   return asset === undefined ? undefined : [asset];
 }
 
@@ -266,29 +248,7 @@ function parseEngine(raw: unknown): EngineManifest {
     throw new ManifestError('engine.assets is empty, so nothing can be fetched.');
   }
 
-  const rawCuda = engine['cuda'];
-  let cuda: Record<string, EngineAsset[]> | undefined;
-  if (rawCuda !== undefined) {
-    const record = asRecord(rawCuda, 'engine.cuda');
-    cuda = {};
-    for (const [key, value] of Object.entries(record)) {
-      if (!Array.isArray(value) || value.length === 0) {
-        throw new ManifestError(
-          `engine.cuda.${key} must be a non-empty list of archives.`,
-        );
-      }
-      cuda[key] = value.map((entry, index) =>
-        parseEngineAsset(entry, `engine.cuda.${key}.${String(index)}`),
-      );
-    }
-  }
-
-  return {
-    tag,
-    baseUrl,
-    assets,
-    ...(cuda === undefined ? {} : {cuda}),
-  };
+  return {tag, baseUrl, assets};
 }
 
 function parseEngineAsset(raw: unknown, path: string): EngineAsset {
@@ -346,156 +306,3 @@ function requireDigest(value: unknown, path: string): string {
 /* -------------------------------------------------------------------------- */
 /* The chat models                                                             */
 /* -------------------------------------------------------------------------- */
-
-/**
- * One file of one model variant.
- *
- * `bytes` is checked against the filesystem on every settings read — it is what
- * makes a half-downloaded file not count as installed — and `sha256` is checked
- * against the download before the file is moved into place. The two are not
- * redundant: the size catches an interrupted write, the digest catches a server
- * that answered with the wrong bytes.
- */
-export interface ChatModelFilePin {
-  file: string;
-  sha256: string;
-  bytes: number;
-}
-
-/**
- * One quantized copy.
- *
- * `projector` is absent only for the text model. A vision or audio model without
- * its projector is not a text model with fewer features; it is an engine with no
- * encoder for the input it was asked to read.
- */
-export interface ChatModelVariantPin {
-  weights: ChatModelFilePin;
-  projector?: ChatModelFilePin;
-}
-
-/** One model repository at one commit, with both copies. */
-export interface ChatModelPin {
-  modelId: LocalModelId;
-  repo: string;
-  revision: string;
-  license: string;
-  variants: Record<LocalModelVariant, ChatModelVariantPin>;
-}
-
-/**
- * The whole chat side: one engine, one model, two copies each.
- *
- * A separate document from `EmbeddingManifest` because it is a different
- * download with a different lifecycle. It still carries the same `engine` block,
- * so `installEngine` and `engineAssetFor` are shared rather than copied.
- */
-export interface ChatModelManifest {
-  engine: EngineManifest;
-  models: Record<LocalModelId, ChatModelPin>;
-}
-
-/**
- * Reads the chat pins, or refuses with the field that is wrong.
- *
- * The id list is the protocol's, not a hand-written one here: a model added to
- * the catalogue without pins, or a pin for a model the app does not know, is a
- * build that cannot answer and a settings card that cannot name what is missing.
- */
-export function parseChatModelManifest(raw: unknown): ChatModelManifest {
-  const root = asRecord(raw, 'the document');
-  const engine = parseEngine(root['engine']);
-  const rawModels = asRecord(root['models'], 'models');
-
-  const models = {} as Record<LocalModelId, ChatModelPin>;
-  for (const id of LOCAL_MODEL_IDS) {
-    const model = asRecord(rawModels[id], `models.${id}`);
-    const declared = requireString(model['modelId'], `models.${id}.modelId`);
-    if (declared !== id) {
-      throw new ManifestError(
-        `models.${id}.modelId says "${declared}", so the pin is filed under the ` +
-          'wrong model.',
-      );
-    }
-
-    const variants = {} as Record<LocalModelVariant, ChatModelVariantPin>;
-    const rawVariants = asRecord(model['variants'], `models.${id}.variants`);
-    for (const variant of LOCAL_MODEL_VARIANTS) {
-      const rawVariant = asRecord(
-        rawVariants[variant],
-        `models.${id}.variants.${variant}`,
-      );
-      variants[variant] = {
-        weights: parseModelFile(
-          rawVariant['weights'],
-          `models.${id}.variants.${variant}.weights`,
-        ),
-        ...(rawVariant['projector'] === undefined
-          ? {}
-          : {
-              projector: parseModelFile(
-                rawVariant['projector'],
-                `models.${id}.variants.${variant}.projector`,
-              ),
-            }),
-      };
-    }
-
-    models[id] = {
-      modelId: id,
-      repo: requireString(model['repo'], `models.${id}.repo`),
-      revision: requireString(model['revision'], `models.${id}.revision`),
-      license: requireString(model['license'], `models.${id}.license`),
-      variants,
-    };
-  }
-
-  return {engine, models};
-}
-
-function parseModelFile(raw: unknown, path: string): ChatModelFilePin {
-  const file = asRecord(raw, path);
-  return {
-    file: requireString(file['file'], `${path}.file`),
-    sha256: requireDigest(file['sha256'], `${path}.sha256`),
-    bytes: requirePositiveInt(file['bytes'], `${path}.bytes`),
-  };
-}
-
-/** Where one file of one variant is fetched from. */
-export function chatModelUrl(
-  manifest: ChatModelManifest,
-  modelId: LocalModelId,
-  variant: LocalModelVariant,
-  part: 'weights' | 'projector',
-): string {
-  const pin = manifest.models[modelId];
-  const file =
-    part === 'weights'
-      ? pin.variants[variant].weights
-      : pin.variants[variant].projector;
-  if (file === undefined) {
-    throw new ManifestError(
-      `${modelId} ${variant} has no ${part} to download.`,
-    );
-  }
-  return (
-    `https://huggingface.co/${pin.repo}/resolve/${pin.revision}/${file.file}`
-  );
-}
-
-/** The two files a variant asks for, in the order they are installed. */
-export function chatModelParts(
-  manifest: ChatModelManifest,
-  modelId: LocalModelId,
-  variant: LocalModelVariant,
-): Array<{part: 'weights' | 'projector'; pin: ChatModelFilePin}> {
-  const variantPin = manifest.models[modelId].variants[variant];
-  return [
-    {part: 'weights', pin: variantPin.weights},
-    ...(variantPin.projector === undefined
-      ? []
-      : [{part: 'projector' as const, pin: variantPin.projector}]),
-  ];
-}
-

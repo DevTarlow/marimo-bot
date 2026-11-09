@@ -24,8 +24,9 @@ import {
   isPlaceholder,
   JobScheduler,
   JobStore,
-  LocalModelHost,
   McpManager,
+  ModelServer,
+  modelDir,
   secretReaderFor,
   sortJobs,
   turnInstruction,
@@ -52,10 +53,9 @@ import type {
   Job,
   JobPatch,
   JobSummary,
-  LocalModelId,
-  LocalModelsStatus,
-  LocalModelVariant,
+  LeftOverModelId,
   McpServer,
+  ModelServerStatus,
   McpStatus,
   PendingGate,
   ProfileCatalog,
@@ -63,7 +63,6 @@ import type {
   RecallPiece,
   RecallQueryResult,
   RecallScopeName,
-  RetiredModelId,
   SecretStorage,
   SessionSummary,
   SessionUsage,
@@ -92,6 +91,16 @@ import {MCP_CLIENT} from '../shared/product.js';
  * lazy without a server sitting dead for want of a nudge.
  */
 const MCP_RECONCILE_MS = 30_000;
+
+/**
+ * How often the badge asks the model server whether it is there.
+ *
+ * The server is started and stopped outside the app, so there is no event to
+ * listen for. Twenty seconds is quick enough that a person who has just started
+ * llama.cpp sees the dot change, and slow enough that a loopback GET is not a
+ * thing the app does in a loop. `modelServer.test` is the immediate answer.
+ */
+const MODEL_WATCH_MS = 20_000;
 
 /**
  * How long a conversation has to be quiet before it is read back.
@@ -160,17 +169,20 @@ export class AgentService {
    */
   private readonly recall: RecallHost;
   /**
-   * The one local model in memory, and the rules about when it is there.
+   * The person's model server, probed and resolved.
    *
-   * Owned here because starting a process and downloading a file are not things
-   * the shared package does at boot; the runtime asks this for an address before
-   * a turn, and the window draws what it reports. Built before the runtime for
-   * the same reason recall is, and its settings closure is only read once the
-   * runtime exists.
+   * Owned here because the probe has a cache and a watch, and the window draws
+   * what it finds. It starts nothing: the server is the person's process. Built
+   * before the runtime for the same reason recall is, and its settings closure
+   * is only read once the runtime exists.
    */
-  private readonly models: LocalModelHost;
+  private readonly models: ModelServer;
+  /** How often the badge looks again while the window is open. */
+  private modelWatch: NodeJS.Timeout | undefined;
+  /** The last status sent to the window, so a quiet watch sends nothing. */
+  private lastModelSignature: string | undefined;
   /**
-   * The hidden window that decodes media, when the projector is installed.
+   * The hidden window that decodes media for recall's index.
    *
    * Built unconditionally for the reason the recall engine is: nothing happens
    * until a media file is actually decoded, and a second code path for installs
@@ -294,31 +306,9 @@ export class AgentService {
       },
     });
 
-    this.models = new LocalModelHost({
-      userData: paths.userData,
+    this.models = new ModelServer({
+      modelRoot: modelDir({userData: paths.userData}),
       readSettings: async () => await this.runtime.settings(),
-      isBusy: () => this.runtime.harness().isRunningAny(),
-      onStatus: (status) => {
-        options.sendEvent({type: 'model.status', status});
-      },
-      onProgress: (progress) => {
-        options.sendEvent({
-          type: 'model.progress',
-          modelId: progress.modelId,
-          label: progress.label,
-          receivedBytes: progress.receivedBytes,
-          totalBytes: progress.totalBytes,
-          ...(progress.percent === undefined
-            ? {}
-            : {percent: progress.percent}),
-        });
-      },
-      onInstalled: (modelId) => {
-        options.sendEvent({type: 'model.installed', modelId});
-      },
-      onFailed: (modelId, message) => {
-        options.sendEvent({type: 'model.failed', modelId, message});
-      },
       log: (line) => {
         console.log(line);
       },
@@ -328,11 +318,11 @@ export class AgentService {
       paths,
       webSearch: this.search,
       /*
-       * Which model answers. The engine's address exists only in this process,
-       * and only while it is running, so the runtime asks the host before a turn
-       * rather than reading an address from a document.
+       * Where the turn sends its request. The address is a preference the
+       * person can change while the app is open, so the runtime asks the probe
+       * per turn rather than reading a copy taken at startup.
        */
-      ensureModel: async (modelId) => await this.models.ensure(modelId),
+      resolveModel: async () => await this.models.resolve(),
       recall: {
         stop: async () => {
           await this.recall.stop();
@@ -548,10 +538,14 @@ export class AgentService {
     this.reconcile = setInterval(() => {
       void this.mcp.reconcile();
     }, MCP_RECONCILE_MS);
-    // A timer must not be the reason the process stays alive: the app decides
-    // when it quits, and an interval holding the loop open would turn a quit
-    // into a hang.
+    this.modelWatch = setInterval(() => {
+      void this.watchModelServer();
+    }, MODEL_WATCH_MS);
+    // Timers must not be the reason the process stays alive: the app decides when
+    // it quits, and an interval holding the loop open would turn a quit into a
+    // hang.
     this.reconcile.unref?.();
+    this.modelWatch.unref?.();
   }
 
   async stop(): Promise<void> {
@@ -559,6 +553,10 @@ export class AgentService {
     if (this.reconcile !== undefined) {
       clearInterval(this.reconcile);
       this.reconcile = undefined;
+    }
+    if (this.modelWatch !== undefined) {
+      clearInterval(this.modelWatch);
+      this.modelWatch = undefined;
     }
     this.lockTimer = this.clearTimer(this.lockTimer);
     this.idleReview = this.clearIdle(this.idleReview);
@@ -571,12 +569,11 @@ export class AgentService {
     this.appLock = undefined;
     await this.mcp.stop();
     /*
-     * The chat engine is a child too. It is stopped before the runtime goes so
-     * a model is never left loaded with no window to explain it, and the pid
-     * file it writes is what lets the next launch reap one that outlived a
-     * crash.
+     * The model server is not a child. Disposing the probe only drops its cached
+     * answer; the server the person started keeps running, exactly as it did
+     * before the window opened.
      */
-    await this.models.stop();
+    this.models.dispose();
     // Stops the recall engine too, through the runner the runtime was given: a
     // child still loading weights when its parent exits is memory and a spinning
     // fan with no window left to explain it.
@@ -1167,47 +1164,67 @@ export class AgentService {
   }
 
   /**
-   * The local models, as the Models card and the composer draw them.
+   * The model server, as the card and the composer draw it.
    *
-   * A read only: asking for status must never start an engine or a download,
-   * because the window asks on every launch.
+   * A read only: asking for status must never start anything, because the window
+   * asks on every launch. A cached answer is good enough for a badge; the Test
+   * button and a turn force a fresh probe.
    */
-  async modelStatus(): Promise<LocalModelsStatus> {
+  async modelServerStatus(): Promise<ModelServerStatus> {
     return await this.models.status();
   }
 
-  /** Starts a download. Answers as soon as it has started. */
-  async installModel(
-    modelId: LocalModelId,
-    variant: LocalModelVariant,
-  ): Promise<{started: boolean}> {
-    return await this.models.install(modelId, variant);
+  /** Probes now, whatever the cache says. The card's button and a first run. */
+  async testModelServer(): Promise<ModelServerStatus> {
+    const status = await this.models.refresh();
+    this.emitModelStatus(status);
+    return status;
   }
 
-  cancelModelInstall(): {cancelled: boolean} {
-    return this.models.cancel();
+  /** Deletes one old chat download the card listed. */
+  async removeLeftOverModel(id: LeftOverModelId): Promise<ModelServerStatus> {
+    const status = await this.models.removeLeftOver(id);
+    this.emitModelStatus(status);
+    return status;
   }
 
-  async removeModel(modelId: LocalModelId): Promise<LocalModelsStatus> {
-    return await this.models.remove(modelId);
+  /**
+   * Looks again, and tells the window only when something changed.
+   *
+   * The server comes and goes outside this process, so the badge would otherwise
+   * be a copy of the launch-time probe for ever. A signature over the fields a
+   * person can see means a stable server costs one GET and no renders.
+   */
+  private async watchModelServer(): Promise<void> {
+    try {
+      this.emitModelStatus(await this.models.refresh());
+    } catch (failure) {
+      console.log(
+        `[marimo] the model server watch failed: ${
+          failure instanceof Error ? failure.message : String(failure)
+        }`,
+      );
+    }
   }
 
-  /** Deletes one old model directory the card listed. */
-  async removeRetiredModel(modelId: RetiredModelId): Promise<LocalModelsStatus> {
-    return await this.models.removeRetired(modelId);
-  }
-
-  async sleepModels(): Promise<LocalModelsStatus> {
-    return await this.models.sleep();
-  }
-
-  /** Starts a model and proves it loads. A first run uses this. */
-  async warmModel(modelId: LocalModelId): Promise<{
-    ok: boolean;
-    problem?: string;
-    status: LocalModelsStatus;
-  }> {
-    return await this.models.warm(modelId);
+  private emitModelStatus(status: ModelServerStatus): void {
+    const signature = [
+      status.state,
+      status.url,
+      status.model ?? '',
+      status.models.join(','),
+      String(status.contextTokens ?? ''),
+      status.contextSource ?? '',
+      String(status.tools ?? ''),
+      String(status.vision ?? ''),
+      status.detail ?? '',
+      status.leftOver.join(','),
+    ].join('\u0000');
+    if (signature === this.lastModelSignature) {
+      return;
+    }
+    this.lastModelSignature = signature;
+    this.options.sendEvent({type: 'model.status', status});
   }
 
   mcpStatuses(): Record<string, McpStatus> {
@@ -1546,11 +1563,11 @@ export class AgentService {
   ): Promise<void> {
     await this.runtime.updateSettings(patch);
     /*
-     * The idle timeout is a live timer, not a value read on the next turn: a
-     * change to it while a model is warm has to move the timer that is already
-     * armed, or the window shows one number and the engine follows the old one.
+     * The cached probe belonged to the old address. The response to the write
+     * carries a fresh one, so this is only about the next reader: a turn must
+     * not be answered from a status for a server the person has just replaced.
      */
-    await this.models.rearm();
+    this.models.invalidate();
   }
 
   async listSessions(profileId?: string): Promise<SessionSummary[]> {
@@ -1757,15 +1774,6 @@ export class AgentService {
         return {accepted: false};
       }
       const settings = await this.runtime.settings();
-      const saysImages = (attachments ?? []).some(
-        (attachment) => attachment.kind === 'image',
-      );
-      /*
-       * One model answers both tasks; the task still travels with the turn
-       * because it is what the settings card reports and what a resume reads
-       * back. An image turn is the Images task, not a different model.
-       */
-      const task = saysImages ? 'vision' : 'chat';
       const v2Info = (await harness.hasLog(sessionId))
         ? await harness.sessionInfo(sessionId)
         : undefined;
@@ -1791,7 +1799,6 @@ export class AgentService {
           instruction,
           purpose,
           {
-            task,
             ...(attachments === undefined || attachments.length === 0
               ? {}
               : {attachments: [...attachments]}),

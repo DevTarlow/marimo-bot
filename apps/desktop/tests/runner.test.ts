@@ -8,9 +8,9 @@
  * anything.
  *
  * The run itself is exercised against real stores and real files. The checkout
- * has no model downloaded, which is the state a fresh install is in and one that
- * produces the designed outcome: the job runs, is refused for want of a model,
- * and records that as its result rather than failing silently.
+ * has no model server running, which is the state a fresh install is in and one
+ * that produces the designed outcome: the job runs, is refused for want of a
+ * server, and records that as its result rather than failing silently.
  */
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -62,6 +62,23 @@ describe('runDue', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(process.cwd(), '.marimo-runner-'));
     paths = resolveAppPaths(dir);
+    /*
+     * A model-server address nothing is listening on. The default is llama.cpp's
+     * 8080, and a developer running llama.cpp while the suite runs would turn
+     * this test's designed refusal into a real turn.
+     */
+    await writeFile(
+      paths.settings,
+      JSON.stringify({
+        version: 4,
+        modelServer: {
+          url: 'http://127.0.0.1:9/v1',
+          model: 'not-running',
+          contextTokens: 32_768,
+        },
+      }),
+      'utf8',
+    );
   });
 
   afterEach(async () => {
@@ -151,14 +168,14 @@ describe('runDue', () => {
     const after = JSON.parse(await readFile(paths.jobs, 'utf8'));
     const job = after.jobs.jobs[0];
     /*
-     * This directory has no model in it — so the designed outcome is a recorded
-     * refusal rather than silence: the runner must not report a run it could not
-     * do as one it did. And the marker has moved, so it will not fire again the
-     * next minute.
+     * Nothing is listening on the default address — so the designed outcome is a
+     * recorded refusal rather than silence: the runner must not report a run it
+     * could not do as one it did. And the marker has moved, so it will not fire
+     * again the next minute.
      */
     expect(job.lastStatus).toBe('error');
-    expect(job.lastError).toMatch(/not ready/iu);
-    expect(job.lastError).toMatch(/Settings/iu);
+    expect(job.lastError).toMatch(/Nothing is answering/iu);
+    expect(job.lastError).toMatch(/model server/iu);
     expect(job.sessionId).toBeTruthy();
   });
 

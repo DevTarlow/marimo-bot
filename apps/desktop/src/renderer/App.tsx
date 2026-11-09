@@ -12,7 +12,7 @@
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
-import {COMMAND_IDS, COMMANDS, LOCAL_MODELS, THEME_MODES} from '@marimo/protocol';
+import {COMMAND_IDS, COMMANDS, THEME_MODES} from '@marimo/protocol';
 import type {
   AppInfo,
   ProfileCatalog,
@@ -24,12 +24,12 @@ import type {
 import {Composer} from './components/Composer.js';
 import {Documents} from './components/Documents.js';
 import {NewBotDialog} from './components/NewBotDialog.js';
-import {Onboarding} from './components/Onboarding.js';
 import {Participants} from './components/Participants.js';
 import {RecallIntro} from './components/RecallIntro.js';
 import {Search} from './components/Search.js';
 import {Settings} from './components/Settings.js';
-import {MODELS_SECTION} from './components/ModelsSection.js';
+import {MODEL_SERVER_SECTION} from './components/ModelServerSection.js';
+import {ModelServerNotice} from './components/ModelServerNotice.js';
 import {Setup} from './components/Setup.js';
 import {Transcript} from './components/Transcript.js';
 import {WorkspaceRail} from './components/WorkspaceRail.js';
@@ -47,6 +47,22 @@ import {spaceForSession} from './workspace-groups.js';
 
 import './styles/chat.css';
 
+/**
+ * The model as the badge has room for it.
+ *
+ * llama.cpp without `--alias` reports the GGUF's whole path, and a badge that
+ * began `/mnt/…/models/` would spend its width on the least useful part. The
+ * last segment, without the extension, is what a person calls the model; the
+ * card and the title still show the exact id a request carries.
+ */
+function shortModelName(model: string | undefined): string | undefined {
+  if (model === undefined || model.length === 0) {
+    return undefined;
+  }
+  const name = model.split(/[\\/]/u).pop() ?? model;
+  return name.replace(/\.gguf$/iu, '');
+}
+
 export function App(): React.JSX.Element {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -54,9 +70,9 @@ export function App(): React.JSX.Element {
    * The section Settings should open on, when something sent the user there.
    *
    * The composer's model badge is the caller that exists: it opens Settings on
-   * the Models card, which is where the downloads, the task assignments and the
-   * sleep state live. Landing on eight folded headings would leave the user to
-   * find the card they were just sent to.
+   * the Model server card, which is where the address, the model and the old
+   * files live. Landing on eight folded headings would leave the user to find
+   * the card they were just sent to.
    */
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
@@ -130,9 +146,9 @@ export function App(): React.JSX.Element {
   /**
    * Where this window is in the setup flow.
    *
-   * The flow's own model step is what turns `modelReady` true, so the screen
-   * cannot be recomputed from settings alone: a download finishing would take
-   * the flow away between the finish and the sentence saying it worked.
+   * The flow's own server step is what lets the app answer, so the screen cannot
+   * be recomputed from the probe alone: a successful test would take the flow
+   * away between the step and the review that says what was configured.
    * `inSetup` is that latch, and `left` is the flow having closed, however it
    * closed.
    */
@@ -159,29 +175,39 @@ export function App(): React.JSX.Element {
   }, [loadSettings]);
 
   /*
-   * The model badge is a live fact, not a copy of the last settings read. A
-   * turn can wake a model without changing any preference, and a download can
-   * finish while the window is scrolled elsewhere; both arrive as events, and a
-   * badge that only moved on the next settings write would be wrong exactly when
-   * somebody is watching it.
+   * The model badge is a live fact, not a copy of the last settings read. The
+   * server is started and stopped outside this window, so the probe's watcher is
+   * the only thing that can tell a badge it came back; a badge that moved only
+   * on the next settings write would be wrong exactly when somebody is watching
+   * it.
    */
   useEffect(() => {
     const off = window.marimo.onEvent((event) => {
-      if (event.type === 'model.status') {
-        setSettings((current) =>
-          current === null
-            ? current
-            : {...current, localModels: event.status},
-        );
-      } else if (
-        event.type === 'model.installed' ||
-        event.type === 'model.failed'
-      ) {
-        loadSettings();
+      if (event.type !== 'model.status') {
+        return;
       }
+      setSettings((current) => {
+        if (current === null) {
+          return current;
+        }
+        const ready = event.status.state === 'ready';
+        const next: PublicSettings = {
+          ...current,
+          modelServerStatus: event.status,
+          modelReady: ready,
+        };
+        if (ready) {
+          delete next.modelProblem;
+        } else {
+          next.modelProblem =
+            event.status.detail ??
+            'The model server is not answering. Open Settings → Model server.';
+        }
+        return next;
+      });
     });
     return off;
-  }, [loadSettings]);
+  }, []);
 
   /*
    * The stored layout fills the live one when settings arrive. A drag applies
@@ -394,40 +420,37 @@ export function App(): React.JSX.Element {
   });
 
   /*
-   * What the composer names, and what the Models card would say about it.
+   * What the composer names, and what the Model server card would say about it.
    *
-   * The badge is informational: the turn's task decides which model actually
-   * answers, and the main process resolves it. What the person needs to see is
-   * which model is warm — the one that answers both text and pictures — and a
-   * dot for the process state, so "why is it thinking" and "why did it go
-   * quiet" have a visible answer.
+   * The badge is informational: the main process probes the server and the turn
+   * sends its request there. What the person needs to see is which model the
+   * server reports — or that nothing is answering — and a dot for the state, so
+   * "why is it thinking" and "why did it go quiet" have a visible answer.
+   *
+   * The names are mapped onto the composer's existing four, because its
+   * vocabulary is about a conversation rather than about a process: `ready` is
+   * awake, a server that is not answering is resting, and a server that answered
+   * with something unusable is a failure.
    */
-  const talkingModelId =
-    settings === null
-      ? undefined
-      : (settings.localModels.active?.id ?? settings.localModels.tasks.chat);
-  const talkingModel =
-    talkingModelId === undefined ? undefined : LOCAL_MODELS[talkingModelId];
-  const talkingStatus =
-    talkingModelId === undefined || settings === null
-      ? undefined
-      : settings.localModels.models[talkingModelId];
+  const modelStatus = settings?.modelServerStatus;
   const modelState =
-    talkingStatus?.state === 'ready'
+    modelStatus?.state === 'ready'
       ? 'awake'
-      : talkingStatus?.state === 'starting'
-        ? 'waking'
-        : talkingStatus?.state === 'failed'
-          ? 'failed'
-          : 'resting';
-  const modelLabel = talkingModel?.shortLabel;
+      : modelStatus?.state === 'failed'
+        ? 'failed'
+        : 'resting';
+  const modelLabel =
+    shortModelName(modelStatus?.model) ??
+    (settings === null
+      ? undefined
+      : shortModelName(settings.modelServer.model) || 'No server');
 
   /*
    * The transition, not the state. `settings.modelReady` is true on every launch
    * for anybody who has used the app, and offering recall to somebody who is
    * already using it would be the nag this is shaped to avoid — so the offer
-   * belongs to the moment it goes from false to true, which is the first run
-   * finishing its model download.
+   * belongs to the moment it goes from false to true, which is the server first
+   * answering.
    *
    * What `wasReady` may not record is the `false` a payload that has not arrived
    * yet produces, or every launch looks like that transition. It is written only
@@ -453,20 +476,19 @@ export function App(): React.JSX.Element {
   /*
    * Which screen the window is on, in one place.
    *
-   * The flow, the short card and the chat are three answers to one question, and
-   * the decision lives in `first-run.ts` because this package has no DOM test
-   * environment: what is worth testing is the arithmetic, not the markup around
-   * it.
+   * The flow and the chat are the two answers to one question, and the decision
+   * lives in `first-run.ts` because this package has no DOM test environment:
+   * what is worth testing is the arithmetic, not the markup around it.
    */
   const screen = firstRunScreen({
     loaded: settings !== null,
-    modelReady,
     setupSeen: settings?.setupSeen ?? false,
     phase: setupPhase,
   });
   /*
    * The latch, set once the decision has said `setup`: from then on the flow
-   * stays up until it closes itself, whatever its own writes do to `modelReady`.
+   * stays up until it closes itself, whatever its own writes do to the server
+   * status.
    */
   useEffect(() => {
     if (screen === 'setup' && setupPhase === 'unknown') {
@@ -622,26 +644,6 @@ export function App(): React.JSX.Element {
       setNewBotOpen(false);
       void loadSettings();
     });
-
-  /**
-   * Offers the flow again, from the short card.
-   *
-   * The latch goes back to `inSetup` rather than to `unknown`, so the flow is on
-   * screen this render instead of waiting for a decision to be recomputed, and
-   * the flag is cleared so a later launch does not put the card back in its
-   * place. A failure of that write is not reported, for the reason the other two
-   * flag writes are not: the worst outcome is the flow being offered once more
-   * after a restart.
-   */
-  const restartSetup = (): void => {
-    setSetupPhase('inSetup');
-    void window.marimo
-      .call('settings.set', {patch: {setupSeen: false}})
-      .then(({settings: saved}) => {
-        setSettings(saved);
-      })
-      .catch(() => undefined);
-  };
 
   /*
    * The commands the `+` menu offers: the catalogue filtered by what the user
@@ -1007,35 +1009,20 @@ export function App(): React.JSX.Element {
             onStartBuilder={startBuilderFromSetup}
             onClose={closeSetup}
           />
-        ) : screen === 'cannotAnswer' ? (
-          /*
-           * Asked before it is needed, rather than after. The refusal a turn
-           * gives is honest and in the right place — but it is the *second*
-           * thing a new user learns, and the first should have been the reason.
-           *
-           * There is no bundled model to wait for: what stops this install
-           * answering is a model that has not been downloaded, an engine that
-           * cannot start, or a file that was removed from under it — and the
-           * sentence saying which is written by the process that looked.
-           *
-           * This is the screen for somebody who has already met the flow and
-           * still cannot answer — they deferred it, or their key stopped being
-           * readable — which is why it offers Settings rather than the flow.
-           */
-          <Onboarding
-            settings={settings as PublicSettings}
-            problem={
-              settings?.modelProblem ??
-              'The app has no way to answer yet. Settings will say what is missing.'
-            }
-            onOpenSettings={() => {
-              setShowSettings(true);
-            }}
-            onRestart={restartSetup}
-            onChanged={loadSettings}
-          />
         ) : (
-          <Transcript
+          <>
+            <ModelServerNotice
+              settings={settings as PublicSettings}
+              onRetry={async () => {
+                await window.marimo.call('modelServer.test', {});
+                loadSettings();
+              }}
+              onOpenSettings={() => {
+                setSettingsSection(MODEL_SERVER_SECTION);
+                setShowSettings(true);
+              }}
+            />
+            <Transcript
             messages={agent.messages}
             outbox={agent.outbox}
             live={agent.live}
@@ -1077,18 +1064,15 @@ export function App(): React.JSX.Element {
             builder={agent.sessionPurpose === 'bot-builder'}
             busy={busy}
           />
+          </>
         )}
 
         {/*
-          No box to type in until something can answer. The composer is the one
-          control that promises a reply, so it appears with the reply rather than
-          before it — an install with no model, or one whose engine will not start,
-          would otherwise offer a field whose every message ends in the same
-          refusal.
-
-          Which means the two states that cannot answer do not draw it at all,
-          including the setup flow's own steps: the wizard is what turns that
-          around, and a box beside it would be the thing it is there to replace.
+          A composer whenever there is a conversation, even when the server is
+          off. The notice above says what is wrong and how to fix it; hiding the
+          box would make the window look broken rather than explain that the
+          person's own process is not running yet. The first run does not draw
+          it: there is no conversation there, and its server step is the fix.
         */}
         {screen === 'app' && (
           <Composer
@@ -1096,8 +1080,8 @@ export function App(): React.JSX.Element {
             disabled={disabled || !agent.ready}
             modelLabel={modelLabel}
             modelState={modelState}
-            onOpenModels={() => {
-              setSettingsSection(MODELS_SECTION);
+            onOpenModelServer={() => {
+              setSettingsSection(MODEL_SERVER_SECTION);
               setShowSettings(true);
             }}
             /*

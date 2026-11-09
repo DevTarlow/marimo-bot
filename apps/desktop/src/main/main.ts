@@ -92,12 +92,11 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
  * Electron's Wayland backend and Vulkan do not agree: with the Wayland ozone
  * backend alone, the GPU process prints
  * "'--ozone-platform=wayland' is not compatible with Vulkan" and can restart.
- * Chromium's own Vulkan feature is not something this window uses: the models
- * are a separate llama.cpp process, and that process opens Vulkan itself when
- * the pinned engine has a device. Disabling only Chromium's feature keeps
- * native Wayland and leaves the model engine on the card. The other repair the
- * warning offers is forcing X11, which would give up native Wayland for no gain
- * here.
+ * Chromium's own Vulkan feature is not something this window uses: the model is
+ * the server the person runs, a separate process that opens Vulkan itself when
+ * it has a device. Disabling only Chromium's feature keeps native Wayland and
+ * leaves the person's engine on the card. The other repair the warning offers is
+ * forcing X11, which would give up native Wayland for no gain here.
  *
  * `disable-features` is merged rather than replaced: a launcher or a future
  * default can already have entries there, and overwriting them would quietly

@@ -16,19 +16,13 @@ import type {
   Attachment,
   LearningLesson,
   LearningProposal,
-  LocalModelId,
-  LocalTask,
   MemorySupersede,
   CompactResult,
   PendingGate,
   StoredSkill,
   TranscriptMessage,
 } from '@marimo/protocol';
-import {
-  LOCAL_MODELS,
-  LOCAL_PROVIDER_ID,
-  workContextTokens,
-} from '@marimo/protocol';
+import {LOCAL_PROVIDER_ID, workContextTokens} from '@marimo/protocol';
 import {
   AdkDriver,
   buildMcpToolDefinitions,
@@ -70,6 +64,7 @@ import {FeedbackStore} from '../feedback.js';
 import {LearningProposalStore} from '../learning-proposals.js';
 import {MemoryProposalStore} from '../memory-proposals.js';
 import {SkillUsageStore} from '../skill-usage.js';
+import type {ResolvedModelEndpoint} from '../model-server.js';
 import type {AppPaths} from '../paths.js';
 import {FileEventStore} from '../events/file-event-store.js';
 import type {HarnessVersionStore} from '../harness-versions.js';
@@ -179,16 +174,14 @@ export interface HarnessRuntimeOptions {
   profiles: ProfileStore;
   workspaces: WorkspaceStore;
   /**
-   * Starts the local model a turn needs and answers where it is, or why not.
+   * Finds the model server and answers where a turn should send its request.
    *
-   * The address exists only in the process that started the engine, and it
-   * changes every time the engine wakes. This is the seam: the runtime knows
-   * *which* model a turn wants; the host knows whether it is installed and where
-   * it ended up. Absent is a test that never makes a request.
+   * The address is a preference the person can change while the app is open, so
+   * it is read per turn rather than captured. This is the seam: the runtime knows
+   * the task; the probe knows whether the server is up and what it is serving.
+   * Absent is a test that never makes a request.
    */
-  ensureModel?: (
-    modelId: LocalModelId,
-  ) => Promise<{ok: true; baseUrl: string} | {ok: false; problem: string}>;
+  resolveModel?: () => Promise<ResolvedModelEndpoint>;
   /** Injected by tests; the app builds a real ADK driver. */
   driverFactory?: (config: AgentConfig) => TurnDriver;
   /** Injected by tests; the app writes to the v2 log directory. */
@@ -263,19 +256,8 @@ interface SessionState {
 
 /** What a turn needs beyond the words: which model, and what it was handed. */
 export interface TurnRunOptions {
-  /** The task the surface is doing; absent is an ordinary chat turn. */
-  task?: LocalTask;
   /** Images the message carries, already judged against the Space. */
   attachments?: readonly Attachment[];
-  /**
-   * An explicit model, for a turn that is not starting fresh.
-   *
-   * A resumed approval uses the model stored on the turn it is resuming, and a
-   * helper inherits its parent's. Routing those through the task assignment
-   * would let a settings change between a card and its answer swap the model
-   * under a frozen harness.
-   */
-  model?: AgentModel;
 }
 
 /**
@@ -376,7 +358,7 @@ export class HarnessRuntime {
           `"${answering}" is not in this conversation.`,
         );
       }
-      prepared = await this.prepare(answering, sessionId, turn);
+      prepared = await this.prepare(answering, sessionId);
     } catch (error) {
       yield failed(sessionId, error);
       return;
@@ -478,19 +460,13 @@ export class HarnessRuntime {
         throw new GateNotFoundError(params.callId);
       }
       /*
-       * A resume uses the model the turn was started with, not the task
-       * assignment as it stands now. The harness is frozen and its hash includes
-       * the pair; re-routing a card answered five minutes later would be a
-       * different turn wearing the old one's id.
+       * A resume probes the server again. The model is a fact about the running
+       * endpoint now, not a value frozen with the card: a person who changed the
+       * address while the card was up meant the next request to go there.
        */
-      const started = events.find(
-        (event) =>
-          event.type === 'turn.started' && event.turnId === gate?.turnId,
-      );
       prepared = await this.prepare(
         gate.agentId ?? profileId,
         params.sessionId,
-        started?.type === 'turn.started' ? {model: started.model} : {},
       );
     } catch (error) {
       yield failed(params.sessionId, error);
@@ -1977,7 +1953,6 @@ export class HarnessRuntime {
   private async prepare(
     profileId: string,
     sessionId?: string,
-    turn: TurnRunOptions = {},
   ): Promise<Prepared> {
     const settings = await this.options.settings.load();
     const profile = (await this.options.profiles.profiles()).find(
@@ -2005,43 +1980,34 @@ export class HarnessRuntime {
     }
 
     /*
-     * Which model answers. An explicit pair wins — a resume has one, and a
-     * helper inherits its parent's — and otherwise the task assignment decides.
-     * The pair is then started (or found already warm) before anything is sent,
-     * because the address exists only in the process that started the engine.
+     * Which model answers. The server is the authority now: it names the model
+     * it is serving and the window it has, and a stored pair from an earlier
+     * turn is history rather than a destination. A resume and a helper both
+     * probe again, because a settings change between a card and its answer is
+     * the person's decision about where the conversation goes next.
      */
-    const wanted: AgentModel = turn.model ?? {
-      provider: LOCAL_PROVIDER_ID,
-      model: settings.localModels.tasks[turn.task ?? 'chat'],
-    };
-    /*
-     * A stored pair from before the local build, or one naming a model this
-     * build no longer ships, is answered by the current Chat assignment. A
-     * resume is the case that matters: the turn is finished except for a card,
-     * and refusing it would leave an approval nobody can ever answer. A new turn
-     * never arrives here with a stale pair — the task routing produced it.
-     */
-    const model: AgentModel =
-      wanted.provider === LOCAL_PROVIDER_ID && wanted.model in LOCAL_MODELS
-        ? wanted
-        : {
-            provider: LOCAL_PROVIDER_ID,
-            model: settings.localModels.tasks.chat,
-          };
-    const modelId = model.model as LocalModelId;
-    const ensured =
-      this.options.ensureModel === undefined
-        ? ({ok: true, baseUrl: 'http://127.0.0.1/v1'} as const)
-        : await this.options.ensureModel(modelId);
-    if (!ensured.ok) {
-      throw new HarnessRuntimeError(ensured.problem);
+    const endpoint =
+      this.options.resolveModel === undefined
+        ? {
+            ok: true as const,
+            baseUrl: 'http://127.0.0.1/v1',
+            model: settings.modelServer.model || 'local',
+            contextTokens: settings.modelServer.contextTokens,
+          }
+        : await this.options.resolveModel();
+    if (!endpoint.ok) {
+      throw new HarnessRuntimeError(endpoint.problem);
     }
+    const model: AgentModel = {
+      provider: LOCAL_PROVIDER_ID,
+      model: endpoint.model,
+    };
 
     const resolved = await resolveAgentConfig({
       settings,
       profile,
       model,
-      baseUrl: ensured.baseUrl,
+      baseUrl: endpoint.baseUrl,
       workspaceRoot,
     });
     if (!resolved.ok) {
@@ -2084,7 +2050,7 @@ export class HarnessRuntime {
          * still ask for a smaller compaction target; the clamp here is the
          * ceiling it cannot raise.
          */
-        contextLimit: workContextTokens(modelId),
+        contextLimit: workContextTokens(endpoint.contextTokens),
         allowPrivateNetworkFetch: settings.allowPrivateNetworkFetch,
         memorySoftLimitBytes: settings.memorySoftLimitBytes,
         learning: {mode: 'propose' as const, retainTraces: false},
@@ -2149,7 +2115,7 @@ export class HarnessRuntime {
       resolveModel: () => this.llmFor(prepared.config),
       mcpTools: (harness) => this.mcpToolsFor(harness),
       resolveHelper: async (agent, signal) =>
-        await this.helperFor(agent, sessionId, signal, prepared.model),
+        await this.helperFor(agent, sessionId, signal),
       resumeSessions: (id) => this.helperSessions.get(id),
       rememberSessions: (id, sessions) => {
         this.helperSessions.set(id, sessions);
@@ -2182,15 +2148,9 @@ export class HarnessRuntime {
           ? {}
           : {
               delegate: async ({agent, task}) =>
-                await this.askAgent(profileId, agent, task, prepared.model),
+                await this.askAgent(profileId, agent, task),
               delegateTask: async ({agent, task}) =>
-                await this.startTask(
-                  profileId,
-                  agent,
-                  task,
-                  sessionId,
-                  prepared.model,
-                ),
+                await this.startTask(profileId, agent, task, sessionId),
             }),
       }),
     });
@@ -2267,7 +2227,6 @@ export class HarnessRuntime {
     agent: string,
     sessionId: string,
     signal: AbortSignal,
-    parentModel?: AgentModel,
   ): Promise<
     | {
         harness: HarnessSpec;
@@ -2291,11 +2250,7 @@ export class HarnessRuntime {
     }
     const target = resolved.target;
     try {
-      const prepared = await this.prepare(
-        target.id,
-        sessionId,
-        parentModel === undefined ? {} : {model: parentModel},
-      );
+      const prepared = await this.prepare(target.id, sessionId);
       const skills = this.skillToolsFor(target.id);
       return {
         harness: prepared.harness,
@@ -2354,7 +2309,6 @@ export class HarnessRuntime {
     agent: string,
     task: string,
     parentSessionId?: string,
-    parentModel?: AgentModel,
   ): Promise<{ok: boolean; result: string}> {
     if (this.options.createSession === undefined) {
       return {ok: false, result: 'Tasks are not available in this turn.'};
@@ -2390,7 +2344,6 @@ export class HarnessRuntime {
         target,
         created.id,
         task,
-        parentModel,
       ).catch(() => undefined);
       const title = created.title ?? task;
       return {
@@ -2413,19 +2366,10 @@ export class HarnessRuntime {
     target: AgentProfile,
     taskSessionId: string,
     task: string,
-    parentModel?: AgentModel,
   ): Promise<void> {
     let failure: string | undefined;
     try {
-      for await (const event of this.run(
-        target.id,
-        taskSessionId,
-        task,
-        undefined,
-        undefined,
-        undefined,
-        parentModel === undefined ? {} : {model: parentModel},
-      )) {
+      for await (const event of this.run(target.id, taskSessionId, task)) {
         if (event.type === 'turn.failed') {
           failure = event.message;
         }
@@ -2492,7 +2436,6 @@ export class HarnessRuntime {
     ownerProfileId: string,
     agent: string,
     task: string,
-    parentModel?: AgentModel,
   ): Promise<{ok: boolean; result: string}> {
     try {
       const profiles = await this.options.profiles.profiles();
@@ -2513,11 +2456,7 @@ export class HarnessRuntime {
         };
       }
       const owner = profiles.find((profile) => profile.id === ownerProfileId);
-      const prepared = await this.prepare(
-        target.id,
-        undefined,
-        parentModel === undefined ? {} : {model: parentModel},
-      );
+      const prepared = await this.prepare(target.id);
       /*
        * No skill index here. The bot being asked has no tools, so advertising a
        * skill it cannot load would be the prompt claiming a capability the turn

@@ -3,7 +3,7 @@
  *
  * This lived in `apps/desktop/local-model.json` and was read by a fetch script at
  * package time. It has to be read at *run* time now, because the app downloads the
- * model on a user's first launch — and a run-time read of a file is exactly the
+ * model when somebody turns recall on — and a run-time read of a file is exactly the
  * problem this file's history is about: the window would find it through
  * Electron's `process.resourcesPath`, the headless runner would derive the path
  * from its own executable, and when the two disagreed nothing would error.

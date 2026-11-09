@@ -3531,62 +3531,52 @@ body.resizing-rail * {
   color: var(--text-faint);
 }
 
-/* The first-run model card and the model rows in Settings. */
-.model-setup-card,
-.model-card {
+/* The model server's fields, its status dot and the command example. */
+.model-server-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-}
-
-.model-card {
-  margin-bottom: var(--space-3);
-}
-
-.model-setup-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
   gap: var(--space-3);
 }
 
-.model-setup-name {
-  font-weight: 600;
-}
-
-.model-setup-size {
-  color: var(--text-faint);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
-
-.model-tasks {
+.model-server-status {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
-.model-tasks .settings-field {
+.model-server-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.model-server-status.is-ready .model-server-dot {
+  background: var(--success);
+}
+
+.model-server-status.is-failed .model-server-dot {
+  background: var(--danger);
+}
+
+.model-server-command {
   margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  overflow-x: auto;
+  user-select: text;
 }
 
-.model-progress {
-  width: 100%;
-  height: 6px;
-  accent-color: var(--accent);
-}
-
-.onboarding-download {
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-2);
-}
-
-.onboarding-download progress {
-  width: 100%;
+.model-server-command code {
+  white-space: pre;
 }

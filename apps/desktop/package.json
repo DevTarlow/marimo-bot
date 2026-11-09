@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "description": "A local desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text and pictures.",
+  "description": "A local desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text and pictures; Recall finds files by what they are about, including audio and video.",
   "productName": "Marimo Bot",
   "main": "dist/main/main.js",
   "scripts": {
@@ -65,7 +65,7 @@
       "category": "Utility",
       "icon": "assets/marimo-logo.png",
       "synopsis": "A local desktop agent with Spaces and bots",
-      "description": "A local desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text and pictures."
+      "description": "A local desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text and pictures; Recall finds files by what they are about, including audio and video."
     },
     "executableName": "marimo-agent",
     "asar": false,

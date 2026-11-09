@@ -80,7 +80,7 @@ The file is gone, and the app asks before every delete. Moving a file onto an ex
 
 ### Pictures
 
-Attach a picture with the `+` beside the message box. A vision-capable server reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed. In llama.cpp, that means starting the server with an image projector: `--mmproj mmproj.gguf`.
+Attach a picture with the `+` beside the message box. If you name a picture in your Space and ask about it — "what is in Ladybug.png?" — the app attaches that picture to the message, so the picker is for pictures from elsewhere or for attaching one without naming it. A vision-capable server reads the image itself, so you can ask what is in a screenshot, a diagram or a page you photographed. In llama.cpp, that means starting the server with an image projector: `--mmproj mmproj.gguf`.
 
 The picture is shown in the chat at a size that fits the message, not as its file name. Click it for a larger view; Escape, the close button or a click outside closes it.
 

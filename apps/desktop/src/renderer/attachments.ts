@@ -14,8 +14,10 @@
  * themselves in terms of and what does not put the user's home directory into
  * every conversation that ever mentioned a file.
  */
-import {ATTACHED_FILES_HEADING} from '@marimo/protocol';
-import type {PickedFile, SkippedFile} from '@marimo/protocol';
+import {ATTACHED_FILES_HEADING, composeMessage} from '@marimo/protocol';
+import type {SkippedFile} from '@marimo/protocol';
+
+export {composeMessage};
 
 /**
  * The line the paths sit under.
@@ -29,28 +31,6 @@ import type {PickedFile, SkippedFile} from '@marimo/protocol';
  * would be a block that stops being recognised the day one of them is reworded.
  */
 export const ATTACHED_HEADING = ATTACHED_FILES_HEADING;
-
-/**
- * The message to send: what was typed, then what was attached.
- *
- * A message with nothing typed but files attached is a real message — "look at
- * this" is what it means — so the heading stands alone rather than the send
- * being refused. The order is the order they were thought in: the question
- * first, the material after it.
- */
-export function composeMessage(
-  text: string,
-  files: readonly PickedFile[],
-): string {
-  const body = text.trim();
-  if (files.length === 0) {
-    return body;
-  }
-  const list = files.map((file) => `- ${file.relative}`).join('\n');
-  return body.length === 0
-    ? `${ATTACHED_HEADING}\n${list}`
-    : `${body}\n\n${ATTACHED_HEADING}\n${list}`;
-}
 
 /**
  * What to say about files the picker refused, in one line.

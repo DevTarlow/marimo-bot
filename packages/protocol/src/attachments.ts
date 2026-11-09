@@ -68,6 +68,28 @@ const IMAGE_MIME_TYPES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * The message to send: what was typed, then what was attached.
+ *
+ * Here rather than beside the composer that writes it, because the runtime also
+ * writes this block when it attaches a picture the person named. The window
+ * reads the same block back to draw the image, so one writer and one reader is
+ * what keeps the transcript and the model's view of the message the same.
+ */
+export function composeMessage(
+  text: string,
+  files: readonly {relative: string}[],
+): string {
+  const body = text.trim();
+  if (files.length === 0) {
+    return body;
+  }
+  const list = files.map((file) => `- ${file.relative}`).join('\n');
+  return body.length === 0
+    ? `${ATTACHED_FILES_HEADING}\n${list}`
+    : `${body}\n\n${ATTACHED_FILES_HEADING}\n${list}`;
+}
+
+/**
  * The file's extension, lower-cased, or `''` when it has none.
  *
  * Split by hand rather than with `node:path`: this module is shared with the

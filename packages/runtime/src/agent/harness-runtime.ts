@@ -75,6 +75,7 @@ import {SkillStore} from '../skills.js';
 import {workspaceRootFor} from '../workspaces.js';
 import type {WorkspaceStore} from '../workspaces.js';
 import {resolveAgentConfig} from './resolve.js';
+import {attachNamedImages} from './named-images.js';
 import {
   projectPendingGates,
   projectTurn,
@@ -389,6 +390,18 @@ export class HarnessRuntime {
      */
     await this.capturePersonalDetails(prepared, text);
 
+    /*
+     * A picture the message names is attached here rather than by the window:
+     * this is where the Space is known, and the same rule then holds for a turn
+     * from the companion or the job runner. An explicit attachment opts out,
+     * and the title still comes from the words the person typed.
+     */
+    const attached = await attachNamedImages(
+      prepared.harness.workspaceRoot,
+      text,
+      turn.attachments ?? [],
+    );
+
     const state = this.stateFor(sessionId, prepared.config);
     state.driver.current = this.driverFor(prepared, sessionId);
     try {
@@ -396,12 +409,12 @@ export class HarnessRuntime {
         state.engine.run({
           sessionId,
           profileId,
-          text,
+          text: attached.text,
           harness: prepared.harness,
           ...(instruction === undefined ? {} : {instruction}),
-          ...(turn.attachments === undefined || turn.attachments.length === 0
+          ...(attached.attachments.length === 0
             ? {}
-            : {attachments: [...turn.attachments]}),
+            : {attachments: [...attached.attachments]}),
           session: {
             title: titleFor(text),
             ...(prepared.spaceId === undefined

@@ -70,6 +70,7 @@ export type {JobTone} from './job-rules.js';
  */
 export {
   ATTACHED_FILES_HEADING,
+  composeMessage,
   imageMimeType,
   isImagePath,
   readAttachedFiles,

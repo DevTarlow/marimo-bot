@@ -583,9 +583,20 @@ export function toolsFor(
   available: ToolAvailability = {},
 ): AnyToolDefinition[] {
   const granted = new Set(harness.tools.grants);
-  return CORE_TOOLS.filter(
-    (tool) =>
-      granted.has(tool.name) &&
+  return CORE_TOOLS.filter((tool) => {
+    /*
+     * `load_skill` is the reader, and its grant is the skill itself: the
+     * library refuses every name the profile did not enable. Requiring a
+     * `load_skill` grant as well made it unreachable — the Power preset never
+     * names it, so a bot with skills switched on could not open one. The
+     * writer, `save_skill`, is still a granted capability.
+     */
+    const offered =
+      tool.name === 'load_skill'
+        ? available.skills === true
+        : granted.has(tool.name);
+    return (
+      offered &&
       (tool.requiresWorkspace !== true ||
         harness.workspaceRoot !== undefined) &&
       (tool.requiresMemory !== true || available.memory === true) &&
@@ -595,8 +606,9 @@ export function toolsFor(
       (tool.requiresRecall !== true || available.recall === true) &&
       (tool.requiresJobs !== true || available.jobs === true) &&
       (tool.requiresWebSearch !== true || available.webSearch === true) &&
-      (tool.requiresLearning !== true || available.learning === true),
-  );
+      (tool.requiresLearning !== true || available.learning === true)
+    );
+  });
 }
 
 /** The gate policy for one tool, from the harness. */

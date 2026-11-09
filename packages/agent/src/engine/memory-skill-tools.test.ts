@@ -78,6 +78,25 @@ describe('memory and skill tools', () => {
     ).toEqual(['read_memory', 'update_memory', 'prune_memory']);
   });
 
+  /*
+   * The skill is the grant. The Power preset does not name `load_skill`
+   * because it has no switch of its own, so requiring that grant as well made
+   * the reader unreachable in the v2 engine: a bot with a skill enabled could
+   * see it in the prompt and not be able to open it.
+   */
+  it('offers load_skill without a load_skill grant of its own', () => {
+    const spec = resolveHarness({
+      profile: {...profile(), enabledTools: [], enabledSkills: ['triage']},
+      app,
+      version: 1,
+    });
+
+    expect(
+      toolsFor(spec, {skills: true}).map((entry) => entry.name),
+    ).toEqual(['load_skill']);
+    expect(toolsFor(spec, {skills: false})).toEqual([]);
+  });
+
   it('reads, writes and prunes a real memory file', async () => {
     const dir = await workDir();
     const memory = new MemoryStore({

@@ -251,6 +251,107 @@ describe('corrections the user made', () => {
   });
 });
 
+/*
+ * The quote is the check that separates a fact from a confident sentence. It
+ * has to be the person's words: the reviewer reads both sides, and an answer
+ * it wrote itself must not come back as something the user said.
+ */
+describe('what counts as evidence', () => {
+  it('drops a fact quoted only from the agent’s own answer', async () => {
+    const found = await runReview({
+      events: [
+        {
+          author: 'user',
+          turnId: 'turn-1',
+          content: {parts: [{text: 'what is in ladybug.png?'}]},
+        },
+        {
+          author: 'agent',
+          turnId: 'turn-1',
+          content: {
+            parts: [
+              {text: 'Delete the old file and make a new one named ladybug.png.'},
+            ],
+          },
+        },
+      ],
+      memory: '',
+      ask: async () =>
+        answer([
+          {
+            section: 'Preferences and tone',
+            text: 'Wants a new ladybug.png.',
+            reason: 'the answer said so',
+            quote: 'make a new one named ladybug.png',
+          },
+        ]),
+    });
+
+    expect(found.proposals).toEqual([]);
+  });
+
+  it('keeps a fact the user actually said, with its turn', async () => {
+    const quote = 'I always drop screenshots into this folder first';
+    const found = await runReview({
+      events: [
+        {
+          author: 'user',
+          turnId: 'turn-7',
+          content: {parts: [{text: quote}]},
+        },
+        {
+          author: 'agent',
+          turnId: 'turn-7',
+          content: {parts: [{text: 'Noted.'}]},
+        },
+      ],
+      memory: '',
+      ask: async () =>
+        answer([
+          {
+            section: 'Preferences and tone',
+            text: 'Drops screenshots into the folder first.',
+            reason: 'they said so',
+            quote,
+          },
+        ]),
+    });
+
+    expect(found.proposals).toHaveLength(1);
+    expect(found.proposals[0]?.evidence).toEqual({quote, turnId: 'turn-7'});
+  });
+
+  it('accepts a correction the user made', async () => {
+    const found = await runReview({
+      events: [
+        {
+          author: 'user',
+          turnId: 'turn-2',
+          content: {parts: [{text: 'where is the parser'}]},
+        },
+        {
+          author: 'agent',
+          turnId: 'turn-2',
+          content: {parts: [{text: 'In alpha.'}]},
+        },
+      ],
+      memory: '',
+      corrections: [{excerpt: 'In alpha.', text: 'It is in beta now.'}],
+      ask: async () =>
+        answer([
+          {
+            section: 'Notes',
+            text: 'The parser is in beta.',
+            reason: 'they corrected it',
+            quote: 'It is in beta now.',
+          },
+        ]),
+    });
+
+    expect(found.proposals).toHaveLength(1);
+  });
+});
+
 describe('reading the answer', () => {  it('reads a plain answer', () => {
     const proposals = parseProposals(
       answer([

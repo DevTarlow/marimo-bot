@@ -182,7 +182,8 @@ export function reviewPrompt(
     '',
     'Do not propose:',
     '- anything the user already knows, or that is already in the memory below',
-    '- the content of the task itself, or what the agent did to complete it',
+    '- a request, question or instruction they gave you, or what the agent did',
+    '  to complete it: that is a task, not a fact about them',
     '- pleasantries, or that the conversation happened at all',
     '- anything you inferred rather than were told',
     '- secrets, keys, passwords or tokens — never these, under any framing',
@@ -252,10 +253,10 @@ export function reviewPrompt(
     'already has is fine to use, and "Notes" is the fallback when nothing fits.',
     '',
     'Every proposal must carry "quote": a short phrase copied word for word',
-    'from the conversation that supports the fact. Do not paraphrase it, do not',
-    "join two sentences with an ellipsis, and do not quote the agent's own",
-    'reasoning. A proposal whose quote cannot be found in the conversation is',
-    'discarded before it is remembered.',
+    'from what the user said that supports the fact. Do not paraphrase it, do',
+    "not join two sentences with an ellipsis, and never quote the agent's own",
+    "words or reasoning. A proposal whose quote cannot be found in the user's",
+    'messages is discarded before it is remembered.',
     '',
     'Answer with JSON only, no prose around it:',
     '{"proposals":[{"section":"' +
@@ -396,6 +397,25 @@ function comparable(value: string): string {
   return value.toLowerCase().replaceAll(/\s+/gu, ' ').trim();
 }
 
+/** The parts of the conversation the person wrote. */
+function userWords(events: readonly ReviewEvent[]): string[] {
+  const parts: string[] = [];
+  for (const event of events) {
+    if (event.author !== 'user') {
+      continue;
+    }
+    const text = (event.content?.parts ?? [])
+      .filter((part) => part.thought !== true)
+      .map((part) => part.text ?? '')
+      .join(' ')
+      .trim();
+    if (text.length > 0) {
+      parts.push(text);
+    }
+  }
+  return parts;
+}
+
 /**
  * The turn a quote came from, when the events still carry one.
  *
@@ -415,9 +435,10 @@ function turnOfQuote(
       .map((part) => part.text ?? '')
       .join(' ');
     if (
+      event?.author === 'user' &&
       text.length > 0 &&
       quoteAppears(quote, text) &&
-      event?.turnId !== undefined
+      event.turnId !== undefined
     ) {
       return event.turnId;
     }
@@ -633,12 +654,13 @@ export async function runReview(request: ReviewRequest): Promise<ReviewResult> {
 
   /*
    * A correction is stated in the feedback note, not in the conversation, and
-   * it is the strongest evidence the reviewer gets. Including it here means a
-   * proposal that quotes the user's correction survives the check rather than
-   * being discarded for quoting words the transcript never contained.
+   * it is the strongest evidence the reviewer gets. Both it and the transcript
+   * are filtered to the person's own words: a fact quoted from the agent's
+   * answer is the agent agreeing with itself, which is how a suggestion to
+   * delete a file became a stored "preference" in a real session.
    */
   const evidenceText = [
-    stretch.text,
+    ...userWords(request.events),
     ...(request.corrections ?? []).flatMap((entry) => [
       entry.text,
       entry.excerpt,

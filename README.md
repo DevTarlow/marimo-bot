@@ -4,7 +4,7 @@
 
 <h1 align="center">Marimo Bot</h1>
 
-<p align="center">A desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. It answers with a model server you run on the same computer.</p>
+<p align="center">A local desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. It answers with a model server you run on the same computer.</p>
 
 > [!WARNING]
 > Marimo Bot is under construction. It changes often, and some changes are breaking. Keep your own copies of anything you care about.

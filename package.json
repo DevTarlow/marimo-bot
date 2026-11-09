@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text, pictures and speech.",
+  "description": "A local desktop agent with Spaces and bots: it reads and writes your files, remembers what matters, and runs scheduled jobs with the app closed. One local model handles text and pictures.",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": ">=20.19"

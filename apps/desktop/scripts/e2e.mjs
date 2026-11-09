@@ -20,7 +20,7 @@
  * Usage:
  *   node scripts/e2e.mjs [--url <openai base>] [--only <journey>] [--keep]
  *                        [--shot <dir>] [--no-network] [--recall-dir <dir>]
- *                        [--turn-timeout <ms>]
+ *                        [--turn-timeout <ms>] [--debug-port <port>]
  *
  * `MARIMO_NO_SANDBOX=1` adds `--no-sandbox`, for a container where the SUID
  * helper cannot run. The suite is not part of CI: CI has a stand-in server and
@@ -31,10 +31,13 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   stat,
   writeFile,
 } from 'node:fs/promises';
+import {createServer} from 'node:net';
+import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -62,9 +65,11 @@ const keep = has('--keep');
 const shotFlag = flag('--shot', undefined);
 const noNetwork = has('--no-network');
 const recallDir = flag('--recall-dir', process.env['MARIMO_E2E_RECALL_DIR']);
-const debugPort = Number(
-  flag('--debug-port', process.env['MARIMO_E2E_DEBUG_PORT'] ?? 9319),
+const debugPortFlag = flag(
+  '--debug-port',
+  process.env['MARIMO_E2E_DEBUG_PORT'],
 );
+let debugPort = 0;
 const turnTimeoutMs = Number(flag('--turn-timeout', 180_000));
 const noSandbox = process.env['MARIMO_NO_SANDBOX'] === '1';
 const modelFlag = flag('--model', undefined);
@@ -107,6 +112,22 @@ async function call(method, params = {}) {
   return await evaluate(
     `window.marimo.call(${JSON.stringify(method)}, ${JSON.stringify(params)})`,
   );
+}
+
+/** A loopback port nothing is holding, for the app's debugging socket. */
+async function freePort() {
+  return await new Promise((resolve, reject) => {
+    const server = createServer();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port =
+        typeof address === 'object' && address !== null ? address.port : 0;
+      server.close(() => {
+        resolve(port);
+      });
+    });
+  });
 }
 
 async function waitForApp() {
@@ -521,7 +542,12 @@ async function probe() {
 }
 
 async function boot() {
-  userData = await mkdtemp(join(appRoot, '.marimo-e2e-'));
+  /*
+   * The system temp, like the smoke check: the checkout may be on a FUSE
+   * mount, and a hidden file an Electron helper leaves open makes a recursive
+   * remove of the temporary HOME block there.
+   */
+  userData = await mkdtemp(join(tmpdir(), 'marimo-e2e-'));
   const home = join(userData, 'home');
   await mkdir(home, {recursive: true});
   const settings = {
@@ -600,6 +626,24 @@ async function boot() {
   client = await attach(socket);
   pageConsole = client.console;
   await waitForApp();
+
+  /*
+   * The debugging port is how this script reaches the window, so a stale e2e
+   * app from a crashed run is indistinguishable from this one until the
+   * user-data directory says otherwise. Refuse to drive somebody else's app.
+   */
+  const info = await call('app.info', {});
+  const theirs =
+    typeof info?.userData === 'string'
+      ? await realpath(info.userData).catch(() => info.userData)
+      : undefined;
+  const ours = await realpath(userData).catch(() => userData);
+  if (theirs !== undefined && theirs !== ours) {
+    throw new Error(
+      `the window is using ${theirs}, not this run's ${ours}; ` +
+        'another app may be holding the debugging port',
+    );
+  }
 
   shotDir =
     shotFlag ?? join(userData, 'shots');
@@ -1276,6 +1320,8 @@ async function cleanup() {
 }
 
 async function main() {
+  debugPort =
+    debugPortFlag === undefined ? await freePort() : Number(debugPortFlag);
   preflight = await probe();
   if (!preflight.ok) {
     console.error(`✗ ${preflight.problem}`);

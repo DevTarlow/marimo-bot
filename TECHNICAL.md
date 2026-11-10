@@ -683,7 +683,9 @@ accepted by the engine on one machine and not on another, and a small model can 
 instruction it was never given. The tool never creates anything. The window draws
 its arguments as a review card, the person edits the name, Persona and template,
 and only their Create press reaches `profiles.create`. `createdFromCall` on the
-profile is what stops a card revisited after a reload making the same bot twice.
+profile is what stops a card revisited after a reload making the same bot twice:
+the store answers a create that names a call id it already holds with the profile
+the first press made, so a double click cannot leave two Writers behind.
 
 Which screen a launch gets is `firstRunScreen` in
 `apps/desktop/src/renderer/first-run.ts` — three answers (`waiting`, `setup`,

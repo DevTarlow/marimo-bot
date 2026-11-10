@@ -892,6 +892,25 @@ describe('the identity a new agent gets', () => {
   });
 
   /*
+   * The IPC path the review card uses, pressed twice. `sourceCallId` is the
+   * card's identity, and the runtime must answer the second press with the bot
+   * the first made rather than start a second Writer.
+   */
+  it('makes one bot from one draft card, however many times it is pressed', async () => {
+    const instance = runtime();
+    const draft = {name: 'Writer', templateId: 'writer'};
+    const first = await instance.createProfile(draft, 'call-1');
+    const second = await instance.createProfile(draft, 'call-1');
+
+    expect(second.id).toBe(first.id);
+    expect(
+      (await instance.profiles()).filter(
+        (profile) => profile.createdFromCall === 'call-1',
+      ),
+    ).toHaveLength(1);
+  });
+
+  /*
    * The builder conversation is an ordinary session with a stored purpose, and
    * the check that matters is the one in code: without the tool the conversation
    * would tell Marimo to call something it does not have.

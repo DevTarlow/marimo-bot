@@ -90,6 +90,29 @@ describe('ProfileStore', () => {
     );
   });
 
+  /*
+   * A review card means one bot. Two presses arriving with the same call id —
+   * a double click, or a window that has not read the new roster yet — must
+   * answer with the bot the first press made rather than a "Writer 2".
+   */
+  it('answers a repeated draft call with the bot it already made', async () => {
+    const profiles = store();
+    const seedOnce = {...seed('Writer'), createdFromCall: 'call-1'};
+    const first = await profiles.create(seedOnce);
+    const [lead] = await profiles.profiles();
+    await profiles.select(lead?.id ?? '');
+
+    const second = await profiles.create(seedOnce);
+    expect(second).toEqual(first);
+    expect(
+      (await profiles.profiles()).filter(
+        (profile) => profile.createdFromCall === 'call-1',
+      ),
+    ).toHaveLength(1);
+    // `create` still switches to the bot it answers with, as it always did.
+    expect(await profiles.activeProfileId()).toBe(first.id);
+  });
+
   it('moves the active pointer on select, and refuses an unknown one', async () => {
     const profiles = store();
     const first = await profiles.activeProfile();

@@ -130,7 +130,7 @@ There are three ways to make one.
 
 1. Start from a role. Pick Writer, Marketer, Researcher, Coder, Analyst or Personal assistant. You get a name, a Role, a first Persona and tools. Change the name if you like.
 2. Build it step by step. Choose a role or start blank, name it, and pick what it can do.
-3. Talk it through with Marimo. Marimo asks what the bot is for, drafts it and shows you a card. Change the name, the starter role or the Persona, then press Create. Nothing is made until you do.
+3. Talk it through with Marimo. Marimo asks what the bot is for, drafts it and shows you a card. Change the name, the starter role or the Persona, then press Create. Nothing is made until you do. The card then says which bot it made: one card makes one bot, so pressing Create again does not leave two.
 
 All three end in the same place. Pick a starter role when one fits.
 

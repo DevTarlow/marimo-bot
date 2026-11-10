@@ -39,7 +39,7 @@ export function BotDraftCard({
   call,
   profiles,
   leadId,
-  onCreated,
+  onBotCreated,
 }: {
   call: BotDraftCall;
   /** Every profile, so the card can tell whether this call already made one. */
@@ -47,7 +47,7 @@ export function BotDraftCard({
   /** The lead, restored after the create switches the active profile. */
   leadId: string | undefined;
   /** The app's settings refresh, after the roster has changed. */
-  onCreated?: (next: {
+  onBotCreated?: (next: {
     profiles: AgentProfile[];
     activeProfileId: string;
     created: AgentProfile;
@@ -60,7 +60,14 @@ export function BotDraftCard({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
-  const existing = createdFrom(profiles, call.callId);
+  /*
+   * The receipt the create itself leaves. The roster is the durable answer —
+   * `createdFromCall` survives a reload — but a card that waited for the
+   * window's settings copy to come back would keep offering the button for the
+   * length of that round trip, and a second press in that gap is a second bot.
+   */
+  const [made, setMade] = useState<AgentProfile | null>(null);
+  const existing = made ?? createdFrom(profiles, call.callId);
 
   /*
    * Seeded once the catalogue has landed. The catalogue is what turns a template
@@ -97,6 +104,10 @@ export function BotDraftCard({
           <strong>{existing.name}</strong> was made from this draft. It is in
           the rail whenever you want to talk to it.
         </p>
+        {/* Something after the create — the delegation grant or the way back to
+            the lead — can still fail, and the bot existing does not make that
+            succeed. */}
+        {problem !== null && <p className="settings-problem">{problem}</p>}
       </div>
     );
   }
@@ -161,10 +172,16 @@ export function BotDraftCard({
         tools: draft.tools,
         ...(draft.avatar === undefined ? {} : {avatar: draft.avatar}),
       };
-      const made = await window.marimo.call('profiles.create', {
+      const created = await window.marimo.call('profiles.create', {
         draft: payload,
         sourceCallId: call.callId,
       });
+      /*
+       * The receipt goes up before the two calls that follow, because the bot
+       * exists from this moment: a delegation patch that fails must not leave
+       * the card offering to make it again.
+       */
+      setMade(created.created);
       if (
         delegate &&
         delegationTool !== undefined &&
@@ -184,9 +201,9 @@ export function BotDraftCard({
         const back = await window.marimo.call('profiles.select', {
           profileId: leadId,
         });
-        onCreated?.({...back, created: made.created});
+        onBotCreated?.({...back, created: created.created});
       } else {
-        onCreated?.(made);
+        onBotCreated?.(created);
       }
     } catch (failure) {
       setProblem(describe(failure));
@@ -306,7 +323,9 @@ export function BotDraftCard({
             void create();
           }}
         >
-          Create {draft.name.trim() || 'this bot'}
+          {busy
+            ? `Making ${draft.name.trim() || 'this bot'}…`
+            : `Create ${draft.name.trim() || 'this bot'}`}
         </button>
         <button
           type="button"

@@ -1034,7 +1034,9 @@ export function App(): React.JSX.Element {
                * Only the roster changed. A full `agent.reload()` would land on
                * the lead's newest conversation, which after making a bot is not
                * necessarily the builder conversation the card is in; the person
-               * is reading that thread and should stay in it.
+               * is reading that thread and should stay in it. The rail still
+               * has to learn the bot exists, though, or the card's receipt is
+               * the only place it is visible until the next reload.
                */
               setSettings((current) =>
                 current === null
@@ -1045,6 +1047,7 @@ export function App(): React.JSX.Element {
                       activeProfileId: next.activeProfileId,
                     },
               );
+              void agent.refreshProfiles();
             }}
             builder={agent.sessionPurpose === 'bot-builder'}
             busy={busy}

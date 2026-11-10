@@ -274,10 +274,33 @@ export class ProfileStore {
    * business knowing what a Writer is. What the store still owns is the unique
    * label: two agents with the same name are indistinguishable in the picker, so
    * a new one always gets a distinct one.
+   *
+   * A seed that names the draft card it came from makes at most one bot: the
+   * second call returns the profile the first one made, because a card is a
+   * request for one bot and not for a copy of it.
    */
   async create(seed: NewProfileSeed): Promise<AgentProfile> {
     return await this.withLock(async () => {
       const file = await this.load();
+      /*
+       * One draft card makes one bot. The card records its call id on the bot
+       * it made so a reload shows a receipt, and a second press of that card —
+       * a double click, or a window whose roster has not caught up — is
+       * answered with that same bot rather than a second copy of it. The check
+       * is inside the lock because that is the only place two presses cannot
+       * both get past it.
+       */
+      if (seed.createdFromCall !== undefined) {
+        const already = file.profiles.find(
+          (profile) => profile.createdFromCall === seed.createdFromCall,
+        );
+        if (already !== undefined) {
+          if (file.activeProfileId !== already.id) {
+            await this.writeFile({...file, activeProfileId: already.id});
+          }
+          return already;
+        }
+      }
       const unique = uniqueName(file.profiles, seed.name?.trim() || 'Agent');
       const profile: AgentProfile = {
         id: randomUUID(),

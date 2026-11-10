@@ -242,6 +242,14 @@ export interface AgentController {
    */
   selectProfile: (profileId: string) => Promise<void>;
   /**
+   * Re-reads the roster, and moves nothing else.
+   *
+   * A bot made from a draft card changes who is in the rail while the person
+   * stays in the conversation that made it. `reload` would also land on the
+   * active bot's newest chat, which is not that conversation.
+   */
+  refreshProfiles: () => Promise<void>;
+  /**
    * Opens one conversation, switching bots first when it belongs to another.
    *
    * Settings' Jobs card is the caller. A job can belong to a bot the window is
@@ -571,6 +579,22 @@ export function useAgent(
       setReady(true);
     }
   }, [loadTranscript, applyWorkspaceState]);
+
+  /**
+   * Re-reads the roster without moving the conversation.
+   *
+   * A bot made from a draft card is in the rail immediately; the person stays
+   * in the builder conversation that made it, which `boot` would leave for the
+   * active bot's newest chat.
+   */
+  const refreshProfiles = useCallback(async (): Promise<void> => {
+    try {
+      const listed = await window.marimo.call('profiles.list', {});
+      setAgents(listed.profiles);
+    } catch (failure) {
+      setError(describe(failure));
+    }
+  }, []);
 
   /**
    * Switches bots, then reloads everything that is scoped to the active one.
@@ -1367,6 +1391,7 @@ export function useAgent(
     themeMode,
     lastReview,
     reload: boot,
+    refreshProfiles,
     newSession,
     startBotBuilder,
     sessionPurpose,

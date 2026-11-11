@@ -393,7 +393,9 @@ export class LocalModelService<
 
     this.url = baseUrl;
     this.port = port;
-    this.options.log?.(`[marimo] the built-in model is up at ${baseUrl}`);
+    this.options.log?.(
+      `[marimo] recall's embedding engine is up at ${baseUrl}`,
+    );
     return {ok: true, baseUrl};
   }
 

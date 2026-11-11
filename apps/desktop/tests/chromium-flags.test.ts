@@ -7,7 +7,10 @@
  */
 import {describe, expect, it} from 'vitest';
 
-import {withDisabledFeature} from '../src/shared/chromium-flags.js';
+import {
+  isWaylandSession,
+  withDisabledFeature,
+} from '../src/shared/chromium-flags.js';
 
 describe('withDisabledFeature', () => {
   it('adds the feature to an empty list', () => {
@@ -26,5 +29,45 @@ describe('withDisabledFeature', () => {
     expect(withDisabledFeature(' Foo, , Bar ', 'Vulkan')).toBe(
       'Foo,Bar,Vulkan',
     );
+  });
+});
+
+describe('isWaylandSession', () => {
+  it('trusts the platform Electron resolved', () => {
+    expect(isWaylandSession('linux', 'wayland', {})).toBe(true);
+    expect(isWaylandSession('linux', 'x11', {})).toBe(false);
+  });
+
+  it('does not mistake XWayland for Wayland', () => {
+    // Electron picked x11, so the Vulkan interop path is not the one running
+    // even though the session itself is Wayland.
+    expect(
+      isWaylandSession('linux', 'x11', {
+        WAYLAND_DISPLAY: 'wayland-0',
+        XDG_SESSION_TYPE: 'wayland',
+      }),
+    ).toBe(false);
+  });
+
+  it('falls back to the session when the switch is absent', () => {
+    expect(isWaylandSession('linux', '', {XDG_SESSION_TYPE: 'wayland'})).toBe(
+      true,
+    );
+    expect(isWaylandSession('linux', '', {WAYLAND_DISPLAY: 'wayland-0'})).toBe(
+      true,
+    );
+  });
+
+  it('answers no for a session with no Wayland marker', () => {
+    expect(isWaylandSession('linux', '', {DISPLAY: ':0'})).toBe(false);
+  });
+
+  it('only answers for Linux', () => {
+    expect(
+      isWaylandSession('darwin', 'wayland', {WAYLAND_DISPLAY: 'wayland-0'}),
+    ).toBe(false);
+    expect(
+      isWaylandSession('win32', 'wayland', {WAYLAND_DISPLAY: 'wayland-0'}),
+    ).toBe(false);
   });
 });

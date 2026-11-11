@@ -34,7 +34,10 @@ import type {AgentUiEvent, ThemeMode, WindowState} from '@marimo/protocol';
 import {defaultStoredSettings, resetInstall} from '@marimo/runtime';
 
 import {adoptFormerUserDataDir, PRODUCT_NAME} from '../shared/product.js';
-import {withDisabledFeature} from '../shared/chromium-flags.js';
+import {
+  isWaylandSession,
+  withDisabledFeature,
+} from '../shared/chromium-flags.js';
 
 import {registerIpcHandler} from './ipc.js';
 import {Companion} from './companion.js';
@@ -108,6 +111,33 @@ if (process.platform === 'linux') {
   if (merged !== disabled) {
     app.commandLine.appendSwitch('disable-features', merged);
   }
+}
+
+/*
+ * Disabling the Vulkan feature is not enough on Wayland, and the warning that
+ * remains is the same one. Chromium enables WebGPU-on-Vulkan-through-GL interop
+ * only on Wayland, and that path creates a Vulkan device before any page asks
+ * for WebGPU — `GpuInit` calls `InitializeVulkan()` for it even when the Vulkan
+ * feature is off, and the Wayland surface factory prints the incompatibility.
+ *
+ * `--use-webgpu-adapter=opengles` is the switch that turns that path off
+ * (`GetWebGPUOnVulkanViaGLInterop` answers disabled for the OpenGL ES adapter).
+ * Nothing in this window uses WebGPU, so choosing that adapter costs nothing;
+ * leaving it unset costs a Vulkan device at every boot.
+ *
+ * A launcher that already chose an adapter keeps its choice: it may have a
+ * reason, and this is the app's preference, not its requirement.
+ */
+if (
+  process.platform === 'linux' &&
+  isWaylandSession(
+    process.platform,
+    app.commandLine.getSwitchValue('ozone-platform'),
+    process.env,
+  ) &&
+  !app.commandLine.hasSwitch('use-webgpu-adapter')
+) {
+  app.commandLine.appendSwitch('use-webgpu-adapter', 'opengles');
 }
 
 /**

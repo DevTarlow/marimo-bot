@@ -20,3 +20,32 @@ export function withDisabledFeature(existing: string, feature: string): string {
   }
   return features.join(',');
 }
+
+/**
+ * Whether this run renders through Ozone/Wayland.
+ *
+ * Asked rather than guessed from the session: Electron has already resolved
+ * `--ozone-platform`, `--ozone-platform-hint` and its own auto-detection by the
+ * time the main script runs, and that resolved value is the one Chromium will
+ * use. A session can have `WAYLAND_DISPLAY` set and still be running an X11
+ * window — `DISPLAY` alone is no better — so the environment is only the
+ * fallback for a build that does not publish the switch.
+ *
+ * `platform` and `env` are parameters so a test can ask without being on Linux.
+ */
+export function isWaylandSession(
+  platform: string,
+  effectivePlatform: string,
+  env: NodeJS.ProcessEnv,
+): boolean {
+  if (platform !== 'linux') {
+    return false;
+  }
+  if (effectivePlatform.length > 0) {
+    return effectivePlatform === 'wayland';
+  }
+  return (
+    env['XDG_SESSION_TYPE'] === 'wayland' ||
+    env['WAYLAND_DISPLAY'] !== undefined
+  );
+}

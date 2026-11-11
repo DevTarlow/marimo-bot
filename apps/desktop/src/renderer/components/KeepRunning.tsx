@@ -23,19 +23,7 @@ interface Change {
   failures: Array<{what: string; detail: string}>;
 }
 
-export function KeepRunning({
-  showUnavailable = false,
-}: {
-  /**
-   * Whether a failed status read is worth a sentence.
-   *
-   * The rail stays silent: it is one line under a list of conversations, and a
-   * service read that failed there is not what the person came for. The setup
-   * step sets this because its whole purpose is the switch, and an empty step
-   * would look like a feature this build does not have.
-   */
-  showUnavailable?: boolean;
-} = {}): React.JSX.Element | null {
+export function KeepRunning(): React.JSX.Element | null {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Change | null>(null);
@@ -55,12 +43,12 @@ export function KeepRunning({
   }, []);
 
   if (status === null) {
-    return showUnavailable ? (
+    return (
       <p className="settings-muted">
-        Could not read the background service. The switch in Settings will try
-        again the next time it is opened.
+        Could not read the background service. Close and reopen Settings to try
+        again.
       </p>
-    ) : null;
+    );
   }
 
   const change = async (enable: boolean): Promise<void> => {

@@ -34,7 +34,7 @@ export function SetupJobs({
         stays unapproved — the runner never answers its own gate.
       </p>
 
-      <KeepRunning showUnavailable />
+      <KeepRunning />
 
       <p className="onboarding-note">
         You can turn this on later from the Jobs card in Settings. Turning it on

@@ -31,7 +31,6 @@ import type {AgentProfile, SessionSummary, Workspace} from '@marimo/protocol';
 import {clampRailWidth, MAX_RAIL_WIDTH, MIN_RAIL_WIDTH} from '../layout.js';
 import {groupSessions} from '../workspace-groups.js';
 import {BotAvatar} from './BotAvatar.js';
-import {KeepRunning} from './KeepRunning.js';
 import {SessionMenu} from './SessionMenu.js';
 import {WorkspaceMenu} from './WorkspaceMenu.js';
 import type {PopoverAnchor} from './Popover.js';
@@ -570,8 +569,6 @@ export function WorkspaceRail({
           );
         })}
       </nav>
-
-      <KeepRunning />
 
       {menuSession !== undefined && menu !== null && (
         <SessionMenu

@@ -235,7 +235,7 @@ export function Jobs({
       </p>
 
       <h4 className="settings-group">While the app is closed</h4>
-      <KeepRunning showUnavailable />
+      <KeepRunning />
 
       <h4 className="settings-group">Scheduled jobs</h4>
 

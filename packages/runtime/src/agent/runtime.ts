@@ -1273,8 +1273,8 @@ export class AgentRuntime {
    * The space a new conversation is filed in.
    *
    * Three answers, in this order and no other: the space the *caller* named —
-   * the rail's "new chat in this space" — else the agent's own, which is how a
-   * user says once that their Writer drafts into the website repo, else wherever
+   * the rail's `+` beside Spaces — else the agent's own, which is how a user
+   * says once that their Writer drafts into the website repo, else wherever
    * the rail is. The third is what every conversation did before agents had a
    * space at all, so an agent with none behaves exactly as it always has.
    *

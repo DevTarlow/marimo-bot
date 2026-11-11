@@ -162,11 +162,12 @@ body.resizing-rail * {
 }
 
 /*
- * Visible rather than revealed on hover: making a bot is a thing somebody looks
- * for, and a control that only exists once the pointer crosses the heading is
- * not discoverable.
+ * Visible rather than revealed on hover: making a bot or starting a chat is a
+ * thing somebody looks for, and a control that only exists once the pointer
+ * crosses the heading is not discoverable.
  */
-.rail-bots-new {
+.rail-bots-new,
+.rail-spaces-new {
   flex: none;
   width: 20px;
   height: 20px;
@@ -176,17 +177,28 @@ body.resizing-rail * {
   line-height: 1;
 }
 
-.rail-bots-new:hover:not(:disabled) {
+.rail-bots-new:hover:not(:disabled),
+.rail-spaces-new:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text);
 }
 
-/* The Spaces heading, with the one action that adds a place under it. */
+/*
+ * The line between the two areas: bots are a switcher, the Spaces below are
+ * places. Without it the Spaces heading reads as one more row of bots.
+ */
+.rail-divider {
+  flex: none;
+  margin: 0 var(--space-1);
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* The Spaces heading, with the actions that start a chat and add a place. */
 .rail-spaces-head {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-2);
 }
 
 .rail-spaces-head .rail-group-head {
@@ -289,8 +301,12 @@ body.resizing-rail * {
 /* Revealed on hover or focus, so a header is not a row of controls. */
 .rail-workspace-action {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
   height: 20px;
+  padding: 0;
   border-radius: var(--radius-sm);
   color: var(--text-faint);
   font-size: var(--text-sm);

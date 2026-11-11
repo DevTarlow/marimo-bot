@@ -10,7 +10,9 @@
  *
  * The Bots heading is both a switcher and a door: the avatars below it change
  * whose conversations the tree shows, and the `+` beside the heading makes
- * another bot without a trip through Settings.
+ * another bot without a trip through Settings. A rule separates that group from
+ * the Spaces below it, where the `+` starts a chat in the space on screen and a
+ * space's folder button opens it in the file manager.
  *
  * Every agent shares the list, so this is navigation over places, not over
  * agents. The conversation on screen is always under the space it belongs to,
@@ -85,7 +87,8 @@ export function WorkspaceRail({
   /** Opens the New bot dialog, the same one Settings uses. */
   onNewBot: () => void;
   onOpenSession: (sessionId: string) => void;
-  onNewSession: (workspaceId: string) => void;
+  /** Starts a chat, in the space named or in the space on screen. */
+  onNewSession: (workspaceId?: string) => void;
   onSelectWorkspace: (workspaceId: string) => void;
   onLoadWorkspace: () => void;
   onRenameWorkspace: (workspaceId: string, name: string) => void;
@@ -435,8 +438,27 @@ export function WorkspaceRail({
           })}
         </section>
 
+        {/* The two areas are not one list: bot rows switch, space rows open. */}
+        <hr className="rail-divider" />
+
         <div className="rail-spaces-head">
           <h2 className="rail-group-head">Spaces</h2>
+          {/*
+            Beside Spaces rather than under each one: a chat is started far more
+            often than a space is loaded, and it goes where the rail is pointed.
+          */}
+          <button
+            type="button"
+            className="rail-spaces-new"
+            title="New chat"
+            aria-label="New chat"
+            disabled={disabled}
+            onClick={() => {
+              onNewSession(activeWorkspaceId ?? undefined);
+            }}
+          >
+            +
+          </button>
           <button
             type="button"
             className="button button-quiet button-small"
@@ -503,20 +525,20 @@ export function WorkspaceRail({
                       </span>
                     </button>
                     {/*
-                      The space is named here rather than left to whichever one
-                      is current: a chat started under this heading is filed
-                      under it, even when the rail is pointed somewhere else.
+                      The same door the `…` menu offers, put on the row: opening
+                      the folder is what a space is for, and one click of the
+                      menu was more than a place deserves.
                     */}
                     <button
                       type="button"
                       className="rail-workspace-action"
-                      aria-label={`New chat in ${workspace.name}`}
-                      disabled={disabled}
+                      title="Open the space"
+                      aria-label={`Open ${workspace.name}`}
                       onClick={() => {
-                        onNewSession(workspace.id);
+                        onOpenWorkspace(workspace.id);
                       }}
                     >
-                      +
+                      <FolderIcon />
                     </button>
                     <button
                       type="button"
@@ -605,6 +627,31 @@ export function WorkspaceRail({
         />
       )}
     </aside>
+  );
+}
+
+/**
+ * A folder, for the button that opens a space.
+ *
+ * Drawn rather than typed: the typographic glyphs the rail already uses (`⋯`,
+ * `▾`) have no folder among them, and an emoji would bring its own colour into
+ * a column of text.
+ */
+function FolderIcon(): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M1.75 3h3.9l1.5 1.5h7.1v8.5h-12.5z" />
+    </svg>
   );
 }
 

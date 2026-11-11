@@ -138,6 +138,8 @@ Build it step by step when you want to choose every part. Or talk it through wit
 
 Bots sit at the top of the sidebar, and picking one shows its chats. Settings has its Role, Persona, tools and Space. The icon can be one of five shipped pictures, or one you upload.
 
+A line separates the bots from the Spaces below them. The `+` beside Spaces starts a new chat in the space you have open, and the folder button on a space opens it in your file manager.
+
 Drag the sidebar's right edge to widen it. The width is remembered.
 
 Settings → **Appearance** has the theme: **System** uses this computer's light or dark setting, and **Light** or **Dark** pins one.
@@ -376,7 +378,7 @@ The server connection is the one required step because the app cannot answer wit
 
 When you finish, the app opens a new chat in the Space you picked, so the first thing you type lands in the folder you meant. If you kept the folder the app started in, it stays in the chat it already opened.
 
-After setup, Settings is one screen, and the bots and Spaces are in the sidebar. The `+` beside Bots makes another bot. `Ctrl+K` opens Recall. The app stays in the tray until you quit it from there.
+After setup, Settings is one screen, and the bots and Spaces are in the sidebar. The `+` beside Bots makes another bot, and the one beside Spaces starts a chat. `Ctrl+K` opens Recall. The app stays in the tray until you quit it from there.
 
 One bot is enough for most days.
 

@@ -1318,8 +1318,7 @@ describe('folders and filing', () => {
       await agent.addWorkspace(join(dir, 'alpha')),
       'alpha',
     );
-    // Beta is the current space; the rail's "new chat in this space" names
-    // alpha, and the caller wins.
+    // Beta is the current space; the caller names alpha, and the caller wins.
     await agent.addWorkspace(join(dir, 'beta'));
 
     const session = await agent.createSession(profileId, undefined, alpha);

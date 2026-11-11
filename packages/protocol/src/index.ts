@@ -3124,7 +3124,7 @@ export const agentCallSchemas = {
   /*
    * Starts a conversation, in a named space when the caller named one.
    *
-   * The rail's "new chat in this space" is what names it. Absent is the common
+   * The rail's `+` beside Spaces is what names it. Absent is the common
    * case: the agent's own space if it has one, and otherwise the space the rail
    * is on — a resolution the runtime makes, because it is the layer that reads
    * the agent and the folder document together.

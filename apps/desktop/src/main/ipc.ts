@@ -528,6 +528,13 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         params.minScore,
       ),
 
+    /* Spoken replies: a read, three buttons and the audio. */
+    'speech.status': async () => await agent().speechStatus(),
+    'speech.install': async () => await agent().installSpeech(),
+    'speech.cancel': async () => agent().cancelSpeech(),
+    'speech.sample': async (params) => await agent().sampleSpeech(params.voice),
+    'speech.speak': async (params) => await agent().speak(params.text),
+
     'profiles.list': async () => await agent().profiles(),
 
     'profiles.catalog': async () => await agent().catalog(),
@@ -715,6 +722,7 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
         params.sessionId,
         params.callId,
         params.confirmed,
+        params.origin,
       ),
 
     'chat.abort': async (params) =>

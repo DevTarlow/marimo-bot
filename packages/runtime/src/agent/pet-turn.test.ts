@@ -50,6 +50,36 @@ describe('turnInstruction', () => {
     expect(brief).toMatch(/never costs accuracy/u);
   });
 
+  it('gives a window turn a spoken instruction when the answer will be read', () => {
+    const spoken = turnInstruction('window', 'brief', undefined, 'brief') ?? '';
+    expect(spoken).toMatch(/read aloud/iu);
+    expect(spoken).toMatch(/main window/iu);
+    expect(spoken).toMatch(/no preamble/iu);
+  });
+
+  it('lets the spoken length win over the companion’s text length', () => {
+    const spoken = turnInstruction('pet', 'detailed', undefined, 'brief') ?? '';
+    expect(spoken).toMatch(/desktop companion/iu);
+    expect(spoken).toMatch(/read aloud/iu);
+    // The companion's detailed block would say this; the spoken brief must not.
+    expect(spoken).not.toMatch(/Answer completely/u);
+  });
+
+  it('writes a different spoken instruction for each length', () => {
+    const written = COMPANION_ANSWER_LENGTHS.map((length) =>
+      turnInstruction('window', length, undefined, length),
+    );
+    expect(new Set(written).size).toBe(COMPANION_ANSWER_LENGTHS.length);
+  });
+
+  it('keeps the context after the spoken block', () => {
+    const instruction =
+      turnInstruction('window', 'brief', 'It is Tuesday.', 'brief') ?? '';
+    expect(instruction.indexOf('read aloud')).toBeLessThan(
+      instruction.indexOf('It is Tuesday.'),
+    );
+  });
+
   it('tells the detailed answer that the pet is not the wrong place to be thorough', () => {
     const detailed = turnInstruction('pet', 'detailed') ?? '';
 

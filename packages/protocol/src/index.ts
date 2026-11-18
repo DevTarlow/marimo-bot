@@ -14,6 +14,7 @@ import type {BotTemplate} from './bots.js';
 import {parseCron} from './cron.js';
 import {mcpServerSchema, mcpServersAreDistinct} from './mcp.js';
 import {attachmentSchema, MAX_ATTACHMENTS} from './attachments.js';
+import {companionAnswerLengthSchema} from './answer-length.js';
 import {
   leftOverModelIdSchema,
   modelServerPatchSchema,
@@ -21,12 +22,42 @@ import {
 } from './model-server.js';
 import type {ModelServerStatus} from './model-server.js';
 import {secretStorageSchema} from './mcp.js';
+import {speechSettingsPatchSchema, speechSettingsSchema} from './speech.js';
+import type {SpeechSettings, SpeechStatus, SpokenAudio} from './speech.js';
 
 /*
  * The starter bots and the two texts a bot is seeded with. They live in their
  * own module because they are a catalogue with its own shape and its own tests,
  * and because this file is the IPC contract rather than a place for prose.
  */
+export {
+  COMPANION_ANSWER_LENGTHS,
+  companionAnswerLengthSchema,
+} from './answer-length.js';
+export type {CompanionAnswerLength} from './answer-length.js';
+/*
+ * Spoken replies: the preference, what the model is doing and the audio a reply
+ * returns. Re-exported here because every window imports the contract from this
+ * one module; the implementation lives beside its own tests.
+ */
+export {
+  DEFAULT_SPEECH_VOICE,
+  defaultSpeechSettings,
+  SPEECH_MAX_CHARS,
+  SPEECH_MODEL_BYTES,
+  SPEECH_MODEL_LABEL,
+  SPEECH_SAMPLE_TEXT,
+  speechSettingsPatchSchema,
+  speechSettingsSchema,
+} from './speech.js';
+export type {
+  SpeechDownloadProgress,
+  SpeechSettings,
+  SpeechStatus,
+  SpeechVoice,
+  SpokenAudio,
+} from './speech.js';
+
 export {
   availableBotTemplates,
   BOT_BUILDER_OPENING,
@@ -388,20 +419,11 @@ export function defaultDiscordSettings(): DiscordSettings {
   };
 }
 
-/**
- * How verbose the companion's answers are.
- *
- * Three named sizes rather than a number of words. The setting is a sentence
- * added to the instruction, and a slider would only be a way of choosing one of
- * three sentences with a number nobody could predict the meaning of.
+/*
+ * The three answer lengths live in `answer-length.ts`: the companion and spoken
+ * replies both read them, and one definition is what keeps the two pickers from
+ * drifting apart.
  */
-export const COMPANION_ANSWER_LENGTHS = [
-  'brief',
-  'balanced',
-  'detailed',
-] as const;
-export const companionAnswerLengthSchema = z.enum(COMPANION_ANSWER_LENGTHS);
-export type CompanionAnswerLength = z.infer<typeof companionAnswerLengthSchema>;
 
 /**
  * What the settings file holds about the floating companion.
@@ -833,6 +855,14 @@ export const settingsSchema = z.object({
    */
   companion: companionSettingsSchema,
   /**
+   * Spoken replies: the switch, the voice and how long a spoken answer is.
+   *
+   * Here rather than on a profile because there is one voice model and one
+   * person listening to it; a per-bot voice would be a second download story for
+   * no choice the model cannot already express.
+   */
+  speech: speechSettingsSchema,
+  /**
    * How wide the rails and the documents drawer are, in pixels. Clamped here
    * rather than trusted: a width is dragged, and a drag can end anywhere
    * including off the screen, so the bounds belong to the contract rather than
@@ -983,6 +1013,7 @@ export const discordSettingsPatchSchema = discordSettingsSchema.partial();
 export const settingsPatchSchema = settingsSchema.partial().extend({
   discord: discordSettingsPatchSchema.optional(),
   companion: companionSettingsPatchSchema.optional(),
+  speech: speechSettingsPatchSchema.optional(),
   appearance: appearancePatchSchema.optional(),
   /* Any subset of the block, merged over what is stored — the reason above. */
   recall: recallSettingsSchema.partial().optional(),
@@ -2741,6 +2772,15 @@ export type AgentUiEvent =
       sessionId: string;
       messageId: string;
       usage?: TokenUsage;
+      /**
+       * Which surface started the turn, when one did.
+       *
+       * Not stored: it is a fact about the window that asked, and its one
+       * reader is speech. A spoken reply must come out of the window the
+       * question came from, or both windows speak over each other. Absent for a
+       * job, a Discord mention, or a resume with no surface.
+       */
+      origin?: 'window' | 'pet';
     }
   | {type: 'turn.aborted'; sessionId: string; messageId: string}
   | {
@@ -2898,6 +2938,27 @@ export type AgentUiEvent =
    * reason the MCP status does: there is nothing to reconcile.
    */
   | {type: 'companion.changed'; settings: CompanionSettings}
+  /*
+   * Spoken replies: the model downloading, installed or failed, and the
+   * preference changing.
+   *
+   * Progress is an event because a download is the one thing in this app
+   * somebody watches, and the card has to move while they watch it — including
+   * when it was started from the other window. `speech.changed` is the same
+   * fact for the switch, voice and length: the pet window is open while
+   * Settings changes them in the other window, and a hook that only re-read on
+   * reopening would go on speaking or stay quiet until reload.
+   */
+  | {
+      type: 'speech.progress';
+      label: string;
+      receivedBytes: number;
+      totalBytes: number;
+      percent?: number;
+    }
+  | {type: 'speech.installed'}
+  | {type: 'speech.failed'; message: string}
+  | {type: 'speech.changed'; settings: SpeechSettings}
   /*
    * A look at the conversation finished, what it read and what it remembered.
    *
@@ -3241,6 +3302,14 @@ export const agentCallSchemas = {
     sessionId: z.string().min(1),
     callId: z.string().min(1),
     confirmed: z.boolean(),
+    /**
+     * Which surface answered the card.
+     *
+     * A resumed turn speaks in the window the decision was made in, which may
+     * not be the one that started it: a card can be answered from the pet after
+     * the question was typed in the window. Absent means the window.
+     */
+    origin: z.enum(['window', 'pet']).optional(),
   }),
   'chat.abort': z.object({
     profileId: z.string().min(1),
@@ -3311,6 +3380,20 @@ export const agentCallSchemas = {
     over: z.boolean(),
     enabled: z.boolean(),
   }),
+
+  /*
+   * Spoken replies.
+   *
+   * `status` and `install` are separate for the same reason recall's are: a
+   * settings write that started a 92 MB download would report success for
+   * something that had not happened yet. `sample` is the audition, independent
+   * of the switch, because choosing a voice is a listening decision.
+   */
+  'speech.status': z.object({}),
+  'speech.install': z.object({}),
+  'speech.cancel': z.object({}),
+  'speech.sample': z.object({voice: z.string().min(1).max(64).optional()}),
+  'speech.speak': z.object({text: z.string().min(1).max(20_000)}),
 
   /*
    * What is still waiting for an answer, and what the user has already refused.
@@ -3717,6 +3800,11 @@ export interface AgentCallResults {
   'companion.status': {visible: boolean};
   'companion.setVisible': {visible: boolean};
   'companion.pointer': {ok: boolean};
+  'speech.status': SpeechStatus;
+  'speech.install': {started: boolean};
+  'speech.cancel': {cancelled: boolean};
+  'speech.sample': SpokenAudio;
+  'speech.speak': SpokenAudio;
   'service.status': ServiceStatus;
   'service.enable': ServiceChange;
   'service.disable': ServiceChange;

@@ -71,6 +71,7 @@ import {
   THEME_MODES,
 } from '@marimo/protocol';
 
+import {ANSWER_LENGTH_LABELS} from '../answer-length.js';
 import {chosenPreset} from '../capabilities.js';
 import {describe} from '../describe.js';
 import {BotAvatar} from './BotAvatar.js';
@@ -87,21 +88,7 @@ import {Recall} from './Recall.js';
 import {NewBotDialog} from './NewBotDialog.js';
 import {ResetMarimo} from './ResetMarimo.js';
 import {SettingsSection} from './SettingsSection.js';
-
-/**
- * The three lengths, in the words the user is choosing between.
- *
- * Written here rather than derived from the enum: the value is what the agent's
- * instruction is keyed by, and this is what the person picking one is told. The
- * sentences the model actually gets live beside the agent, in `pet-turn.ts` —
- * they are prompt text, and a pick-list labelled with prompt text would be
- * describing the implementation rather than the choice.
- */
-const ANSWER_LENGTH_LABELS: Record<CompanionAnswerLength, string> = {
-  brief: 'Brief — a few lines, the answer and nothing else',
-  balanced: 'Balanced — as long as the question deserves',
-  detailed: 'Detailed — the full answer here, not deferred to the window',
-};
+import {Speech} from './Speech.js';
 
 interface Loaded {
   settings: PublicSettings;
@@ -128,8 +115,6 @@ interface Loaded {
    */
   activeSpaceName: string | undefined;
 }
-
-
 
 export function Settings({
   onClose,
@@ -1346,6 +1331,18 @@ export function Settings({
             </span>
           </label>
         </SettingsSection>
+
+        <Speech
+          opened={opened}
+          onToggle={fold}
+          settings={loaded.settings}
+          saving={saving}
+          onPatch={(patch) =>
+            change(async () => {
+              await window.marimo.call('settings.set', {patch});
+            })
+          }
+        />
 
         {/*
           Commands act on the conversation itself rather than being said in it,

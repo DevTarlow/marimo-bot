@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@marimo/agent": "workspace:*",
-    "@marimo/protocol": "workspace:*"
+    "@marimo/protocol": "workspace:*",
+    "@titan-design/speech-g2p": "0.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

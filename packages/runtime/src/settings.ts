@@ -19,10 +19,7 @@ import {
   DocumentTooNewError,
   readVersionedDocument,
 } from '@marimo/agent';
-import type {
-  DocumentMigration,
-  ReadVersionedOptions,
-} from '@marimo/agent';
+import type {DocumentMigration, ReadVersionedOptions} from '@marimo/agent';
 
 import {
   appearanceSchema,
@@ -31,6 +28,7 @@ import {
   defaultModelServerSettings,
   defaultRecallSettings,
   defaultCompanionSettings,
+  defaultSpeechSettings,
   DEFAULT_MEMORY_REVIEW_EVENTS,
   DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
   defaultWindowState,
@@ -40,6 +38,7 @@ import {
   recallSettingsSchema,
   settingsPatchSchema,
   settingsSchema,
+  speechSettingsSchema,
   windowStateSchema,
 } from '@marimo/protocol';
 import type {
@@ -68,6 +67,10 @@ export function defaultStoredSettings(): StoredSettings {
     // told and a default the renderer owned would be a default the agent could
     // not see.
     companion: defaultCompanionSettings(),
+    // Spoken replies are off until the person downloads the voice model; the
+    // spoken length starts brief because a sentence read aloud costs time that
+    // the same words on screen do not.
+    speech: defaultSpeechSettings(),
     // Match the design tokens, so the first launch looks like the stylesheet says
     // it should, and a later drag starts from wherever the user left it.
     sidebarWidth: 272,
@@ -123,11 +126,12 @@ export function defaultStoredSettings(): StoredSettings {
  * Omni model. Version 3 moved them to Qwen2.5-VL and dropped the Vision and
  * Voice split down to Chat and Images on one model. Version 4 drops the model
  * catalogue entirely: the chat model is a server the person runs, so the block
- * that named a downloaded model becomes an address, a name and a window. A
- * settings file is still read leniently, but a newer version is refused so a
+ * that named a downloaded model becomes an address, a name and a window. Version
+ * 5 adds the spoken-replies block: the switch, the voice and the spoken length.
+ * A settings file is still read leniently, but a newer version is refused so a
  * future build's file is not overwritten by this one.
  */
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 
 /**
  * The versions below this one, step by step.
@@ -208,6 +212,23 @@ const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
         // by the Model server card; carrying the old task assignments would name
         // a model no server is running.
         modelServer: defaultModelServerSettings(),
+      };
+    },
+  },
+  {
+    from: 4,
+    to: 5,
+    summary: 'added spoken replies, off with a brief default',
+    migrate(document) {
+      return {
+        ...document,
+        /*
+         * The block did not exist before this version, so the only sensible
+         * value is the default: off, the first English voice, and short. A file
+         * that had a speech block from the Omni build is not trusted for it —
+         * that model's voice keys are gone and its audio model was removed.
+         */
+        speech: defaultSpeechSettings(),
       };
     },
   },
@@ -328,6 +349,17 @@ export class SettingsStore {
             defaults.companion,
             rawObject['companion'],
           ),
+          /*
+           * Spoken replies are a block for the same reason: a hand-edited voice
+           * must cost the voice, not every other setting. A file from before
+           * version 5 has no block at all and gets the off default here as well
+           * as through its migration.
+           */
+          speech: fillBlock(
+            speechSettingsSchema,
+            defaults.speech,
+            rawObject['speech'],
+          ),
           appearance: fillBlock(
             appearanceSchema,
             defaults.appearance,
@@ -397,6 +429,9 @@ export class SettingsStore {
       const companion = defined.companion
         ? {...current.companion, ...definedOnly(defined.companion)}
         : current.companion;
+      const speech = defined.speech
+        ? {...current.speech, ...definedOnly(defined.speech)}
+        : current.speech;
       const appearance = defined.appearance
         ? {...current.appearance, ...definedOnly(defined.appearance)}
         : current.appearance;
@@ -416,6 +451,7 @@ export class SettingsStore {
         ...defined,
         discord,
         companion,
+        speech,
         appearance,
         recall,
         modelServer,

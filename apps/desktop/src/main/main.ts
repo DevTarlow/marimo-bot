@@ -30,7 +30,12 @@ import {
 } from 'electron';
 
 import {IPC_EVENT_CHANNEL, defaultWindowState} from '@marimo/protocol';
-import type {AgentUiEvent, ThemeMode, WindowState} from '@marimo/protocol';
+import type {
+  AgentUiEvent,
+  SpeechSettings,
+  ThemeMode,
+  WindowState,
+} from '@marimo/protocol';
 import {defaultStoredSettings, resetInstall} from '@marimo/runtime';
 
 import {adoptFormerUserDataDir, PRODUCT_NAME} from '../shared/product.js';
@@ -215,7 +220,8 @@ async function createWindow(): Promise<BrowserWindow> {
    */
   // Freshly read rather than taken from the constant above, which is the
   // default until the async read in `bootstrap` has happened.
-  rememberedGeometry = (await loadWindowState(windowStatePath())) ?? rememberedGeometry;
+  rememberedGeometry =
+    (await loadWindowState(windowStatePath())) ?? rememberedGeometry;
 
   const bounds = restoreBounds(
     rememberedGeometry,
@@ -396,6 +402,34 @@ async function refreshCompanionSettings(): Promise<void> {
   } catch {
     // The same rule the theme follows: an unreadable settings file leaves the
     // last known answer in place rather than taking the pet down with it.
+  }
+}
+
+/** The spoken-replies block, as the window and the pet last saw it. */
+let lastSpeechSettings: SpeechSettings | undefined;
+
+/**
+ * Tells both windows when the spoken-replies block changes.
+ *
+ * The pet is a separate document, and the switch that starts and stops it lives
+ * in the other window, so a hook that only read settings on mount would keep
+ * speaking after the switch was turned off — or stay silent after it was turned
+ * on — until the pet was reopened.
+ */
+async function refreshSpeechSettings(): Promise<void> {
+  if (agent === undefined) {
+    return;
+  }
+  try {
+    const {speech: next} = await agent.settings();
+    if (JSON.stringify(next) === JSON.stringify(lastSpeechSettings)) {
+      return;
+    }
+    lastSpeechSettings = next;
+    broadcast({type: 'speech.changed', settings: next});
+  } catch {
+    // The same rule the companion follows: an unreadable file leaves the last
+    // known answer in place rather than guessing at a change.
   }
 }
 
@@ -627,6 +661,7 @@ async function bootstrap(): Promise<void> {
     onSettingsChanged: () => {
       void refreshThemeMode();
       void refreshCompanionSettings();
+      void refreshSpeechSettings();
     },
     companion: () => companion,
     ...(startupWarning === undefined ? {} : {warning: startupWarning}),
@@ -662,6 +697,7 @@ async function bootstrap(): Promise<void> {
    * than at the defaults and corrected a frame later.
    */
   await refreshCompanionSettings();
+  await refreshSpeechSettings();
   if (companionEnabled) {
     await companion.show();
   }
@@ -766,12 +802,20 @@ function createTray(): void {
     return;
   }
   const icon = nativeImage.createFromPath(windowIcon);
-  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({width: 22, height: 22}));
+  tray = new Tray(
+    icon.isEmpty()
+      ? nativeImage.createEmpty()
+      : icon.resize({width: 22, height: 22}),
+  );
   tray.setToolTip(PRODUCT_NAME);
   // A click on the icon is the gesture people try first; on Windows and Linux a
   // menu on left-click is the convention, so both do the same thing here.
   tray.on('click', () => {
-    if (mainWindow !== undefined && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    if (
+      mainWindow !== undefined &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.isVisible()
+    ) {
       mainWindow.hide();
     } else {
       showWindow();
@@ -787,7 +831,10 @@ function refreshTray(): void {
     return;
   }
   const items: TrayItem[] = trayMenu({
-    windowVisible: mainWindow !== undefined && !mainWindow.isDestroyed() && mainWindow.isVisible(),
+    windowVisible:
+      mainWindow !== undefined &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.isVisible(),
     startAtLogin: startAtLogin(),
     jobs: jobsForTray(),
     busy: agent?.isBusy() ?? false,
@@ -839,7 +886,11 @@ async function refreshJobs(): Promise<void> {
 async function onTrayCommand(id: string): Promise<void> {
   switch (id) {
     case 'toggle-window':
-      if (mainWindow !== undefined && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+      if (
+        mainWindow !== undefined &&
+        !mainWindow.isDestroyed() &&
+        mainWindow.isVisible()
+      ) {
         mainWindow.hide();
       } else {
         showWindow();
@@ -922,7 +973,12 @@ function maybeNotify(event: AgentUiEvent): void {
    * already on screen is noise, and it is the noise that teaches people to
    * dismiss the ones that matter.
    */
-  if (mainWindow !== undefined && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) {
+  if (
+    mainWindow !== undefined &&
+    !mainWindow.isDestroyed() &&
+    mainWindow.isVisible() &&
+    mainWindow.isFocused()
+  ) {
     return;
   }
   const notice = noticeFor(event as {type: string});

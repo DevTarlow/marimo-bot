@@ -64,11 +64,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.23.4"
+          node-version: '22.23.4'
           cache: pnpm
 
       - name: Install
         run: pnpm install --frozen-lockfile
+        env:
+          # The CPU runtime is bundled in the package. The default postinstall
+          # also fetches the CUDA and TensorRT providers, which this app never
+          # uses, which the package step excludes, and which are a large network
+          # dependency in CI for no gain.
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       - name: Build
         run: pnpm -r build

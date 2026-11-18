@@ -36,6 +36,7 @@ import {WorkspaceRail} from './components/WorkspaceRail.js';
 import {firstRunScreen} from './first-run.js';
 import type {FirstRunPhase} from './first-run.js';
 import {useAgent} from './hooks/useAgent.js';
+import {useSpokenReplies} from './hooks/useSpokenReplies.js';
 import {sessionMembers} from './participants.js';
 import {
   DEFAULT_DOCUMENTS_LIBRARY_SHARE,
@@ -155,6 +156,16 @@ export function App(): React.JSX.Element {
   const [setupPhase, setSetupPhase] = useState<FirstRunPhase>('unknown');
   const agent = useAgent();
   /*
+   * The spoken half of the window. The hook speaks only the turns that started
+   * here, and only while the switch is on; the answer's text is already on
+   * screen either way.
+   */
+  const spoken = useSpokenReplies({
+    enabled: settings?.speech.enabled ?? false,
+    surface: 'window',
+    turn: agent.lastTurn,
+  });
+  /*
    * Stable, because an effect below depends on it: a function rebuilt on every
    * render would re-run that effect on every render, and this one writes state.
    */
@@ -183,6 +194,12 @@ export function App(): React.JSX.Element {
    */
   useEffect(() => {
     const off = window.marimo.onEvent((event) => {
+      if (event.type === 'speech.changed') {
+        setSettings((current) =>
+          current === null ? current : {...current, speech: event.settings},
+        );
+        return;
+      }
       if (event.type !== 'model.status') {
         return;
       }
@@ -1008,50 +1025,50 @@ export function App(): React.JSX.Element {
               }}
             />
             <Transcript
-            messages={agent.messages}
-            outbox={agent.outbox}
-            live={agent.live}
-            delegations={agent.delegations}
-            agents={settings?.profiles ?? agent.agents}
-            leadId={leadId}
-            /*
+              messages={agent.messages}
+              outbox={agent.outbox}
+              live={agent.live}
+              delegations={agent.delegations}
+              agents={settings?.profiles ?? agent.agents}
+              leadId={leadId}
+              /*
               The conversation's pictures are read through its own Space, and
               the pair is what the main process resolves. Absent before a
               conversation is open, which draws the names instead.
             */
-            space={
-              agent.profile === undefined || agent.sessionId === null
-                ? null
-                : {profileId: agent.profile.id, sessionId: agent.sessionId}
-            }
-            pending={agent.pending}
-            onDecide={(callId, confirmed) => {
-              void agent.decide(callId, confirmed);
-            }}
-            onFeedback={agent.noteCorrection}
-            onBotCreated={(next) => {
-              /*
-               * Only the roster changed. A full `agent.reload()` would land on
-               * the lead's newest conversation, which after making a bot is not
-               * necessarily the builder conversation the card is in; the person
-               * is reading that thread and should stay in it. The rail still
-               * has to learn the bot exists, though, or the card's receipt is
-               * the only place it is visible until the next reload.
-               */
-              setSettings((current) =>
-                current === null
-                  ? current
-                  : {
-                      ...current,
-                      profiles: next.profiles,
-                      activeProfileId: next.activeProfileId,
-                    },
-              );
-              void agent.refreshProfiles();
-            }}
-            builder={agent.sessionPurpose === 'bot-builder'}
-            busy={busy}
-          />
+              space={
+                agent.profile === undefined || agent.sessionId === null
+                  ? null
+                  : {profileId: agent.profile.id, sessionId: agent.sessionId}
+              }
+              pending={agent.pending}
+              onDecide={(callId, confirmed) => {
+                void agent.decide(callId, confirmed);
+              }}
+              onFeedback={agent.noteCorrection}
+              onBotCreated={(next) => {
+                /*
+                 * Only the roster changed. A full `agent.reload()` would land on
+                 * the lead's newest conversation, which after making a bot is not
+                 * necessarily the builder conversation the card is in; the person
+                 * is reading that thread and should stay in it. The rail still
+                 * has to learn the bot exists, though, or the card's receipt is
+                 * the only place it is visible until the next reload.
+                 */
+                setSettings((current) =>
+                  current === null
+                    ? current
+                    : {
+                        ...current,
+                        profiles: next.profiles,
+                        activeProfileId: next.activeProfileId,
+                      },
+                );
+                void agent.refreshProfiles();
+              }}
+              builder={agent.sessionPurpose === 'bot-builder'}
+              busy={busy}
+            />
           </>
         )}
 
@@ -1065,6 +1082,8 @@ export function App(): React.JSX.Element {
         {screen === 'app' && (
           <Composer
             busy={busy}
+            speaking={spoken.speaking}
+            onStopSpeaking={spoken.stop}
             disabled={disabled || !agent.ready}
             modelLabel={modelLabel}
             modelState={modelState}

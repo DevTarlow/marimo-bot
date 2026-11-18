@@ -66,6 +66,8 @@ export function Composer({
   onSend,
   onStop,
   busy,
+  speaking,
+  onStopSpeaking,
   disabled,
   modelLabel,
   modelState,
@@ -96,6 +98,14 @@ export function Composer({
   ) => Promise<boolean>;
   onStop: () => void;
   busy: boolean;
+  /**
+   * A spoken reply is playing, so the stop button is offered beside `+`.
+   *
+   * The text is already on screen; stopping the voice must not stop the turn,
+   * which is why this is its own control rather than a mode on the send button.
+   */
+  speaking?: boolean;
+  onStopSpeaking?: () => void;
   disabled: boolean;
   /** The model the server reports, for the badge at the foot of the box. */
   modelLabel?: string;
@@ -149,7 +159,9 @@ export function Composer({
   const [text, setText] = useState('');
   const [attached, setAttached] = useState<PickedFile[]>([]);
   /** The last thing that happened, drawn in the hint slot. */
-  const [note, setNote] = useState<{text: string; failed: boolean} | null>(null);
+  const [note, setNote] = useState<{text: string; failed: boolean} | null>(
+    null,
+  );
   /** The command being run, so the row can say so while it does. */
   const [running, setRunning] = useState<CommandId | null>(null);
   const [menu, setMenu] = useState<PopoverAnchor | null>(null);
@@ -338,7 +350,9 @@ export function Composer({
       }
       const refused = describeSkipped(skipped);
       setNote(
-        refused === null ? null : {text: `Not attached — ${refused}`, failed: true},
+        refused === null
+          ? null
+          : {text: `Not attached — ${refused}`, failed: true},
       );
     } catch (failure) {
       setNote({text: describe(failure), failed: true});
@@ -520,6 +534,18 @@ export function Composer({
             <span aria-hidden="true">+</span>
           </button>
 
+          {speaking === true && onStopSpeaking !== undefined && (
+            <button
+              type="button"
+              className="composer-speak is-speaking"
+              aria-label="Stop speaking"
+              title="Stop speaking"
+              onClick={onStopSpeaking}
+            >
+              <span aria-hidden="true">■</span>
+            </button>
+          )}
+
           <span
             className={
               note === null || !note.failed
@@ -545,7 +571,9 @@ export function Composer({
               <span className="composer-model-dot" aria-hidden="true" />
               <span className="composer-model-name">{modelLabel}</span>
               {modelTools === false && (
-                <span className="composer-model-state is-warning">no tools</span>
+                <span className="composer-model-state is-warning">
+                  no tools
+                </span>
               )}
               {modelState === 'waking' && (
                 <span className="composer-model-state">waking…</span>

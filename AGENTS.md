@@ -17,8 +17,8 @@ and sends each turn there. There is no hosted provider, no account and no API ke
 for the model. The folder it works in is what the user calls a **Space**. Marimo
 Bot is the agent the person talks to; they also make **bots**, each with its own
 name, instructions, tools and permissions. A chat can hold more than one of them,
-and Marimo Bot can hand work to one. Recall still downloads its own small
-embedding model; nothing else does.
+and Marimo Bot can hand work to one. Recall downloads its own small embedding
+model, and spoken replies download a small voice model; nothing else does.
 
 ## Layout
 
@@ -34,9 +34,10 @@ packages/agent      Everything ADK: the OpenAI-compatible client, tool set,
 packages/runtime    The Electron-free half of the app proper: where files live,
                     secrets with the cipher injected, the jobs/profiles/
                     workspaces/settings/skills/proposals stores, the documents
-                    service, the model-server probe, and the recall supervisor,
-                    installer and pins. Re-exports the version machinery it
-                    uses.
+                    service, the model-server probe, the recall supervisor,
+                    installer and pins, and the voice model's pins, installer,
+                    front end and WAV engine. Re-exports the version machinery
+                    it uses.
 apps/desktop        The Electron app: src/main (window, IPC, tray, adapters),
                     src/preload (the sandboxed bridge), src/runner (the headless
                     job runner), src/renderer (React), src/shared.
@@ -125,12 +126,12 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     Fern bot" was refused, while an exact name still wins and a name two bots
     share is refused with the roster.
 19. **ADK ends the invocation at a gate, so a tool cannot wait inside one.** The
-    helper parking on an approval ends *its* invocation, and a parent tool that
+    helper parking on an approval ends _its_ invocation, and a parent tool that
     sat waiting would leave the model's own call unanswered. `ask_agent` raises a
-    card of its own with `requestConfirmation`, and the click resumes *it*.
+    card of its own with `requestConfirmation`, and the click resumes _it_.
 20. **An editor write is refused against a stale revision, and the draft is
     kept.** A write carries the revision it was based on — size and modification
-    time — and a mismatch writes *nothing* and answers with what is on disk now.
+    time — and a mismatch writes _nothing_ and answers with what is on disk now.
     A missing parent folder is never created, and a write over the read cap is
     refused.
 21. **A Space's documents are the folder's files, not a second copy.** The
@@ -146,8 +147,7 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     never given. The `# Tools you have` block is built from the definitions the
     driver actually wraps, not from `tools.grants`, so a grant with no Space or
     service behind it is absent from both. `DEFAULT_AGENT_ROLE` /
-    `DEFAULT_AGENT_PERSONA` are the agent the person talks to; `botRoleFor(name,
-    template)` / `botPersonaFor(template)` are a bot. The starter roles name no
+    `DEFAULT_AGENT_PERSONA` are the agent the person talks to; `botRoleFor(name, template)` / `botPersonaFor(template)` are a bot. The starter roles name no
     tool; the capability skills follow the grant.
 23. **A skill is advertised, not carried, and its grant is the switch.**
     `userData/skills/<name>/SKILL.md` prints its name and one line in the prompt;
@@ -163,13 +163,15 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     sleeps it or writes a pid file. The only child process left is recall's own
     engine under `LocalModelService`. A probe is a read: `resolve()` per turn,
     `status()` cached for the badge, and a watcher that emits only when something
-    the person can see changed.
+    the person can see changed. Speech is not a chat model: the voice model is
+    downloaded, verified and run inside the main process, and no turn is ever
+    sent to it.
 25. **A download is verified before it is used, and a marker is not a hint.**
-    Recall's installer checks every file against a pinned SHA-256 and writes its
-    marker only when all of them are in place; `installLocalModel` is gone with
-    the chat model. The engine carries its own `.pinned` marker, so a build that
-    moves to a new llama.cpp tag replaces the binary instead of running the old
-    one. A half-written file is never loaded.
+    Recall's installer and the voice model's check every file against a pinned
+    SHA-256 and write their marker only when all of them are in place;
+    `installLocalModel` is gone with the chat model. The engine carries its own
+    `.pinned` marker, so a build that moves to a new llama.cpp tag replaces the
+    binary instead of running the old one. A half-written file is never loaded.
 26. **Tool calls depend on the server's chat template, and the app cannot patch
     one it did not start.** `--jinja` or a model whose own template renders
     `tool_calls` is the person's setup. The probe reads `/props.chat_template_caps`
@@ -190,6 +192,18 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     person's voice to break the pattern. The note names only `write_file` and
     never the whole tool list: sent on every turn, the list was read back to the
     person as "the tools available in this turn are…".
+28. **A spoken reply is made locally, and only the surface that asked hears it.**
+    The voice model is a 92 MB opt-in download under `model/tts/`: the ONNX graph,
+    the English voice pack, the vocabulary, the catalogue and the CMU fallback.
+    One ORT session in the main process serves both windows, serialised and
+    unloaded after five quiet minutes. `turn.completed` carries the origin
+    (`window` or `pet`) so exactly that surface speaks; a job or a Discord turn
+    has no origin and stays silent. A spoken turn uses `speech.answerLength`
+    (default `brief`) for either surface; the companion's own length governs its
+    text when speech is off. The text front end is the pure-TypeScript misaki
+    port plus the CMU fallback — **not espeak-ng**, which is GPLv3. This build
+    speaks English (11 of the model's 118 voices); another language is a
+    frontend, not a label.
 
 ## Documents
 
@@ -227,7 +241,7 @@ through `resolveInsideWorkspace`, the guard the agent's own file tools use.
 **Memory is the one document that is not versioned, and there are two of them.**
 `memory.md` is plain markdown a user edits by hand, so a version field would be a
 lie about a file the app does not own; the split between the person's half (under
-user data) and the folder's half is by *layer*, and which layer goes where is
+user data) and the folder's half is by _layer_, and which layer goes where is
 `scopeForSection` in `sections.ts`. A store built without `personMemoryRoot` is
 exactly the old one-file store.
 
@@ -313,7 +327,7 @@ The configuration the guide recommends — and the one a manual live check runs 
 llama.cpp with the Gemma 4 12B IT QAT `UD-Q4_K_XL` GGUF and its projector, at a 16K
 window, flash attention with a q8 KV cache and `-ub 1120` for the vision budget.
 It is a reference, not a catalogue: the app still ships, downloads and selects no
-model. The recommendation lives in four README places — Model server, Getting
+chat model. The recommendation lives in four README places — Model server, Getting
 started, Questions and Requirements — and in the Model server card's command;
 changing it is one commit across all of them.
 
@@ -323,10 +337,12 @@ The composer's badge reports the state and opens that card. The first run owns t
 required connection: Continue waits for a test that answers. Do not bring back a
 model catalogue, a task picker, a download, a sleep button or an engine switch.
 
-Recall is the only model the app still downloads. Its pins are in
-`packages/runtime/src/local-model/pins.ts`; its engine and weights live under
-`model/recall/`. `MARIMO_MODEL_DIR` points a checkout or a live run at a directory
-laid out the way recall expects:
+Recall and the spoken-replies voice model are the models the app downloads.
+Recall's pins are in `packages/runtime/src/local-model/pins.ts`; its engine and
+weights live under `model/recall/`. The voice model's pins are in
+`packages/runtime/src/speech/pins.ts`; its five files live under `model/tts/`.
+`MARIMO_MODEL_DIR` points a checkout or a live run at a directory laid out the
+way both expect:
 
 ```
 model/
@@ -334,11 +350,29 @@ model/
     engine/llama-server
     embeddinggemma-2-Q8_0.gguf
     mmproj-Q8_0.gguf
+  tts/
+    kitten_tts_2_mini.onnx
+    voices_en.npz
+    vocab.json
+    config.json
+    cmu_misaki_us.json
+    .installed.json
 ```
 
-The two live tests under `packages/runtime/src/recall/` use it. The chat model's
-live check is `scripts/e2e.mjs`, run against a real llama.cpp: it is the thing
-that proves a turn returns `tool_calls` and an image reaches the encoder.
+The two live tests under `packages/runtime/src/recall/` use the recall layout.
+The chat model's live check is `scripts/e2e.mjs`, run against a real llama.cpp:
+it is the thing that proves a turn returns `tool_calls` and an image reaches the
+encoder. The voice model's live check is `scripts/tts-check.mjs`, run with
+`MARIMO_MODEL_DIR` pointing at the layout above (or `--download`): it is the
+thing that proves the ONNX graph, the English front end and the joined WAV still
+work.
+
+The voice model is the one model this app runs in-process. It is a separate
+model from the chat server, it is downloaded only when somebody presses the
+button, and it is read through `onnxruntime-node` in the main process. The text
+front end is the pure-TypeScript misaki port plus the model's CMU fallback; the
+other fifteen languages the model carries need their own front end, and espeak-ng
+is GPLv3 and is deliberately not in the build.
 
 ## Learning
 
@@ -378,21 +412,20 @@ paragraph between them is not an update.
 What counts, and where it goes:
 
 - **The model server** — its address, the model it reports, the window, what the
-  first run requires and what the app does not download — lives in *Model
-  server*, *Getting started*, *Questions* and *Requirements*. Recall's download,
+  first run requires and what the app does not download — lives in _Model
+  server_, _Getting started_, _Questions_ and _Requirements_. Recall's download,
   its size and its licence stay in the same four places.
 - **A capability, tool, permission or shortcut** gets a line in the short list
-  and a place under *What it can do*, plus a bullet under *Privacy and control*
+  and a place under _What it can do_, plus a bullet under _Privacy and control_
   when it reaches the network. Removing one removes it from all of them, and from
-  *What is not finished* if it was listed there.
+  _What is not finished_ if it was listed there.
 - **A first-run step, a Settings card or a button** is quoted by name in the
-  README (`Regular`, `Power setup`, `Standard`, `Power user`, `Keep jobs running
-  when the app is closed`), so renaming one is a README change.
-- **Where data lives, or what leaves the machine** goes in *Privacy and control*
-  and in the *Does it send my work anywhere?* answer. A new destination is a new
+  README (`Regular`, `Power setup`, `Standard`, `Power user`, `Keep jobs running when the app is closed`), so renaming one is a README change.
+- **Where data lives, or what leaves the machine** goes in _Privacy and control_
+  and in the _Does it send my work anywhere?_ answer. A new destination is a new
   bullet even when the tool is off by default.
-- **Packaging, platforms or a gap** is claimed by *Getting started*,
-  *Requirements* and *What is not finished* at once, so those move together.
+- **Packaging, platforms or a gap** is claimed by _Getting started_,
+  _Requirements_ and _What is not finished_ at once, so those move together.
 
 **A rename is not done until the old name has been searched for**, in the README
 as well as in the code. A quote is how a label change leaves a false sentence
@@ -406,8 +439,8 @@ false. One that cannot be refreshed is taken out of the README until it can be,
 never kept "for now".
 
 **Voice.** One writer throughout: British spellings (`licence`, `recogniser`,
-`synthesiser`), plain declarative sentences, the reader as *you* and the app as
-*it*, first person only in the opening "I built". The short list is what the app
+`synthesiser`), plain declarative sentences, the reader as _you_ and the app as
+_it_, first person only in the opening "I built". The short list is what the app
 does today, not what it is becoming. Sizes and times are concrete, because the
 reader is deciding whether their machine can run it. A section may open with the
 question it answers. No adjective doing a number's work, and no promise the build
@@ -561,6 +594,7 @@ else does.
   directory. The directory has to be laid out the way the app uses it — weights at
   the root or in a model's own subdirectory, engine in `engine/` — because that is
   where the supervisor takes the shared libraries from.
+
 - The chat model's live check is `scripts/e2e.mjs`: it boots an isolated window
   against a server the person is running, drives the composer and the approval
   cards the way a user does, and asserts each turn's tool calls, files and answer
@@ -569,6 +603,18 @@ else does.
   capability works: `pnpm --filter @marimo/desktop e2e --only chat --shot <dir>`.
   A failing journey is an app bug or a model limit to record, not a check to
   weaken.
+- The voice model's live check is `scripts/tts-check.mjs`. It needs the five
+  pinned files under `model/tts/` (or `--download`) and writes a WAV, asserting
+  its header, its rate and that it is not silent. Run it when the pins, the
+  front end, the tokenisation or the trim/join code moves:
+
+  ```bash
+  MARIMO_MODEL_DIR=$PWD/apps/desktop/.model-cache/live-model \
+    node scripts/tts-check.mjs
+  ```
+
+  It is not in CI: 92 MB and a real native runtime are not a thing to download on
+  every push.
 
 ## Packaging
 
@@ -576,10 +622,12 @@ else does.
 pnpm --filter @marimo/desktop package   # AppImage into apps/desktop/release/
 ```
 
-**Packaging ships no model.** The chat model is a server the person runs and
-Recall downloads its own, so the installer is small and the same on every
-machine. `package`, `package:win` and `package:mac` are plain builds and there is
-no variable to remember.
+**Packaging ships no model.** The chat model is a server the person runs, Recall
+downloads its own, and the voice model is a download too. The installer does
+carry the ONNX runtime, so it is larger than before and its native binaries are
+per platform; the per-platform `files` lists keep the other platforms' copies and
+the CUDA/TensorRT providers out. `package`, `package:win` and `package:mac` are
+plain builds and there is no variable to remember.
 
 **`asar` stays off.** The runner is this binary started with
 `ELECTRON_RUN_AS_NODE=1`, and Node mode has no asar support: reading a file inside
@@ -604,7 +652,7 @@ installer, so a packaged app and a checkout find it the same way.
   `migrations.ts` and the theme tokens all exist because a version of this app
   got them wrong once.
 - A chat model is an address, a model name and a window; a downloaded model is
-  recall's, and it is a process, a file and a licence. Adding a download means
-  updating the pins, the installer's asset lookup and the recall card together —
-  a model the UI offers and the installer cannot fetch is a button that fails at
-  0 percent.
+  recall's or the voice model, and it is a file, a pin and a licence. Adding a
+  download means updating the pins, the installer and the card together — a model
+  the UI offers and the installer cannot fetch is a button that fails at 0
+  percent.

@@ -51,7 +51,6 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-
 import {appIsRunning, startApp, stopApp} from './app-process.mjs';
 import {attach, until as waitUntil} from './window-driver.mjs';
 
@@ -622,7 +621,9 @@ async function main() {
         `the model server step does not name the server's model: ${JSON.stringify(modelStep)}`,
       );
     } else if (!modelStep.canContinue) {
-      fail('the model server step will not continue with a server that answers');
+      fail(
+        'the model server step will not continue with a server that answers',
+      );
     } else {
       ok('the first run finds the model server and offers to continue');
     }
@@ -2031,7 +2032,11 @@ async function main() {
                 return value === undefined ? undefined : JSON.parse(value);
               },
             );
-            if (!String(pictureViewer.src ?? '').startsWith('marimo-asset://space/')) {
+            if (
+              !String(pictureViewer.src ?? '').startsWith(
+                'marimo-asset://space/',
+              )
+            ) {
               fail(
                 `the picture viewer did not use the Space's asset URL: ${pictureViewer.src}`,
               );
@@ -2044,12 +2049,15 @@ async function main() {
               const close = document.querySelector('.image-viewer-close');
               close?.click();
             })()`);
-            const closed = await until('the picture viewer to close', async () => {
-              const value = await evaluate(
-                `document.querySelector('.image-viewer') === null`,
-              );
-              return value === true ? true : undefined;
-            });
+            const closed = await until(
+              'the picture viewer to close',
+              async () => {
+                const value = await evaluate(
+                  `document.querySelector('.image-viewer') === null`,
+                );
+                return value === true ? true : undefined;
+              },
+            );
             if (closed !== true) {
               fail('the picture viewer did not close');
             }
@@ -2474,13 +2482,49 @@ async function main() {
       }
 
       /*
+       * Spoken replies: the switch is on the one screen, and a fresh install
+       * offers the download rather than claiming a voice it does not have.
+       */
+      await openSection('Spoken replies');
+      const speechCard = await until('the Spoken replies card', async () => {
+        const value = await evaluate(`(() => {
+            const card = [...document.querySelectorAll('.settings-section')].find(
+              (section) => section.querySelector('h3')?.textContent === 'Spoken replies',
+            );
+            if (card === undefined) return undefined;
+            const buttons = [...card.querySelectorAll('button')].map((button) =>
+              button.textContent.trim(),
+            );
+            return JSON.stringify({
+              toggle: card.querySelector('input[type="checkbox"]') !== null,
+              download: buttons.some((text) => text.includes('Download voice model')),
+              size: card.textContent.includes('92 MB'),
+            });
+          })()`);
+        return value === undefined ? undefined : JSON.parse(value);
+      });
+      if (!speechCard.toggle) {
+        fail('the Spoken replies card has no switch');
+      } else if (!speechCard.download) {
+        fail('a fresh install is not offered the voice-model download');
+      } else if (!speechCard.size) {
+        fail('the Spoken replies card does not name the download size');
+      } else {
+        ok(
+          'Settings offers spoken replies, off until the voice model is downloaded',
+        );
+      }
+
+      /*
        * The Jobs card, seeded above. It has to list the job under its bot with
        * the schedule in words, and its Pause button has to go through the same
        * store a turn's `update_job` does.
        */
       await openSection('Jobs');
-      const jobCard = await until('the Jobs card to show the seeded job', async () => {
-        const value = await evaluate(`(() => {
+      const jobCard = await until(
+        'the Jobs card to show the seeded job',
+        async () => {
+          const value = await evaluate(`(() => {
         const card = document.querySelector('.settings-job');
         if (card === null) return undefined;
         return JSON.stringify({
@@ -2496,8 +2540,9 @@ async function main() {
           ),
         });
       })()`);
-        return value === undefined ? undefined : JSON.parse(value);
-      });
+          return value === undefined ? undefined : JSON.parse(value);
+        },
+      );
 
       if (jobCard.name !== 'Smoke reminder') {
         fail(`the Jobs card drew "${jobCard.name}", not the seeded job`);
@@ -2602,8 +2647,10 @@ async function main() {
        * their absence is the check that the old card is gone.
        */
       await openSection('Model server');
-      const serverCard = await until('the Model server card to answer', async () => {
-        const state = await evaluate(`(() => {
+      const serverCard = await until(
+        'the Model server card to answer',
+        async () => {
+          const state = await evaluate(`(() => {
           const section = [...document.querySelectorAll('.settings-section')]
             .find((entry) => entry.querySelector('h3')?.textContent === 'Model server');
           if (section === undefined) return undefined;
@@ -2621,8 +2668,9 @@ async function main() {
             downloads: buttons.filter((text) => /download|install/iu.test(text)),
           });
         })()`);
-        return state === undefined ? undefined : JSON.parse(state);
-      });
+          return state === undefined ? undefined : JSON.parse(state);
+        },
+      );
 
       if (serverCard.passwordFields !== 0) {
         fail('the Model server card still has an API-key field');
@@ -2631,13 +2679,19 @@ async function main() {
           `the Model server card still offers a download: ${JSON.stringify(serverCard.downloads)}`,
         );
       } else if (!serverCard.url.endsWith('/v1')) {
-        fail(`the Model server card does not show the address: ${JSON.stringify(serverCard)}`);
+        fail(
+          `the Model server card does not show the address: ${JSON.stringify(serverCard)}`,
+        );
       } else if (serverCard.state !== 'ready') {
         fail(`the Model server card is ${serverCard.state}, not connected`);
       } else if (!serverCard.text.includes('qwen3-8b')) {
-        fail('the Model server card does not name the model the server reports');
+        fail(
+          'the Model server card does not name the model the server reports',
+        );
       } else {
-        ok('the Model server card shows the address, the status and the model, with no download');
+        ok(
+          'the Model server card shows the address, the status and the model, with no download',
+        );
       }
 
       /*

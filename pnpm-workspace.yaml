@@ -29,6 +29,10 @@ allowBuilds:
   # is a build script, so it stays off until it is. Turn it on with the NSIS
   # target, not before.
   electron-winstaller: false
+  # Downloads the prebuilt N-API binary for this platform. It is a download, not
+  # a compiler step: no C toolchain is needed, and the binary has to be there for
+  # the main process to speak.
+  onnxruntime-node: true
   esbuild: true
   protobufjs: true
   ssh2: false

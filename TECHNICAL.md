@@ -62,30 +62,30 @@ pnpm build:web   # the renderer bundle — `build` alone leaves it stale
 
 ## What is built
 
-| State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Done        | The chat model is an OpenAI-compatible server the person runs on this computer. The app discovers the model and window from `/v1/models` and `/props`, refuses any address that is not loopback, and starts nothing; Settings → Model server owns the address, the model name, the fallback window and the old files |
-| Done        | Vision: an image attached to a message becomes an `image_url` part for the server, not a path the file tools would refuse, and the chat draws it as a thumbnail that opens larger. A picture reaches the model only when the server was started with an image projector |
-| Done        | The app downloads no chat model. The first run connects a server, tests the address and names the model; Settings → Model server owns that connection and lists any Qwen, engine or LFM3 files an older install left behind for removal |
-| Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                      |
-| Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                               |
-| Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                            |
-| Done        | One settings screen, and bots at the top of the sidebar with their own icons — five shipped presets and an uploaded image, changed in Settings                                                                                                                                                                                                                                                                                                                                                                                     |
+| State       | Feature                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Done        | The chat model is an OpenAI-compatible server the person runs on this computer. The app discovers the model and window from `/v1/models` and `/props`, refuses any address that is not loopback, and starts nothing; Settings → Model server owns the address, the model name, the fallback window and the old files                                                                                                                                                                                                         |
+| Done        | Vision: an image attached to a message becomes an `image_url` part for the server, not a path the file tools would refuse, and the chat draws it as a thumbnail that opens larger. A picture reaches the model only when the server was started with an image projector                                                                                                                                                                                                                                                      |
+| Done        | The app downloads no chat model. The first run connects a server, tests the address and names the model; Settings → Model server owns that connection and lists any Qwen, engine or LFM3 files an older install left behind for removal                                                                                                                                                                                                                                                                                      |
+| Done        | The chat: streamed answers rendered as markdown, tool calls that fold away, copy buttons, a rail of Spaces with the conversations filed under the one they work in, light and dark following the OS or chosen                                                                                                                                                                                                                                                                                                                |
+| Done        | Spaces: a folder that holds its own chats, its agents and its documents — the files in it, listed in a library and editable in the window when they are UTF-8 text, with a revision on every write so a stale tab cannot clobber what an agent wrote                                                                                                                                                                                                                                                                         |
+| Done        | A chat with more than one agent: the lead answers and `@` addresses a member on the v2 engine; `ask_agent` asks another bot a tool-less question in the same thread, and `start_task` gives another bot a real turn in its own conversation and posts the result back. The old same-conversation helper with its own gate still serves v1 conversations                                                                                                                                                                      |
+| Done        | One settings screen, and bots at the top of the sidebar with their own icons — five shipped presets and an uploaded image, changed in Settings                                                                                                                                                                                                                                                                                                                                                                               |
 | Done        | The agent core: every conversation runs on the v2 harness — a canonical append-only JSONL log, a frozen versioned spec, one ADK adapter behind a boundary test, and a tool set whose availability follows the grant. The session index is a runtime-owned `FileSessionService`, so create/list/rename/move/delete and the transcript need no turn engine. The old `AgentHost` is deleted; `ask_agent` runs its helper in the parent's session and answers the helper's gate from the parent's card. See `docs/harness-v2.md` |
-| Done        | Approvals that survive a restart, because a pending call is derived from the stored conversation rather than held in memory                                                                                                                                                                                                                                                                                                                                                                                                        |
-| Done        | MCP connectors: add one from either settings screen, test it from the same form, and choose whether to trust it — untrusted servers ask before every call. An agent uses the ones it was granted, and a scheduled job dials them too                                                                                                                                                                                                                                                                                               |
-| Done        | Per-agent capabilities: every tool is a switch, and a tool that is off is not offered to the model at all                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Done        | The stores: jobs, profiles, settings, skills, memory proposals — with format versioning that refuses to overwrite a document it cannot read                                                                                                                                                                                                                                                                                                                                                                                        |
-| Done        | Connector secrets: one file per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear. The model server needs no key                                                                                                                                                                                                                                                  |
-| Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                             |
-| Done        | A first run as a step graph: choose Regular or Power setup, say what you want to do, then only the steps that need it — the model server, a Space, a bot when a goal calls for one, its Persona, the jobs service for Power with scheduling, and a review. Continue on the server step waits for a test that answers, and one flag makes it a first run rather than a screen that comes back                                                                                                                                          |
-| Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                                  |
-| Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                              |
-| Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool                                                                                                                                                                                                                                                                                            |
-| Done        | Learning: turn outcomes, capability and policy proposals, a refusal that expires, and one inbox where the person decides — while a fact the bot remembers is written straight into the Memory card, searchable and forgettable                                                                                                                                                                                                                                                                                                     |
-| In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                                                                                                                                                                                                                                                                                                                  |
+| Done        | Approvals that survive a restart, because a pending call is derived from the stored conversation rather than held in memory                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Done        | MCP connectors: add one from either settings screen, test it from the same form, and choose whether to trust it — untrusted servers ask before every call. An agent uses the ones it was granted, and a scheduled job dials them too                                                                                                                                                                                                                                                                                         |
+| Done        | Per-agent capabilities: every tool is a switch, and a tool that is off is not offered to the model at all                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Done        | The stores: jobs, profiles, settings, skills, memory proposals — with format versioning that refuses to overwrite a document it cannot read                                                                                                                                                                                                                                                                                                                                                                                  |
+| Done        | Connector secrets: one file per connector secret, encrypted in the OS keychain, stored readable only when the user asks for that one to be readable by the background runner, and a machine with no keychain told so rather than written to in the clear. The model server needs no key                                                                                                                                                                                                                                      |
+| Done        | Scheduled jobs while the app is open, and a headless runner plus an OS service that keeps them going while it is closed                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Done        | The desktop companion: a frameless, transparent, click-through moss ball that answers in bubbles above itself, with its own chat bar underneath and its own settings for how long it answers, how much it shows, and whether it floats                                                                                                                                                                                                                                                                                       |
+| Done        | A first run as a step graph: choose Regular or Power setup, say what you want to do, then only the steps that need it — the model server, a Space, a bot when a goal calls for one, its Persona, the jobs service for Power with scheduling, and a review. Continue on the server step waits for a test that answers, and one flag makes it a first run rather than a screen that comes back                                                                                                                                 |
+| Done        | A memory review: after a conversation goes quiet the agent writes down what is worth remembering, checking each fact against a quote from the conversation — reading a long session in stretches rather than only once it ends, and keeping the facts you removed or turned down from coming back                                                                                                                                                                                                                            |
+| Done        | Memory in two halves: who the user is, which follows them between projects, and what this folder is, which does not — with a correction able to replace an old fact rather than sit beside it, and every bullet dated                                                                                                                                                                                                                                                                                                        |
+| Done        | A way to say an answer was wrong. It is recorded, never written straight into memory, and the next review reads it                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Done        | Recall: find things by what they mean rather than by the words they use, across the folder you loaded, memory, your own conversations and — with one more download — images, audio and video, from a search box or the agent's own tool                                                                                                                                                                                                                                                                                      |
+| Done        | Learning: turn outcomes, capability and policy proposals, a refusal that expires, and one inbox where the person decides — while a fact the bot remembers is written straight into the Memory card, searchable and forgettable                                                                                                                                                                                                                                                                                               |
+| In progress | Windows and macOS installers (the config is written and both package; the installers are unbuilt — see [Building a release](#building-a-release))                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Why it is built this way
 
@@ -129,9 +129,10 @@ developed and tested against llama.cpp with the Gemma 4 12B IT QAT `UD-Q4_K_XL`
 GGUF and its vision projector, a 16K window, flash attention with a q8 KV cache
 and `-ub 1120` so a picture gets more than llama.cpp's 512-token default. The
 exact command lives in the README's Model server section and in the Model server
-card. Nothing in the app downloads, lists or chooses a model; the reference exists
-so a person has one known-good setup, and every other tools-capable model stays
-welcome.
+card. Nothing in the app downloads, lists or chooses a chat model; the reference
+exists so a person has one known-good setup, and every other tools-capable model
+stays welcome. The one other model the app downloads is the voice model for
+spoken replies, which is not a chat model and is never sent a turn.
 
 **One endpoint, and it is on this computer.** `packages/protocol/src/model-server.ts`
 holds the block and the rules: a base URL, a model name and a fallback window.
@@ -181,18 +182,18 @@ guessing.
 
 **Installation is recall's, and the old chat files are cleaned up explicitly.**
 `installEngine` and `installEmbeddingPiece` still verify, resume and mark every
-byte they fetch for Recall's engine and model. The chat model has no installer.
-An upgrade leaves the old Qwen directory and the old `model/engine` behind; the
-Model server card lists them against a fixed enum and removes one only when the
-person presses the button. `model/recall/engine` is a different path and is never
-in that list.
+byte they fetch for Recall's engine and model. The chat model has no installer;
+the voice model does, under `speech/install.ts`. An upgrade leaves the old Qwen
+directory and the old `model/engine` behind; the Model server card lists them
+against a fixed enum and removes one only when the person presses the button.
+`model/recall/engine` and `model/tts/` are different paths and are never in that
+list.
 
 **Recall is still a separate engine.** It downloads its own embedding model and
 runs its own pinned llama.cpp build under `model/recall/`, supervised by
 `LocalModelService`. The pin discipline, the verified resumable download and the
-never-leave-an-engine-behind rule all apply there. It is the only chat-adjacent
-model the app owns now, and it stays on the processor because its model card
-warns that the activations overflow float16.
+never-leave-an-engine-behind rule all apply there. It stays on the processor
+because its model card warns that the activations overflow float16.
 
 ### A connector belongs to the install; a grant belongs to an agent
 
@@ -790,7 +791,7 @@ Power-only, and `request_tool` refuses it by name, in the catalogue and again at
 the proposal write, for the same reason as `run_shell`: a bot that can ask for it
 could talk its way past the switch the person never turned on. `rename_file` is
 not in that refused pair: it can neither overwrite nor leave the folder, so it is
-a capability a bot may *ask* for, and the person's click is still the grant.
+a capability a bot may _ask_ for, and the person's click is still the grant.
 
 **A fresh install starts in a folder the app made, not in the home directory.**
 `defaultWorkspace` is `<home>/Marimo`, and `WorkspaceStore` creates it when it
@@ -1074,6 +1075,69 @@ per-request prompt for that turn only — cleared on the way into the next one, 
 a question asked at the pet does not make the window terse as well. It is prompt
 text, like a skill, which is why changing it never aborts a turn in flight.
 
+### Spoken replies are a separate, small model
+
+**Speech is a download, not a mode of the chat model.** The old build made one
+Omni model answer, see and speak; the 2B model was the wrong trade for a
+tool-driven agent, and speech was the largest surface hanging off it. The chat
+model is now the person's server, so speech can be the small model it should have
+been: Kitten TTS 2 Mini, an 82.7 MB int8 ONNX graph at 24 kHz, downloaded only
+when somebody presses the button and run in the main process.
+
+**The files are pinned and the marker is checked.** Five files — the graph, the
+English voice pack, the vocabulary, the catalogue and the CMU fallback — live
+under `model/tts/` beside `model/recall/`. `speech/pins.ts` names the repository
+revision and a SHA-256 for each; `speech/install.ts` reuses `downloadVerified`,
+so a `.part` resumes, a digest mismatch deletes what it fetched, and the marker is
+written only after every file is in place. A newer pin re-downloads; a missing or
+wrong-sized file makes `isSpeechInstalled` answer no, and the card offers a repair
+that hashes what is there and fetches only what changed.
+
+**The engine is one ONNX session in the main process.** `SpeechHost` loads
+`onnxruntime-node` lazily, creates one CPU session, feeds
+`input_ids`/`style`/`speed`, and joins what comes back. Both windows share it, so
+two replies cannot load two copies of the graph; requests go through one queue,
+and the session is released after five quiet minutes. The renderer only sees a
+WAV; the audio is a data URL, which is why `media-src` already allows one.
+
+**The text front end is the hard part, and it is permissive.** The model's own
+front end is misaki's lexicon, CMUdict and a small BART for the words neither
+knows; this build uses the pure-TypeScript misaki port
+(`@titan-design/speech-g2p`, MIT with misaki's Apache-2.0 data) and the model
+repository's CMU file as the fallback. It does not have the BART stage: a word
+neither lexicon knows is dropped and counted, which the model's own code does
+when its third stage is absent, and which is about one word in a hundred. The
+normaliser is a port of the repository's Apache-2.0 `tts_norm.py`, so times,
+dates, money, units and ranges are spoken rather than skipped. **espeak-ng is not
+used**; it is GPLv3, and bundling it would change what this Apache-2.0
+application can be.
+
+**One reply is one request, and only the surface that asked hears it.** The
+renderer's `toSpeech` strips markdown; the hook calls `speech.speak` once per
+finished turn and plays the WAV. `turn.completed` carries the origin, so a turn
+asked in the window is silent in the pet and a gate answered in the pet speaks
+there. A job or a Discord mention has no origin and stays silent. There is no
+prefetch and no sentence chunking: the engine already synthesises a short reply
+in about a second, and the brief default keeps it that way.
+
+**The spoken length is its own preference.** `speech.answerLength` defaults to
+`brief`; when speech is on it is the length block for either surface, and the
+companion's own length still governs its text when speech is off. The prompt text
+lives in `turnInstruction` with the companion's, and the setting travels on the
+turn rather than on the conversation.
+
+**English is the first language, not the last.** The model carries 16 languages
+and 118 voices; this build ships the 11 English voices and the English front end.
+Another language is a per-language G2P and a voice pack, not a line in the
+picker; the card names the 11 it can actually speak.
+
+**Settings move to version 5.** The block is `{enabled, voice, answerLength}`;
+it is filled block by block like the companion's, merged field by field on a
+patch, and the `4 -> 5` migration adds it off, on the first English voice, with
+the brief length. `speech.changed` carries the block to the pet, which is a
+separate window and would otherwise keep speaking after the switch was turned
+off in Settings.
+
 ## Layout
 
 ```
@@ -1081,8 +1145,9 @@ packages/protocol   The typed contract. No Node, no Electron, no React.
 packages/agent      The agent: ADK, the OpenAI-compatible client, tools, skills,
                     memory, sessions.
 packages/runtime    Where files live, secrets, the stores, document versions,
-                    the documents a Space holds, the recall engine, the OS
-                    service plans.
+                    the documents a Space holds, the recall engine, the voice
+                    model's pins/installer/front end/WAV engine, the OS service
+                    plans.
 apps/desktop
   src/main          Window, IPC, tray, the OS service, path and secret adapters,
                     the recall host, media decoding
@@ -1133,6 +1198,8 @@ companion-state.json    where the moss was left
 recall.pid              the embedding engine, for the same reason
 recall/                 the search index, when a profile has no folder to keep it in
 app.lock                the running app, so the headless runner leaves the jobs alone
+model/recall/           Recall's engine and weights, unless MARIMO_MODEL_DIR says otherwise
+model/tts/              the voice model, unless MARIMO_MODEL_DIR says otherwise
 ```
 
 The other half of memory is the project's, and it is not here: it is

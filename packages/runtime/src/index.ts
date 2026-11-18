@@ -161,6 +161,17 @@ export type {
 } from './local-model/index.js';
 
 /*
+ * Spoken replies: the voice model's pinned download, its voices and the engine
+ * that turns text into a WAV.
+ *
+ * The ONNX runtime stays in the main process. Everything here is pure enough to
+ * test without it: the download is a file operation, the frontend is text and
+ * the engine talks to an injected session. That is also what keeps the headless
+ * runner from loading a model it never speaks.
+ */
+export * from './speech/index.js';
+
+/*
  * Recall: the embedding model, and the pieces that turn it into an answer.
  *
  * Beside the model above because it *is* a model — a second engine, its own

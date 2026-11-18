@@ -294,6 +294,27 @@ body.companion-body {
   color: var(--text-muted);
 }
 
+/*
+ * Stop speaking, beside the send button. It is deliberately quieter than the
+ * send control: it stops a convenience, it does not stop the turn, and the
+ * answer is already on screen.
+ */
+.pet-speak {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+.pet-speak:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------------- moss */
 
 /* The fixed point of the layout: the column above it takes whatever room is

@@ -30,6 +30,7 @@ import {
   secretReaderFor,
   sortJobs,
   turnInstruction,
+  ttsDir,
   BOT_BUILDER_INSTRUCTION,
 } from '@marimo/runtime';
 import type {ProcessLock} from '@marimo/runtime';
@@ -68,6 +69,8 @@ import type {
   SessionUsage,
   SkillDraft,
   SkillHistoryEntry,
+  SpeechStatus,
+  SpokenAudio,
   StoredSkill,
   TranscriptMessage,
   Workspace,
@@ -79,6 +82,7 @@ import {secretStore} from './secrets.js';
 import {shouldUseV2} from './harness-route.js';
 import {BrowserSearchProvider} from './search/search-window.js';
 import {RecallHost} from './recall.js';
+import {SpeechHost} from './speech-host.js';
 import {MediaDecodingWindow} from './media/decode-window.js';
 import {mediaParts} from './media/parts.js';
 import {MCP_CLIENT} from '../shared/product.js';
@@ -177,6 +181,14 @@ export class AgentService {
    * is only read once the runtime exists.
    */
   private readonly models: ModelServer;
+  /**
+   * The voice model, when the person has downloaded it.
+   *
+   * Owned here for the same reason recall is: the ONNX runtime is a native
+   * package, and the main process is where this app's processes live. It is
+   * constructed unconditionally and loads nothing until a reply is spoken.
+   */
+  private readonly speech: SpeechHost;
   /** How often the badge looks again while the window is open. */
   private modelWatch: NodeJS.Timeout | undefined;
   /** The last status sent to the window, so a quiet watch sends nothing. */
@@ -314,6 +326,14 @@ export class AgentService {
       },
     });
 
+    this.speech = new SpeechHost({
+      dir: ttsDir({userData: paths.userData}),
+      readSettings: async () => (await this.runtime.settings()).speech,
+      sendEvent: (event) => {
+        options.sendEvent(event);
+      },
+    });
+
     this.runtime = new AgentRuntime({
       paths,
       webSearch: this.search,
@@ -445,7 +465,9 @@ export class AgentService {
   async jobsForSettings(): Promise<{jobs: JobSummary[]; problem?: string}> {
     const read = await this.jobsStore.loadChecked();
     const {profiles} = await this.profiles();
-    const names = new Map(profiles.map((profile) => [profile.id, profile.name]));
+    const names = new Map(
+      profiles.map((profile) => [profile.id, profile.name]),
+    );
 
     /*
      * Only the owners and conversations the list actually names are read. A
@@ -574,6 +596,7 @@ export class AgentService {
      * before the window opened.
      */
     this.models.dispose();
+    this.speech.dispose();
     // Stops the recall engine too, through the runner the runtime was given: a
     // child still loading weights when its parent exits is memory and a spinning
     // fan with no window left to explain it.
@@ -1570,6 +1593,28 @@ export class AgentService {
     this.models.invalidate();
   }
 
+  /** The voice model's files and session, as the Settings card draws them. */
+  async speechStatus(): Promise<SpeechStatus> {
+    return await this.speech.status();
+  }
+
+  /** Starts the voice-model download; the card watches the events. */
+  async installSpeech(): Promise<{started: boolean}> {
+    return await this.speech.install();
+  }
+
+  cancelSpeech(): {cancelled: boolean} {
+    return this.speech.cancel();
+  }
+
+  async sampleSpeech(voice?: string): Promise<SpokenAudio> {
+    return await this.speech.sample(voice);
+  }
+
+  async speak(text: string): Promise<SpokenAudio> {
+    return await this.speech.speak(text);
+  }
+
   async listSessions(profileId?: string): Promise<SessionSummary[]> {
     const sessions = await this.runtime.listSessions(profileId);
     if (profileId === undefined) {
@@ -1780,30 +1825,41 @@ export class AgentService {
       const purpose =
         v2Info?.purpose ??
         (await this.runtime.sessionPurpose(profileId, sessionId));
+      /*
+       * A spoken turn uses the spoken length, for both surfaces. A window turn
+       * with speech off has no length preference; a pet turn falls back to the
+       * companion's own choice. A job or a Discord mention has no surface, so it
+       * gets neither — its answer is not spoken anywhere.
+       */
+      const spokenLength =
+        settings.speech.enabled && (origin === 'window' || origin === 'pet')
+          ? settings.speech.answerLength
+          : undefined;
       const instruction =
         origin === 'pet'
           ? turnInstruction(
               'pet',
               settings.companion.answerLength,
               undefined,
+              spokenLength,
             )
           : purpose === 'bot-builder'
             ? BOT_BUILDER_INSTRUCTION
-            : undefined;
+            : spokenLength === undefined
+              ? undefined
+              : turnInstruction(
+                  'window',
+                  settings.companion.answerLength,
+                  undefined,
+                  spokenLength,
+                );
       this.pump(
-        harness.run(
-          profileId,
-          sessionId,
-          text,
-          agentId,
-          instruction,
-          purpose,
-          {
-            ...(attachments === undefined || attachments.length === 0
-              ? {}
-              : {attachments: [...attachments]}),
-          },
-        ),
+        harness.run(profileId, sessionId, text, agentId, instruction, purpose, {
+          ...(attachments === undefined || attachments.length === 0
+            ? {}
+            : {attachments: [...attachments]}),
+        }),
+        origin,
       );
       this.scheduleHarnessReview(sessionId);
       return {accepted: true};
@@ -1825,6 +1881,7 @@ export class AgentService {
     sessionId: string,
     callId: string,
     confirmed: boolean,
+    origin?: 'window' | 'pet',
   ): Promise<{accepted: boolean}> {
     /*
      * Which agent is about to be busy, for the review that follows the turn.
@@ -1854,7 +1911,10 @@ export class AgentService {
         });
         return {accepted: false};
       }
-      this.pump(harness.approve(profileId, {sessionId, callId, confirmed}));
+      this.pump(
+        harness.approve(profileId, {sessionId, callId, confirmed}),
+        origin,
+      );
       return {accepted: true};
     }
 
@@ -1894,15 +1954,28 @@ export class AgentService {
    * reject an unawaited promise, which would be an unhandled rejection in the
    * main process — a crash with nothing on screen to explain it.
    */
-  private pump(stream: AsyncGenerator<AgentUiEvent>): void {
+  private pump(
+    stream: AsyncGenerator<AgentUiEvent>,
+    origin?: 'window' | 'pet',
+  ): void {
     void (async () => {
       try {
         for await (const event of stream) {
           if (this.stopped) {
             return;
           }
-          this.options.sendEvent(event);
-          this.noteAfterTurn(event);
+          /*
+           * The surface rides the completion, not the stored turn: the window
+           * and the pet share a conversation, and a spoken reply has to come
+           * out of the one that asked. A resume is a new turn, so the origin of
+           * the card's answer wins over the origin of the question.
+           */
+          const outgoing: AgentUiEvent =
+            event.type === 'turn.completed' && origin !== undefined
+              ? {...event, origin}
+              : event;
+          this.options.sendEvent(outgoing);
+          this.noteAfterTurn(outgoing);
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

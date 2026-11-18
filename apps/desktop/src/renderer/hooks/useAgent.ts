@@ -125,6 +125,15 @@ export interface AgentController {
   pending: PendingGate[];
   live: LiveTurn | null;
   /**
+   * The answer a finished turn produced, and the surface that asked.
+   *
+   * The completion event carries the origin but not the text; this is the one
+   * place the two survive long enough for the speaking hook to notice. `id` is
+   * the completion's message id, so a re-render does not speak the same answer
+   * twice.
+   */
+  lastTurn: {id: string; text: string; origin?: 'window' | 'pet'} | null;
+  /**
    * Work the lead has handed to another agent, by the parent's tool call id.
    *
    * Emptied when the turn ends, however it ends. A thread that kept spinning
@@ -323,6 +332,32 @@ export function useAgent(
     {},
   );
   const [outbox, setOutbox] = useState<string | null>(null);
+  /**
+   * The last finished answer, for the speaking hook.
+   *
+   * The stored transcript is the authority on the words; this is set from it
+   * after the completion reload, with the streamed text as a fallback for a
+   * reply whose stored read failed.
+   */
+  const [lastTurn, setLastTurn] = useState<{
+    id: string;
+    text: string;
+    origin?: 'window' | 'pet';
+  } | null>(null);
+  /**
+   * The text as it streamed, read once at the completion.
+   *
+   * A ref rather than state because the completion handler is registered once
+   * and must see the text that arrived, not the first render's empty string.
+   */
+  const liveText = useRef('');
+  /**
+   * Which turn is the newest. A completion reloads the transcript before it
+   * hands the answer to the speaking hook, and a new turn can start inside that
+   * gap; without this, the old answer would arrive after the new one and be
+   * read aloud as if it were the reply just asked for.
+   */
+  const turnEpoch = useRef(0);
   const [openSettings, setOpenSettings] = useState(0);
   const [themeMode, setThemeMode] = useState<ThemeMode>('system');
   /**
@@ -364,7 +399,7 @@ export function useAgent(
   const helperAtWork = useRef<string | null>(null);
 
   const loadTranscript = useCallback(
-    async (profileId: string, id: string): Promise<void> => {
+    async (profileId: string, id: string): Promise<TranscriptMessage[]> => {
       const result = await window.marimo.call('sessions.get', {
         profileId,
         sessionId: id,
@@ -373,7 +408,7 @@ export function useAgent(
       // committing it then would put one conversation's history under another's
       // title.
       if (openSession.current !== id) {
-        return;
+        return [];
       }
       setMessages(result.messages);
       setStoredPending(result.pending);
@@ -383,6 +418,7 @@ export function useAgent(
        * are the same bubble: a frame apart would blink it.
        */
       setOutbox(null);
+      return result.messages;
     },
     [],
   );
@@ -738,6 +774,8 @@ export function useAgent(
       switch (event.type) {
         case 'turn.started':
           if (forUs) {
+            turnEpoch.current += 1;
+            liveText.current = '';
             setLive({
               messageId: event.messageId,
               text: '',
@@ -750,6 +788,7 @@ export function useAgent(
 
         case 'text.delta':
           if (forUs) {
+            liveText.current += event.text;
             setLive((turn) =>
               turn === null ? turn : {...turn, text: turn.text + event.text},
             );
@@ -947,6 +986,9 @@ export function useAgent(
            */
           const id = openSession.current;
           const active = profileRef.current;
+          const streamed = liveText.current.trim();
+          const epoch = turnEpoch.current;
+          liveText.current = '';
           if (forUs) {
             /*
              * The helpers go with the turn, whatever ended it. A thread is only
@@ -959,7 +1001,48 @@ export function useAgent(
             setDelegations({});
             helperAtWork.current = null;
             if (id !== null && active !== undefined) {
-              void loadTranscript(active.id, id).catch(() => undefined);
+              void loadTranscript(active.id, id)
+                .then((loaded) => {
+                  if (
+                    event.type !== 'turn.completed' ||
+                    openSession.current !== id ||
+                    turnEpoch.current !== epoch
+                  ) {
+                    return;
+                  }
+                  /*
+                   * The last assistant message of the turn is the answer. A
+                   * turn with tool calls has earlier assistant messages too;
+                   * reading the last one is what stops the window speaking
+                   * "let me check that" before the answer.
+                   */
+                  const answer = [...loaded]
+                    .reverse()
+                    .find(
+                      (message) =>
+                        message.role === 'assistant' &&
+                        message.invocationId === event.messageId &&
+                        message.text.trim().length > 0,
+                    );
+                  const text = answer?.text ?? streamed;
+                  if (text.trim().length === 0) {
+                    return;
+                  }
+                  setLastTurn({
+                    id: event.messageId,
+                    text,
+                    ...(event.origin === undefined
+                      ? {}
+                      : {origin: event.origin}),
+                  });
+                })
+                .catch(() => undefined);
+            } else if (event.type === 'turn.completed' && streamed.length > 0) {
+              setLastTurn({
+                id: event.messageId,
+                text: streamed,
+                ...(event.origin === undefined ? {} : {origin: event.origin}),
+              });
             }
           }
           return;
@@ -1115,12 +1198,13 @@ export function useAgent(
           sessionId,
           callId,
           confirmed,
+          origin: surface,
         });
       } catch (failure) {
         setError(describe(failure));
       }
     },
-    [profile, sessionId],
+    [profile, sessionId, surface],
   );
 
   const stop = useCallback(async (): Promise<void> => {
@@ -1378,6 +1462,7 @@ export function useAgent(
     messages,
     pending,
     live,
+    lastTurn,
     delegations,
     outbox,
     busy,

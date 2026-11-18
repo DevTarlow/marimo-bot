@@ -1974,6 +1974,41 @@ body.resizing-rail * {
 }
 
 /*
+ * The audition and the progress bar are the two shapes in Settings that are not
+ * a field: a button beside the sentence it explains, and a download's width.
+ * They are here rather than in the components because every other setting uses
+ * the same tokens.
+ */
+.settings-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 var(--space-4);
+}
+
+.settings-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.settings-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.settings-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+/*
  * The button keeps its own width; the field absorbs what is left. Without this
  * a long label — "Fetch Models" beside a long model id — is squeezed onto two
  * lines by the field's overflow instead of the field being clipped.
@@ -3544,11 +3579,13 @@ body.resizing-rail * {
 }
 
 /*
- * The microphone sits beside `+`, because both add something to the message and
- * neither sends it. Hold to talk; the recording state is a filled accent so it
- * cannot be mistaken for a button that did nothing.
+ * The microphone, and the stop-speaking button in the same footprint, sit
+ * beside `+`: both act on the message rather than sending it. The recording and
+ * speaking states are a filled accent so neither can be mistaken for a button
+ * that did nothing.
  */
-.composer-mic {
+.composer-mic,
+.composer-speak {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -3562,20 +3599,23 @@ body.resizing-rail * {
   line-height: 1;
 }
 
-.composer-mic:hover:not(:disabled) {
+.composer-mic:hover:not(:disabled),
+.composer-speak:hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--accent-border);
   color: var(--text);
 }
 
 .composer-mic.is-recording,
-.composer-mic.is-speaking {
+.composer-mic.is-speaking,
+.composer-speak.is-speaking {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
 }
 
-.composer-mic:disabled {
+.composer-mic:disabled,
+.composer-speak:disabled {
   border-color: var(--border);
   color: var(--text-faint);
 }

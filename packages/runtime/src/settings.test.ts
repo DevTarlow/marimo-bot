@@ -15,6 +15,7 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
   DEFAULT_MODEL_SERVER_URL,
   defaultModelServerSettings,
+  defaultSpeechSettings,
 } from '@marimo/protocol';
 
 import {
@@ -97,6 +98,7 @@ describe('SettingsStore', () => {
     const settings = await store.load();
     expect(settings.modelServer).toEqual(defaultModelServerSettings());
     expect(settings.modelServer.url).toBe(DEFAULT_MODEL_SERVER_URL);
+    expect(settings.speech).toEqual(defaultSpeechSettings());
     expect('providers' in settings).toBe(false);
     expect('availableModels' in settings).toBe(false);
   });
@@ -161,9 +163,10 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(4);
+    expect(raw['version']).toBe(5);
     expect(raw['localModels']).toBeUndefined();
     expect(raw['modelServer']).toBeDefined();
+    expect(raw['speech']).toEqual(defaultSpeechSettings());
   });
 
   it('merges a model-server patch one field at a time', async () => {
@@ -250,7 +253,7 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(4);
+    expect(raw['version']).toBe(5);
     expect(raw['setupSeen']).toBe(true);
     expect(raw['providers']).toBeUndefined();
     expect(raw['availableModels']).toBeUndefined();
@@ -279,5 +282,40 @@ describe('SettingsStore', () => {
     expect(settings.companion.answerLength).toBe('detailed');
     expect(settings.companion).not.toHaveProperty('speakReplies');
     expect(settings.companion).not.toHaveProperty('speechVoice');
+    // The voice model that replaced those keys is a separate block, off.
+    expect(settings.speech).toEqual(defaultSpeechSettings());
+  });
+
+  it('adds the spoken-replies block to a version 4 file and keeps the rest', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 4,
+        sidebarWidth: 335,
+        setupSeen: true,
+        companion: {answerLength: 'detailed'},
+        modelServer: defaultModelServerSettings(),
+      }),
+      'utf8',
+    );
+
+    const settings = await store.load();
+    expect(settings.sidebarWidth).toBe(335);
+    expect(settings.setupSeen).toBe(true);
+    expect(settings.companion.answerLength).toBe('detailed');
+    expect(settings.speech).toEqual(defaultSpeechSettings());
+  });
+
+  it('merges a spoken-replies patch one field at a time', async () => {
+    await store.load();
+    await store.patch({speech: {enabled: true}});
+    await store.patch({speech: {answerLength: 'balanced'}});
+
+    const settings = await store.load();
+    expect(settings.speech).toEqual({
+      enabled: true,
+      voice: 'eleanor',
+      answerLength: 'balanced',
+    });
   });
 });

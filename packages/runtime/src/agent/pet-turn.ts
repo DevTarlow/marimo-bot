@@ -57,6 +57,60 @@ const LENGTHS: Record<CompanionAnswerLength, string> = {
 };
 
 /**
+ * The spoken length's instruction, one per size.
+ *
+ * A spoken answer has a different constraint from a short one on screen: the
+ * listener cannot skim, so the answer has to arrive in the order it is heard,
+ * and a caveat added after the point is a caveat the listener has to hold in
+ * their head. `brief` is the default because that is what the person asked for
+ * when they turned speech on, and because synthesis is time the listener waits
+ * through. The surface still matters: the moss is a small window and the main
+ * window is not.
+ */
+const SPOKEN_LENGTHS: Record<
+  CompanionAnswerLength,
+  (origin: 'window' | 'pet') => string
+> = {
+  brief: (origin) =>
+    [
+      '# This answer will be read aloud',
+      '',
+      `It will be spoken in ${
+        origin === 'pet' ? 'the desktop companion' : 'the main window'
+      }, so it has to make sense heard once.`,
+      '',
+      '- Lead with the answer. One or two sentences if that is enough.',
+      '- No preamble, no restating the question, no summary at the end.',
+      '- Trim what the user did not ask for: no alternatives, no caveats, no',
+      '  offer to do more.',
+      '- Code, commands and file paths stay whole. Brevity never costs accuracy.',
+      '- If it genuinely needs more room, give the short version aloud and say',
+      '  that the full answer is on screen.',
+    ].join('\n'),
+  balanced: (origin) =>
+    [
+      '# This answer will be read aloud',
+      '',
+      `It will be spoken in ${
+        origin === 'pet' ? 'the desktop companion' : 'the main window'
+      }. Keep it to what was asked, at the length the question deserves: short`,
+      'for a lookup, longer only for something that genuinely takes several steps.',
+      'No preamble and no restating the question.',
+    ].join('\n'),
+  detailed: (origin) =>
+    [
+      '# This answer will be read aloud',
+      '',
+      `It will be spoken in ${
+        origin === 'pet' ? 'the desktop companion' : 'the main window'
+      }, and the person asked for the full answer rather than the short one.`,
+      'Answer completely, written to be heard: plain prose, short paragraphs,',
+      'and the reasoning in the order a listener can follow it. No tables and no',
+      'preamble.',
+    ].join('\n'),
+};
+
+/**
  * The instruction for a turn, or undefined for an ordinary one.
  *
  * `origin` is optional so every existing caller — a job, a Discord mention, a
@@ -69,16 +123,24 @@ const LENGTHS: Record<CompanionAnswerLength, string> = {
  * block because it ends by saying that none of it is a request, and a model
  * reads the last instruction it was given most literally.
  *
- * A window turn answers with the context alone when there is one: the window has
- * no length preference to state, but it is still a person typing at a particular
- * time of day.
+ * `spokenLength` is present when this turn's answer will be read aloud, and it
+ * wins over the companion's text length: the person set a length for the voice,
+ * and the same words are what the listener hears. A window turn with speech off
+ * has no length to state; with speech on it uses this block, because the window
+ * has no other length preference.
  */
 export function turnInstruction(
   origin: 'window' | 'pet' | undefined,
   answerLength: CompanionAnswerLength,
   context?: string,
+  spokenLength?: CompanionAnswerLength,
 ): string | undefined {
-  const length = origin === 'pet' ? LENGTHS[answerLength] : undefined;
+  const length =
+    spokenLength !== undefined
+      ? SPOKEN_LENGTHS[spokenLength](origin === 'pet' ? 'pet' : 'window')
+      : origin === 'pet'
+        ? LENGTHS[answerLength]
+        : undefined;
   const parts = [length, context?.trim()].filter(
     (part): part is string => part !== undefined && part.length > 0,
   );

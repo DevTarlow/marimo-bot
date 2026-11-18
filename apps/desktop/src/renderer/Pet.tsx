@@ -25,12 +25,20 @@
  */
 import {useEffect, useRef, useState} from 'react';
 
-import {defaultCompanionSettings} from '@marimo/protocol';
-import type {CompanionSettings, TranscriptMessage} from '@marimo/protocol';
+import {
+  defaultCompanionSettings,
+  defaultSpeechSettings,
+} from '@marimo/protocol';
+import type {
+  CompanionSettings,
+  SpeechSettings,
+  TranscriptMessage,
+} from '@marimo/protocol';
 
 import {Copy, Markdown} from './components/Markdown.js';
 import {gateCopy} from './gate-copy.js';
 import {useAgent} from './hooks/useAgent.js';
+import {useSpokenReplies} from './hooks/useSpokenReplies.js';
 
 export function Pet(): React.JSX.Element {
   const agent = useAgent({surface: 'pet'});
@@ -54,6 +62,14 @@ export function Pet(): React.JSX.Element {
   const [settings, setSettings] = useState<CompanionSettings>(
     defaultCompanionSettings,
   );
+  /*
+   * The spoken-replies preference, read with the companion's. It is separate
+   * from the block above because it travels to the hook rather than to the
+   * window's layout: the defaults are what the pet showed before the first read
+   * lands, and the event below is how a change in the other window arrives
+   * without reopening this one.
+   */
+  const [speech, setSpeech] = useState<SpeechSettings>(defaultSpeechSettings);
   const column = useRef<HTMLDivElement>(null);
   /*
    * Read inside the mouse listener, which is registered once. Without this the
@@ -64,6 +80,11 @@ export function Pet(): React.JSX.Element {
   clickThrough.current = settings.clickThrough;
 
   const busy = agent.busy;
+  const spoken = useSpokenReplies({
+    enabled: speech.enabled,
+    surface: 'pet',
+    turn: agent.lastTurn,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +93,7 @@ export function Pet(): React.JSX.Element {
         const {settings: loaded} = await window.marimo.call('settings.get', {});
         if (!cancelled) {
           setSettings(loaded.companion);
+          setSpeech(loaded.speech);
           /*
            * The one thing this window does about the app being unable to
            * answer: its ask bar goes quiet. The moss has no room for a setup
@@ -90,6 +112,8 @@ export function Pet(): React.JSX.Element {
     const off = window.marimo.onEvent((event) => {
       if (event.type === 'companion.changed') {
         setSettings(event.settings);
+      } else if (event.type === 'speech.changed') {
+        setSpeech(event.settings);
       } else if (event.type === 'model.status') {
         // The server is started outside both windows. Without this the moss
         // would stay quiet until it was reopened, while the main window's
@@ -364,6 +388,17 @@ export function Pet(): React.JSX.Element {
             }
           }}
         />
+        {spoken.speaking && (
+          <button
+            type="button"
+            className="pet-speak"
+            aria-label="Stop speaking"
+            title="Stop speaking"
+            onClick={spoken.stop}
+          >
+            ■
+          </button>
+        )}
         {busy ? (
           <button
             type="button"

@@ -19,10 +19,12 @@ import {
   DEFAULT_MODEL_SERVER_URL,
   defaultModelServerSettings,
   defaultRecallSettings,
+  defaultSpeechSettings,
   defaultWindowState,
   recallSettingsSchema,
   settingsPatchSchema,
   settingsSchema,
+  speechSettingsSchema,
 } from './index.js';
 
 /**
@@ -71,8 +73,8 @@ describe('the model server in a settings file', () => {
 });
 
 /**
- * The companion keeps its answer length and layout; speech is not part of this
- * build, so an old key is stripped rather than refused.
+ * The companion keeps its answer length and layout. Speech has its own block
+ * now, so an old companion key is stripped rather than refused.
  */
 describe('the companion settings', () => {
   it('have no speech fields any more', () => {
@@ -96,6 +98,47 @@ describe('the companion settings', () => {
     expect(
       settingsPatchSchema.safeParse({
         companion: {answerLength: 'essay'},
+      }).success,
+    ).toBe(false);
+  });
+});
+
+/**
+ * Spoken replies: off, the first English voice and the short answer by default.
+ *
+ * The block is a preference; whether the model is on disk is a status the main
+ * process reports, so nothing here claims it has been downloaded.
+ */
+describe('the spoken replies settings', () => {
+  it('is off, on the first English voice, with a brief answer', () => {
+    expect(defaultSpeechSettings()).toEqual({
+      enabled: false,
+      voice: 'eleanor',
+      answerLength: 'brief',
+    });
+  });
+
+  it('is part of the settings document', () => {
+    expect(settingsSchema.shape.speech).toBeDefined();
+    expect(
+      settingsSchema.safeParse({...settingsShape(), speech: undefined}).success,
+    ).toBe(false);
+  });
+
+  it('accepts a patch touching one field', () => {
+    const parsed = settingsPatchSchema.safeParse({
+      speech: {enabled: true},
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.speech).toEqual({enabled: true});
+  });
+
+  it('refuses an answer length the schema does not know', () => {
+    expect(
+      speechSettingsSchema.safeParse({
+        enabled: true,
+        voice: 'eleanor',
+        answerLength: 'essay',
       }).success,
     ).toBe(false);
   });
@@ -186,6 +229,7 @@ function settingsShape(): Record<string, unknown> {
     mcpServers: [],
     discord: defaultDiscordSettings(),
     companion: defaultCompanionSettings(),
+    speech: defaultSpeechSettings(),
     sidebarWidth: 272,
     todosWidth: 288,
     notesWidth: 288,

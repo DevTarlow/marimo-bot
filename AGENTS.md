@@ -196,14 +196,23 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     The voice model is a 92 MB opt-in download under `model/tts/`: the ONNX graph,
     the English voice pack, the vocabulary, the catalogue and the CMU fallback.
     One ORT session in the main process serves both windows, serialised and
-    unloaded after five quiet minutes. `turn.completed` carries the origin
-    (`window` or `pet`) so exactly that surface speaks; a job or a Discord turn
-    has no origin and stays silent. A spoken turn uses `speech.answerLength`
-    (default `brief`) for either surface; the companion's own length governs its
-    text when speech is off. The text front end is the pure-TypeScript misaki
-    port plus the CMU fallback — **not espeak-ng**, which is GPLv3. This build
-    speaks English (11 of the model's 118 voices); another language is a
-    frontend, not a label.
+    unloaded after five quiet minutes. A reply is split at sentence boundaries
+    and streamed as `speech.audio` chunks, so the first sentence plays while the
+    next is synthesised; a stop cancels the utterance at the host and the
+    renderer stops every scheduled source, and a decode in flight cannot leak a
+    chunk afterwards. `turn.completed` carries the origin (`window` or `pet`) so
+    exactly that surface speaks; a job or a Discord turn has no origin and stays
+    silent. The renderer's `toSpeech` strips markdown, code, JSON, stack traces
+    and tables and shortens paths; the front end expands camel/snake/kebab/path
+    identifiers, spells short acronyms, and falls back to a rule-based English G2P
+    rather than dropping an unknown word. `speech.answerLength` defaults to
+    `brief`, `speech.speed` is the model's speed tensor (0.5–2.0), and a bot may
+    override voice and speed. `speech.speak` is one utterance; a message's Speak
+    button works with auto-read off, and **Remove voice model…** deletes the
+    files only while speech is off. The text front end is the pure-TypeScript
+    misaki port plus CMU and the rule fallback — **not espeak-ng**, which is
+    GPLv3. This build speaks English (11 of the model's 118 voices); another
+    language is a frontend, not a label. Settings is version 6 for `speed`.
 
 ## Documents
 
@@ -370,9 +379,11 @@ work.
 The voice model is the one model this app runs in-process. It is a separate
 model from the chat server, it is downloaded only when somebody presses the
 button, and it is read through `onnxruntime-node` in the main process. The text
-front end is the pure-TypeScript misaki port plus the model's CMU fallback; the
-other fifteen languages the model carries need their own front end, and espeak-ng
-is GPLv3 and is deliberately not in the build.
+front end is the pure-TypeScript misaki port, the model's CMU fallback and a
+small rule-based English G2P for the words neither lexicon knows; identifiers
+and acronyms are expanded before lookup, so an unknown word is approximated
+rather than dropped. The other fifteen languages the model carries need their
+own front end, and espeak-ng is GPLv3 and is deliberately not in the build.
 
 ## Learning
 
@@ -604,9 +615,11 @@ else does.
   A failing journey is an app bug or a model limit to record, not a check to
   weaken.
 - The voice model's live check is `scripts/tts-check.mjs`. It needs the five
-  pinned files under `model/tts/` (or `--download`) and writes a WAV, asserting
-  its header, its rate and that it is not silent. Run it when the pins, the
-  front end, the tokenisation or the trim/join code moves:
+  pinned files under `model/tts/` (or `--download`) and asserts a WAV's header,
+  its rate and that it is not silent, that an OOV/code-shaped sentence drops no
+  words, that a four-sentence reply splits and synthesises, and that speed 1.5
+  comes back shorter than 0.8. Run it when the pins, the front end, the
+  tokenisation, the speed tensor or the trim/join code moves:
 
   ```bash
   MARIMO_MODEL_DIR=$PWD/apps/desktop/.model-cache/live-model \
@@ -625,9 +638,12 @@ pnpm --filter @marimo/desktop package   # AppImage into apps/desktop/release/
 **Packaging ships no model.** The chat model is a server the person runs, Recall
 downloads its own, and the voice model is a download too. The installer does
 carry the ONNX runtime, so it is larger than before and its native binaries are
-per platform; the per-platform `files` lists keep the other platforms' copies and
-the CUDA/TensorRT providers out. `package`, `package:win` and `package:mac` are
-plain builds and there is no variable to remember.
+per platform; the per-platform `files` lists keep the target platform's CPU
+`.node`/library, and drop the other platforms' copies and the CUDA/TensorRT
+providers. CI installs with `ONNXRUNTIME_NODE_INSTALL=skip`; the CPU binaries
+are bundled in the npm tarball (a clean extraction of it was checked), while the
+skipped postinstall only fetches the GPU providers this app never uses. `package`, `package:win` and
+`package:mac` are plain builds and there is no variable to remember.
 
 **`asar` stays off.** The runner is this binary started with
 `ELECTRON_RUN_AS_NODE=1`, and Node mode has no asar support: reading a file inside

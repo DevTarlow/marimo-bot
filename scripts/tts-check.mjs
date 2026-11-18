@@ -88,11 +88,7 @@ const speechSession = {
   },
 };
 
-const sentences = [
-  'Hello. This is what I sound like.',
-  'The meeting is at 3:45pm on 2026-10-13, and it cost $24.5B.',
-];
-for (const [index, text] of sentences.entries()) {
+async function render(text, speed = 1) {
   const started = Date.now();
   const result = await runtime.synthesize({
     text,
@@ -101,13 +97,12 @@ for (const [index, text] of sentences.entries()) {
     session: speechSession,
     phonemize,
     sampleRate: catalogue.sampleRate,
+    speed,
   });
   const elapsed = Date.now() - started;
   const wav = Buffer.from(result.wav);
   if (wav.length <= 44) {
-    throw new Error(
-      `The voice model returned no audio for sentence ${index + 1}.`,
-    );
+    throw new Error('The voice model returned no audio.');
   }
   if (
     wav.toString('latin1', 0, 4) !== 'RIFF' ||
@@ -130,14 +125,55 @@ for (const [index, text] of sentences.entries()) {
   }
   const rms = Math.sqrt(sum / Math.max(samples, 1));
   if (rms < 0.001) {
-    throw new Error(`The WAV for sentence ${index + 1} is silent.`);
+    throw new Error('The WAV is silent.');
   }
-  console.log(
-    `sentence ${String(index + 1)}: ${String(elapsed)} ms, ` +
-      `${(samples / rate).toFixed(2)} s, rms ${rms.toFixed(4)}`,
-  );
-  await writeFile(out, wav);
+  return {wav, seconds: samples / rate, elapsed, rms};
 }
 
+/* OOV: the stage-3 fallback must keep a word the lexicons do not know. */
+const oovText = 'Kubernetes foobarbaz speech-host.ts ONNX qwen v0.1.0';
+const oov = await phonemize(oovText);
+if (oov.dropped !== 0 || oov.phonemes.length === 0) {
+  throw new Error(
+    `The OOV fallback dropped ${String(oov.dropped)} symbol(s) from ${oovText}`,
+  );
+}
+console.log('OOV fallback: no words dropped');
+
+/* Chunking: the host's splitter has to make several sentences. */
+const chunkText =
+  'First sentence. Second sentence! Third question? Fourth, with v1.2.3.';
+const sentences = runtime.splitSpeechSentences(chunkText);
+if (sentences.length < 4) {
+  throw new Error(
+    `The splitter made ${String(sentences.length)} sentence(s), expected 4.`,
+  );
+}
+for (const [index, sentence] of sentences.entries()) {
+  const piece = await render(sentence);
+  console.log(
+    `sentence ${String(index + 1)}/${String(sentences.length)}: ` +
+      `${String(piece.elapsed)} ms, ${piece.seconds.toFixed(2)} s`,
+  );
+  await writeFile(out, piece.wav);
+}
+
+/*
+ * Speed: the same sentence faster must come back shorter. The model's speed
+ * tensor is the control; a client-side playback rate would not change the WAV.
+ */
+const speedText = 'The quick brown fox jumps over the lazy dog.';
+const slow = await render(speedText, 0.8);
+const fast = await render(speedText, 1.5);
+if (!(fast.seconds < slow.seconds)) {
+  throw new Error(
+    `speed 1.5 produced ${fast.seconds.toFixed(2)} s and speed 0.8 ` +
+      `${slow.seconds.toFixed(2)} s; the speed tensor is not reaching the model.`,
+  );
+}
+console.log(
+  `speed: 0.8 → ${slow.seconds.toFixed(2)} s, 1.5 → ${fast.seconds.toFixed(2)} s`,
+);
+await writeFile(out, fast.wav);
 console.log(`wrote the last sentence to ${out}`);
 await session.release();

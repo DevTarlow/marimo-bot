@@ -128,10 +128,11 @@ export function defaultStoredSettings(): StoredSettings {
  * catalogue entirely: the chat model is a server the person runs, so the block
  * that named a downloaded model becomes an address, a name and a window. Version
  * 5 adds the spoken-replies block: the switch, the voice and the spoken length.
- * A settings file is still read leniently, but a newer version is refused so a
- * future build's file is not overwritten by this one.
+ * Version 6 adds the speed the voice speaks at. A settings file is still read
+ * leniently, but a newer version is refused so a future build's file is not
+ * overwritten by this one.
  */
-const SETTINGS_VERSION = 5;
+const SETTINGS_VERSION = 6;
 
 /**
  * The versions below this one, step by step.
@@ -229,6 +230,30 @@ const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
          * that model's voice keys are gone and its audio model was removed.
          */
         speech: defaultSpeechSettings(),
+      };
+    },
+  },
+  {
+    from: 5,
+    to: 6,
+    summary: 'added the speed the voice speaks at',
+    migrate(document) {
+      const speech = document['speech'];
+      if (
+        speech === null ||
+        typeof speech !== 'object' ||
+        Array.isArray(speech)
+      ) {
+        return {...document, speech: defaultSpeechSettings()};
+      }
+      return {
+        ...document,
+        speech: {
+          ...speech,
+          // Existing choice is speed 1: the model's own default, and what the
+          // v5 build always passed.
+          speed: (speech as {speed?: unknown}).speed ?? 1,
+        },
       };
     },
   },

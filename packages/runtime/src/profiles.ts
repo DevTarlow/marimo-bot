@@ -117,9 +117,7 @@ export interface ProfileFile extends ProfileSnapshot {
 
 export class LastProfileError extends Error {
   constructor() {
-    super(
-      'The last bot cannot be deleted. Create another one first.',
-    );
+    super('The last bot cannot be deleted. Create another one first.');
     this.name = 'LastProfileError';
   }
 }
@@ -346,11 +344,13 @@ export class ProfileStore {
         spaceId: storedSpace,
         avatar: storedAvatar,
         policy: storedPolicy,
+        speech: storedSpeech,
         ...carried
       } = current;
       const grant = patchedValue(clean.mcpServerIds, storedGrant);
       const space = patchedValue(clean.spaceId, storedSpace);
       const policy = patchedValue(clean.policy, storedPolicy);
+      const speech = patchedValue(clean.speech, storedSpeech);
       /*
        * Clearing the icon is "back to the default for this bot", not "leave the
        * field missing": a missing field is a state the window would have to
@@ -390,6 +390,7 @@ export class ProfileStore {
         ...(space === undefined ? {} : {spaceId: space}),
         ...(avatar === undefined ? {} : {avatar}),
         ...(policy === undefined ? {} : {policy}),
+        ...(speech === undefined ? {} : {speech}),
       };
       await this.writeFile(replaceProfile(updated, file));
       return updated;
@@ -592,7 +593,11 @@ function parseFile(raw: unknown): ProfileFile | undefined {
     const {preferences, ...rest} = parsed.data;
     const persona = adoptPersona(rest.persona, preferences);
     const avatar = rest.avatar ?? defaultBotAvatarFor(profiles.length);
-    profiles.push({...rest, ...(persona === undefined ? {} : {persona}), avatar});
+    profiles.push({
+      ...rest,
+      ...(persona === undefined ? {} : {persona}),
+      avatar,
+    });
     const carried = legacyFrom(entry, parsed.data.id);
     if (carried !== undefined) {
       legacy.push(carried);

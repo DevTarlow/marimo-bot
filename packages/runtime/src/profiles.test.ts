@@ -329,6 +329,31 @@ describe('ProfileStore', () => {
     expect(renamed.spaceId).toBe('ws-website');
   });
 
+  it('stores and clears a bot’s voice and speed override', async () => {
+    const profiles = store();
+    const profile = await profiles.activeProfile();
+    expect(profile.speech).toBeUndefined();
+
+    const set = await profiles.update(profile.id, {
+      speech: {voice: 'martha', speed: 1.3},
+    });
+    expect(set.speech).toEqual({voice: 'martha', speed: 1.3});
+    expect((await store().profiles())[0]?.speech).toEqual({
+      voice: 'martha',
+      speed: 1.3,
+    });
+
+    // One field cleared keeps the other, because the card sends the whole block.
+    const one = await profiles.update(profile.id, {
+      speech: {voice: 'eleanor', speed: null},
+    });
+    expect(one.speech).toEqual({voice: 'eleanor', speed: null});
+
+    // Nulling the block is both fields back to the global Settings values.
+    const cleared = await profiles.update(profile.id, {speech: null});
+    expect(cleared.speech).toBeUndefined();
+  });
+
   it('reads a profile file written before agents had a space', async () => {
     await writeFile(
       file,

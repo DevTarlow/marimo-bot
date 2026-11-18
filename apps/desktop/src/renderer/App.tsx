@@ -1046,6 +1046,15 @@ export function App(): React.JSX.Element {
                 void agent.decide(callId, confirmed);
               }}
               onFeedback={agent.noteCorrection}
+              onSpeak={(message) => {
+                void spoken.speak(
+                  message.text,
+                  message.invocationId ?? message.id,
+                  message.agentId,
+                );
+              }}
+              onStopSpeaking={spoken.stop}
+              speakingId={spoken.speakingId}
               onBotCreated={(next) => {
                 /*
                  * Only the roster changed. A full `agent.reload()` would land on

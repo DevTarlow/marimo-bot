@@ -1987,6 +1987,11 @@ body.resizing-rail * {
   margin: var(--space-2) 0 var(--space-4);
 }
 
+.settings-range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .settings-progress {
   display: flex;
   flex-direction: column;

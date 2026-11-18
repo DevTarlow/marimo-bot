@@ -115,6 +115,7 @@ describe('the spoken replies settings', () => {
       enabled: false,
       voice: 'eleanor',
       answerLength: 'brief',
+      speed: 1,
     });
   });
 

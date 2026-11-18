@@ -315,6 +315,22 @@ body.companion-body {
   color: var(--text);
 }
 
+/* The on-demand Speak/Stop on one answer: quiet, inside the bubble. */
+.pet-speak-inline {
+  align-self: flex-start;
+  margin-top: var(--space-1);
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.pet-speak-inline:hover {
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------------- moss */
 
 /* The fixed point of the layout: the column above it takes whatever room is

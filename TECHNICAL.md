@@ -1097,46 +1097,67 @@ that hashes what is there and fetches only what changed.
 `onnxruntime-node` lazily, creates one CPU session, feeds
 `input_ids`/`style`/`speed`, and joins what comes back. Both windows share it, so
 two replies cannot load two copies of the graph; requests go through one queue,
-and the session is released after five quiet minutes. The renderer only sees a
-WAV; the audio is a data URL, which is why `media-src` already allows one.
+and the session is released after five quiet minutes. The renderer receives
+base64 WAV chunks (the Settings sample is a data URL, which is why `media-src`
+already allows one) and schedules them on its own AudioContext.
+
+**A reply is a stream of sentences.** `splitSpeechSentences` cuts the cleaned
+reply at sentence boundaries, treating abbreviations, decimals and version
+numbers as part of the sentence rather than as ends. The host synthesises one
+sentence, emits a `speech.audio` event, and starts the next while the renderer
+plays the first. The renderer schedules the WAVs on one AudioContext at the
+previous buffer's end, so the join is sample-accurate rather than an element's
+start-up pause. A stop marks the utterance at the host and stops every scheduled
+source; a decode already in flight compares a generation and does not schedule
+itself. The choice is post-turn pipelining rather than reading a partial stream
+live: the spoken length instruction and `toSpeech`'s cleanup act on the finished
+answer, and a tool-calling turn's partial text is often `let me check` rather
+than the answer.
 
 **The text front end is the hard part, and it is permissive.** The model's own
 front end is misaki's lexicon, CMUdict and a small BART for the words neither
 knows; this build uses the pure-TypeScript misaki port
-(`@titan-design/speech-g2p`, MIT with misaki's Apache-2.0 data) and the model
-repository's CMU file as the fallback. It does not have the BART stage: a word
-neither lexicon knows is dropped and counted, which the model's own code does
-when its third stage is absent, and which is about one word in a hundred. The
-normaliser is a port of the repository's Apache-2.0 `tts_norm.py`, so times,
-dates, money, units and ranges are spoken rather than skipped. **espeak-ng is not
-used**; it is GPLv3, and bundling it would change what this Apache-2.0
-application can be.
+(`@titan-design/speech-g2p`, MIT with misaki's Apache-2.0 data), the model
+repository's CMU file, and a small rule-based English G2P for the words neither
+lexicon knows. Before the lexicon sees a code-shaped token, `expandSpeakable`
+splits camelCase, snake_case, kebab-case, dotted paths and file extensions, and
+spells or maps short all-caps terms (`ORT` → "O R T", `README` → "read me").
+The rule-based fallback maps digraphs, vowels and stress onto the model's own
+178-row alphabet; it is a phonetic approximation, not a dictionary, and it keeps
+a name audible where the build before this dropped it. The normaliser is a port
+of the repository's Apache-2.0 `tts_norm.py`, so times, dates, money, units and
+ranges are spoken rather than skipped. **espeak-ng is not used**; it is GPLv3,
+and bundling it would change what this Apache-2.0 application can be. The
+`Phonemize` interface is where another language's front end would attach.
 
-**One reply is one request, and only the surface that asked hears it.** The
-renderer's `toSpeech` strips markdown; the hook calls `speech.speak` once per
-finished turn and plays the WAV. `turn.completed` carries the origin, so a turn
-asked in the window is silent in the pet and a gate answered in the pet speaks
-there. A job or a Discord mention has no origin and stays silent. There is no
-prefetch and no sentence chunking: the engine already synthesises a short reply
-in about a second, and the brief default keeps it that way.
+**Only the surface that asked hears it.** `turn.completed` carries the origin, so
+a turn asked in the window is silent in the pet and a gate answered in the pet
+speaks there. A job or a Discord mention has no origin and stays silent. The
+renderer's `toSpeech` strips markdown and summarises what cannot be heard —
+code, JSON, stack traces, tables — and shortens paths to their base names. A
+manual **Speak** on any stored answer starts the same utterance stream with
+auto-read off, and **Stop** ends it.
 
-**The spoken length is its own preference.** `speech.answerLength` defaults to
-`brief`; when speech is on it is the length block for either surface, and the
-companion's own length still governs its text when speech is off. The prompt text
-lives in `turnInstruction` with the companion's, and the setting travels on the
-turn rather than on the conversation.
+**The spoken length and speed are preferences.** `speech.answerLength` defaults
+to `brief`; when speech is on it is the length block for either surface, and the
+companion's own length still governs its text when speech is off. `speech.speed`
+is the model's own speed tensor (0.5–2.0, default 1.0). A bot may carry a
+`speech` override (`voice`, `speed`, both nullable) that the host resolves from
+the answering message's `agentId`, or the active profile for the lead; the global
+values are the fallback. The Settings card offers a global speed slider, a
+per-bot voice and speed, and **Remove voice model…** when speech is off.
 
 **English is the first language, not the last.** The model carries 16 languages
 and 118 voices; this build ships the 11 English voices and the English front end.
 Another language is a per-language G2P and a voice pack, not a line in the
 picker; the card names the 11 it can actually speak.
 
-**Settings move to version 5.** The block is `{enabled, voice, answerLength}`;
-it is filled block by block like the companion's, merged field by field on a
-patch, and the `4 -> 5` migration adds it off, on the first English voice, with
-the brief length. `speech.changed` carries the block to the pet, which is a
-separate window and would otherwise keep speaking after the switch was turned
-off in Settings.
+**Settings move to version 6.** The block is
+`{enabled, voice, answerLength, speed}`; it is filled block by block like the
+companion's, merged field by field on a patch, and `4 -> 5` adds it off, on the
+first English voice, with the brief length, while `5 -> 6` adds speed 1.0.
+`speech.changed` carries the block to the pet, which is a separate window and
+would otherwise keep speaking after the switch was turned off in Settings.
 
 ## Layout
 

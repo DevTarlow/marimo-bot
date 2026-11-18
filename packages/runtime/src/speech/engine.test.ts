@@ -65,6 +65,24 @@ describe('synthesize', () => {
     expect(wav.toString('latin1', 8, 12)).toBe('WAVE');
   });
 
+  it('passes the requested speed to the model', async () => {
+    const {session: fake, calls} = session(
+      Float32Array.from({length: 1000}, () => 0.1),
+      [10, 30, 10],
+    );
+    await synthesize({
+      text: 'Hello.',
+      vocab,
+      voicePack: new Float32Array(510 * 256),
+      session: fake,
+      phonemize: async () => ({phonemes: 'həlˈO', dropped: 0}),
+      sampleRate: 24_000,
+      speed: 1.4,
+    });
+    const input = calls.mock.calls[0]?.[0] as {speed: number};
+    expect(input.speed).toBe(1.4);
+  });
+
   it('reports a reply longer than the cap', async () => {
     const {session: fake} = session(new Float32Array(100), [1, 1]);
     const result = await synthesize({

@@ -132,7 +132,13 @@ export interface AgentController {
    * the completion's message id, so a re-render does not speak the same answer
    * twice.
    */
-  lastTurn: {id: string; text: string; origin?: 'window' | 'pet'} | null;
+  lastTurn: {
+    id: string;
+    text: string;
+    origin?: 'window' | 'pet';
+    /** The bot whose answer this was, when it was not the conversation lead. */
+    agentId?: string;
+  } | null;
   /**
    * Work the lead has handed to another agent, by the parent's tool call id.
    *
@@ -343,6 +349,7 @@ export function useAgent(
     id: string;
     text: string;
     origin?: 'window' | 'pet';
+    agentId?: string;
   } | null>(null);
   /**
    * The text as it streamed, read once at the completion.
@@ -1034,6 +1041,9 @@ export function useAgent(
                     ...(event.origin === undefined
                       ? {}
                       : {origin: event.origin}),
+                    ...(answer?.agentId === undefined
+                      ? {}
+                      : {agentId: answer.agentId}),
                   });
                 })
                 .catch(() => undefined);

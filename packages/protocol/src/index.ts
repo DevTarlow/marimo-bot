@@ -22,8 +22,17 @@ import {
 } from './model-server.js';
 import type {ModelServerStatus} from './model-server.js';
 import {secretStorageSchema} from './mcp.js';
-import {speechSettingsPatchSchema, speechSettingsSchema} from './speech.js';
-import type {SpeechSettings, SpeechStatus, SpokenAudio} from './speech.js';
+import {
+  speechOverrideSchema,
+  speechSettingsPatchSchema,
+  speechSettingsSchema,
+} from './speech.js';
+import type {
+  SpeechAudioChunk,
+  SpeechSettings,
+  SpeechStatus,
+  SpokenAudio,
+} from './speech.js';
 
 /*
  * The starter bots and the two texts a bot is seeded with. They live in their
@@ -47,11 +56,14 @@ export {
   SPEECH_MODEL_BYTES,
   SPEECH_MODEL_LABEL,
   SPEECH_SAMPLE_TEXT,
+  speechOverrideSchema,
   speechSettingsPatchSchema,
   speechSettingsSchema,
 } from './speech.js';
 export type {
+  SpeechAudioChunk,
   SpeechDownloadProgress,
+  SpeechOverride,
   SpeechSettings,
   SpeechStatus,
   SpeechVoice,
@@ -1424,6 +1436,15 @@ export const agentProfileSchema = z.object({
    * refuses is skipped, and one bad policy block must not cost the bot.
    */
   policy: harnessPolicySchema.optional(),
+  /**
+   * This bot's own voice and speed, when it has them.
+   *
+   * Optional and nullable inside the block so the global Settings values remain
+   * the fallback: a bot with no block, or a field set to null, is spoken with
+   * the global choice. The block is a preference about one bot rather than a
+   * capability, so it does not need a grant.
+   */
+  speech: speechOverrideSchema.optional(),
 });
 
 export const profilePatchSchema = z.object({
@@ -1465,6 +1486,13 @@ export const profilePatchSchema = z.object({
    * is in would be unreachable for one that had ever been pointed somewhere.
    */
   spaceId: z.string().min(1).nullable().optional(),
+  /**
+   * This bot's voice and speed, or `null` for both global values.
+   *
+   * The whole block is sent by the card rather than one field, so changing the
+   * voice cannot silently drop a stored speed.
+   */
+  speech: speechOverrideSchema.nullable().optional(),
 });
 
 /** One entry in the pick-lists Settings renders, reported by the agent. */
@@ -2959,6 +2987,14 @@ export type AgentUiEvent =
   | {type: 'speech.installed'}
   | {type: 'speech.failed'; message: string}
   | {type: 'speech.changed'; settings: SpeechSettings}
+  /**
+   * One sentence of a spoken reply, ready to play.
+   *
+   * A stream rather than a return value: the host synthesises sentence N+1
+   * while the window plays sentence N. A chunk with `error` ends the utterance;
+   * a chunk with `final` is the last one the host will send.
+   */
+  | ({type: 'speech.audio'} & SpeechAudioChunk)
   /*
    * A look at the conversation finished, what it read and what it remembered.
    *
@@ -3392,8 +3428,25 @@ export const agentCallSchemas = {
   'speech.status': z.object({}),
   'speech.install': z.object({}),
   'speech.cancel': z.object({}),
-  'speech.sample': z.object({voice: z.string().min(1).max(64).optional()}),
-  'speech.speak': z.object({text: z.string().min(1).max(20_000)}),
+  'speech.sample': z.object({
+    voice: z.string().min(1).max(64).optional(),
+    speed: z.number().min(0.5).max(2).optional(),
+  }),
+  /*
+   * Starts one spoken utterance and answers immediately. The audio arrives as
+   * `speech.audio` events, one sentence at a time, so the first sentence can be
+   * heard while the rest are still being synthesised. The renderer supplies the
+   * id it will listen for; that is what makes a chunk that arrives before the
+   * invoke reply impossible to miss.
+   */
+  'speech.speak': z.object({
+    text: z.string().min(1).max(20_000),
+    utteranceId: z.string().min(1).max(100).optional(),
+    agentId: z.string().min(1).optional(),
+  }),
+  'speech.stop': z.object({utteranceId: z.string().min(1).max(100)}),
+  /* Deletes the cached voice model; refused while spoken replies are on. */
+  'speech.remove': z.object({}),
 
   /*
    * What is still waiting for an answer, and what the user has already refused.
@@ -3804,7 +3857,9 @@ export interface AgentCallResults {
   'speech.install': {started: boolean};
   'speech.cancel': {cancelled: boolean};
   'speech.sample': SpokenAudio;
-  'speech.speak': SpokenAudio;
+  'speech.speak': {utteranceId: string};
+  'speech.stop': {stopped: boolean};
+  'speech.remove': {removed: boolean};
   'service.status': ServiceStatus;
   'service.enable': ServiceChange;
   'service.disable': ServiceChange;

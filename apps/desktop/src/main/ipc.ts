@@ -532,8 +532,12 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'speech.status': async () => await agent().speechStatus(),
     'speech.install': async () => await agent().installSpeech(),
     'speech.cancel': async () => agent().cancelSpeech(),
-    'speech.sample': async (params) => await agent().sampleSpeech(params.voice),
-    'speech.speak': async (params) => await agent().speak(params.text),
+    'speech.sample': async (params) =>
+      await agent().sampleSpeech(params.voice, params.speed),
+    'speech.speak': async (params) =>
+      agent().speak(params.text, params.agentId, params.utteranceId),
+    'speech.stop': async (params) => agent().stopSpeech(params.utteranceId),
+    'speech.remove': async () => await agent().removeSpeech(),
 
     'profiles.list': async () => await agent().profiles(),
 

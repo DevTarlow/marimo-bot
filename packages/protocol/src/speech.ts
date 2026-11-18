@@ -82,6 +82,14 @@ export const speechSettingsSchema = z.object({
    * The companion's own length still governs its text when speech is off.
    */
   answerLength: companionAnswerLengthSchema,
+  /**
+   * How fast the voice speaks: 0.5 to 2.0, default 1.0.
+   *
+   * The model takes a speed tensor, so this is the model's own control rather
+   * than a playback-rate trick. The same number is offered per bot as an
+   * override.
+   */
+  speed: z.number().min(0.5).max(2),
 });
 
 export type SpeechSettings = z.infer<typeof speechSettingsSchema>;
@@ -91,8 +99,25 @@ export function defaultSpeechSettings(): SpeechSettings {
     enabled: false,
     voice: DEFAULT_SPEECH_VOICE,
     answerLength: 'brief',
+    speed: 1,
   };
 }
+
+/**
+ * One bot's optional voice and speed, falling back to the global block.
+ *
+ * `null` is the explicit "use the global value" for a field, which is why the
+ * fields are nullable: absent and null would otherwise be two spellings of the
+ * same state, and a picker that can only move a bot onto an override could
+ * never move it off one. The card sends the whole block, so a partial block
+ * does not silently drop the field it did not mention.
+ */
+export const speechOverrideSchema = z.object({
+  voice: z.string().min(1).max(64).nullable().optional(),
+  speed: z.number().min(0.5).max(2).nullable().optional(),
+});
+
+export type SpeechOverride = z.infer<typeof speechOverrideSchema>;
 
 /** A patch of the block: any subset, merged over what is stored. */
 export const speechSettingsPatchSchema = speechSettingsSchema.partial();
@@ -141,7 +166,28 @@ export interface SpeechStatus {
   engine: 'idle' | 'loading' | 'ready';
 }
 
-/** The WAV one reply or sample returns, ready for a data URL. */
+/**
+ * One sentence of a reply, as it becomes a WAV.
+ *
+ * Sent as an event so the host can keep synthesising the next sentence while
+ * the previous one is playing. `final` marks the last chunk the host will send
+ * for this utterance; `truncated` is only meaningful on it.
+ */
+export interface SpeechAudioChunk {
+  /** The utterance the chunk belongs to; a new one cancels every old chunk. */
+  utteranceId: string;
+  /** The chunk's place in the utterance, from zero. */
+  index: number;
+  final: boolean;
+  /** Absent when `error` is set. */
+  wavBase64?: string;
+  sampleRate?: number;
+  truncated?: boolean;
+  /** Why the utterance stopped early, when it did. */
+  error?: string;
+}
+
+/** The WAV one sample returns, ready for a data URL. */
 export interface SpokenAudio {
   wavBase64: string;
   sampleRate: number;

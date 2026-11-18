@@ -163,7 +163,7 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(5);
+    expect(raw['version']).toBe(6);
     expect(raw['localModels']).toBeUndefined();
     expect(raw['modelServer']).toBeDefined();
     expect(raw['speech']).toEqual(defaultSpeechSettings());
@@ -253,7 +253,7 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(5);
+    expect(raw['version']).toBe(6);
     expect(raw['setupSeen']).toBe(true);
     expect(raw['providers']).toBeUndefined();
     expect(raw['availableModels']).toBeUndefined();
@@ -306,6 +306,28 @@ describe('SettingsStore', () => {
     expect(settings.speech).toEqual(defaultSpeechSettings());
   });
 
+  it('adds the speed default to a version 5 spoken-replies block', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 5,
+        speech: {
+          enabled: true,
+          voice: 'martha',
+          answerLength: 'balanced',
+        },
+      }),
+      'utf8',
+    );
+    const settings = await store.load();
+    expect(settings.speech).toEqual({
+      enabled: true,
+      voice: 'martha',
+      answerLength: 'balanced',
+      speed: 1,
+    });
+  });
+
   it('merges a spoken-replies patch one field at a time', async () => {
     await store.load();
     await store.patch({speech: {enabled: true}});
@@ -316,6 +338,7 @@ describe('SettingsStore', () => {
       enabled: true,
       voice: 'eleanor',
       answerLength: 'balanced',
+      speed: 1,
     });
   });
 });

@@ -14,6 +14,9 @@ Kitten TTS 2 Mini (Spoken replies, optional)
   Licensed under the Apache License 2.0.
   https://huggingface.co/KittenML/kitten-tts-2-mini
 
+  The model's phoneme vocabulary is included as a test fixture at
+  packages/runtime/test-fixtures/vocab.json (Apache-2.0).
+
   The English text front end and the normaliser in
   packages/runtime/src/speech are ports of the model repository's Apache-2.0
   front end and `tts_norm.py`.

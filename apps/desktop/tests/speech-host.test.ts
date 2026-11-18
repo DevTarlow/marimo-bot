@@ -7,7 +7,7 @@
  * exists without the files. The ONNX session itself is exercised by the live
  * check, which is the only place a real graph is available.
  */
-import {mkdtemp, rm, truncate, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, rm, truncate, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
@@ -18,25 +18,30 @@ import {TTS_FILES, TTS_MARKER, TTS_REVISION} from '@marimo/runtime';
 import {SpeechHost} from '../src/main/speech-host.js';
 
 describe('SpeechHost.status', () => {
+  let root: string;
   let dir: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(process.cwd(), '.marimo-tts-host-'));
+    root = await mkdtemp(join(process.cwd(), '.marimo-tts-host-'));
+    // The production directory is `model/tts`; removal is allowed only for
+    // that basename, so the fixture uses the same shape.
+    dir = join(root, 'tts');
   });
 
   afterEach(async () => {
-    await rm(dir, {recursive: true, force: true, maxRetries: 5});
+    await rm(root, {recursive: true, force: true, maxRetries: 5});
   });
 
-  function host(): SpeechHost {
+  function host(enabled = false): SpeechHost {
     return new SpeechHost({
       dir,
-      readSettings: async () => defaultSpeechSettings(),
+      readSettings: async () => ({...defaultSpeechSettings(), enabled}),
       sendEvent: () => undefined,
     });
   }
 
   async function install(): Promise<void> {
+    await mkdir(dir, {recursive: true});
     for (const file of TTS_FILES) {
       const path = join(dir, file.name);
       await writeFile(path, '');
@@ -96,6 +101,23 @@ describe('SpeechHost.status', () => {
     await install();
     await writeFile(join(dir, TTS_MARKER), JSON.stringify({revision: 'other'}));
     expect((await host().status()).installed).toBe(false);
+  });
+
+  it('removes the cached model when spoken replies are off', async () => {
+    await install();
+    await expect(host().remove()).resolves.toEqual({removed: true});
+    expect(await host().status()).toMatchObject({
+      installed: false,
+      voices: [],
+    });
+  });
+
+  it('refuses to remove the model while spoken replies are on', async () => {
+    await install();
+    await expect(host(true).remove()).rejects.toThrow(
+      /Turn spoken replies off/u,
+    );
+    expect((await host(true).status()).installed).toBe(true);
   });
 
   it('reports a catalogue it cannot read rather than claiming voices', async () => {

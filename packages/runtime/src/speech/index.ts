@@ -24,6 +24,7 @@ export type {VoiceCatalogue} from './voices.js';
 export {parseNpy, readNpz} from './npz.js';
 export type {NpyArray} from './npz.js';
 export {cardinal, normalizeEnglish, ordinal, year} from './normalize.js';
+export {expandSpeakable, expandToken, spellLetters} from './expand.js';
 export {
   chunkPhonemes,
   cmuWord,
@@ -33,6 +34,7 @@ export {
   styleRow,
   tokenIds,
 } from './frontend.js';
+export {ruleBasedPhonemes} from './rule-g2p.js';
 export type {PhonemeResult, Phonemize} from './frontend.js';
 export {
   joinWithGaps,
@@ -48,3 +50,4 @@ export type {
   SynthesizeOptions,
 } from './engine.js';
 export {encodeWav} from './wav.js';
+export {splitSpeechSentences} from './sentences.js';

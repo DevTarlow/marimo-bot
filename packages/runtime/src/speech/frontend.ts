@@ -8,14 +8,18 @@
  * this fallback. No espeak-ng is involved — it is GPLv3 and would change what
  * this application's licence can be.
  *
- * The port does not have the BART stage. A word neither lexicon knows is
- * dropped and counted; the model's own frontend does the same when its third
- * stage is unavailable, and the alternative is a 3 MB model export and a
- * decoder loop for about one word in a hundred.
+ * The port does not have the BART stage, so this build supplies a small
+ * rule-based fallback instead. A word neither lexicon knows is phonetically
+ * approximated rather than dropped: technical terms, filenames and proper nouns
+ * are exactly the words an assistant writes that a general lexicon misses.
+ * Before the lexicon sees a code-shaped token, `expandSpeakable` splits it into
+ * ordinary words and spells short abbreviations.
  */
 import type {G2pToken} from '@titan-design/speech-g2p';
 
+import {expandSpeakable} from './expand.js';
 import {normalizeEnglish} from './normalize.js';
+import {ruleBasedPhonemes} from './rule-g2p.js';
 
 /**
  * The model's measured folds, from its `phonemize_v1.py` and `phonemize_v2.py`.
@@ -130,10 +134,18 @@ export async function createPhonemizer(options: {
   const {misakiEnglish} = await import('@titan-design/speech-g2p');
   const g2p = misakiEnglish({
     unk: '',
-    fallback: (token: G2pToken) => cmuWord(options.cmu, token.text),
+    fallback: (token: G2pToken) =>
+      cmuWord(options.cmu, token.text) ?? ruleBasedPhonemes(token.text),
   });
   return async (text: string): Promise<PhonemeResult> => {
-    const {phonemes} = g2p.phonemize(normalizeEnglish(text));
+    /*
+     * Expand before normalise: the normaliser inserts a space after a full stop
+     * that has no space after it, which is right for `Hello.World` and wrong
+     * for `speech-host.ts`. Expanding first turns the identifier into words, so
+     * by the time the normaliser runs there is no dot inside a word left to
+     * mistake for a sentence end.
+     */
+    const {phonemes} = g2p.phonemize(normalizeEnglish(expandSpeakable(text)));
     const folded = foldPhonemes(phonemes);
     let kept = '';
     let dropped = 0;

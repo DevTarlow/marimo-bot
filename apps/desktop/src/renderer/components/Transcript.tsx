@@ -7,16 +7,14 @@
  * the UI milestone, where it can be done with a renderer that escapes by
  * construction rather than by a regex somebody has to keep correct.
  */
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 
 import {DRAFT_BOT_TOOL, readAttachedFiles} from '@marimo/protocol';
-import type {AgentProfile, PendingGate, TranscriptMessage} from '@marimo/protocol';
+import type {
+  AgentProfile,
+  PendingGate,
+  TranscriptMessage,
+} from '@marimo/protocol';
 
 import {gateCopy} from '../gate-copy.js';
 import {shouldFollow, shouldOfferJump} from '../scroll.js';
@@ -59,7 +57,10 @@ function ToolCall({call}: {call: LiveToolCall}): React.JSX.Element {
       : '';
 
   return (
-    <details className="call" data-state={call.ok === undefined ? 'running' : call.ok ? 'ok' : 'failed'}>
+    <details
+      className="call"
+      data-state={call.ok === undefined ? 'running' : call.ok ? 'ok' : 'failed'}
+    >
       <summary className="call-head">
         <span className="call-mark" aria-hidden="true">
           {call.ok === undefined ? '…' : call.ok ? '✓' : '✕'}
@@ -119,7 +120,10 @@ function Thread({
           </div>
         )}
         {state === 'running' && work.text.length === 0 && (
-          <div className="bubble thinking" aria-label={`${work.name} is working`}>
+          <div
+            className="bubble thinking"
+            aria-label={`${work.name} is working`}
+          >
             <span />
             <span />
             <span />
@@ -190,7 +194,11 @@ function ApprovalCard({
   const copy = gateCopy(gate);
 
   return (
-    <div className="approval" role="group" aria-label={`Approve: ${copy.heading}`}>
+    <div
+      className="approval"
+      role="group"
+      aria-label={`Approve: ${copy.heading}`}
+    >
       <div className="approval-head">
         <strong>{copy.heading}</strong>
       </div>
@@ -245,6 +253,9 @@ function Message({
   onPreview,
   onFeedback,
   onBotCreated,
+  onSpeak,
+  onStopSpeaking,
+  speakingId,
 }: {
   message: TranscriptMessage;
   /** The roster, for a draft card's receipt and its restored lead. */
@@ -267,6 +278,11 @@ function Message({
     activeProfileId: string;
     created: AgentProfile;
   }) => void;
+  /** Speak this answer on demand; absent when the surface cannot play audio. */
+  onSpeak?: (message: TranscriptMessage) => void;
+  onStopSpeaking?: () => void;
+  /** The id of the message currently being spoken, for its Stop label. */
+  speakingId?: string | null;
 }): React.JSX.Element {
   /**
    * Whether the correction box is open, and what has been typed into it.
@@ -347,12 +363,30 @@ function Message({
           )}
         </div>
       )}
-      {message.text.length > 0 && (
-        message.role === 'assistant' ? (
+      {message.text.length > 0 &&
+        (message.role === 'assistant' ? (
           <div className="bubble bubble-answer">
             <Markdown text={message.text} />
             <div className="bubble-actions">
               <Copy text={message.text} what="answer" />
+              {onSpeak !== undefined && (
+                <button
+                  type="button"
+                  className="button button-quiet bubble-speak"
+                  onClick={() => {
+                    const key = message.invocationId ?? message.id;
+                    if (speakingId === key) {
+                      onStopSpeaking?.();
+                    } else {
+                      onSpeak(message);
+                    }
+                  }}
+                >
+                  {speakingId === (message.invocationId ?? message.id)
+                    ? 'Stop'
+                    : 'Speak'}
+                </button>
+              )}
               {/*
                * The one place the user can say an answer was wrong. Offered only
                * on a stored message and never on the live one: a turn still
@@ -404,7 +438,10 @@ function Message({
                       setCorrection(event.target.value);
                     }}
                   />
-                  <button type="submit" className="button button-primary button-small">
+                  <button
+                    type="submit"
+                    className="button button-primary button-small"
+                  >
                     Send
                   </button>
                   <button
@@ -421,13 +458,8 @@ function Message({
             )}
           </div>
         ) : (
-          <UserWords
-            text={message.text}
-            space={space}
-            onPreview={onPreview}
-          />
-        )
-      )}
+          <UserWords text={message.text} space={space} onPreview={onPreview} />
+        ))}
       {message.error !== undefined && message.error.length > 0 && (
         <p className="message-error">{message.error}</p>
       )}
@@ -479,6 +511,9 @@ export function Transcript({
   onDecide,
   onFeedback,
   onBotCreated,
+  onSpeak,
+  onStopSpeaking,
+  speakingId,
   builder,
   busy,
 }: {
@@ -536,6 +571,10 @@ export function Transcript({
     activeProfileId: string;
     created: AgentProfile;
   }) => void;
+  /** Speak one assistant answer on demand, and stop the one playing. */
+  onSpeak?: (message: TranscriptMessage) => void;
+  onStopSpeaking?: () => void;
+  speakingId?: string | null;
   /**
    * Whether this is the conversation that makes a bot. It changes the opening:
    * a pinned question from Marimo instead of the empty-chat invitation.
@@ -647,135 +686,140 @@ export function Transcript({
 
   return (
     <div className="transcript-wrap">
-    <div
-      className="transcript"
-      role="log"
-      aria-live="polite"
-      aria-label="Conversation"
-      ref={view}
-      onScroll={onScroll}
-    >
-      {builder === true && (
-        <BotBuilderIntro
-          lead={agents.find((entry) => entry.id === leadId)}
-        />
-      )}
+      <div
+        className="transcript"
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation"
+        ref={view}
+        onScroll={onScroll}
+      >
+        {builder === true && (
+          <BotBuilderIntro lead={agents.find((entry) => entry.id === leadId)} />
+        )}
 
-      {empty && (
-        <div className="empty">
-          <img className="empty-mark" src="./marimo-logo.png" alt="" />
-          <h2>Say something to Marimo Bot</h2>
-          <p>
-            It can read and write files in the space you chose, and use whatever
-            else you have switched on — it asks before running a command or
-            replacing a file that is already there.
-          </p>
-        </div>
-      )}
+        {empty && (
+          <div className="empty">
+            <img className="empty-mark" src="./marimo-logo.png" alt="" />
+            <h2>Say something to Marimo Bot</h2>
+            <p>
+              It can read and write files in the space you chose, and use
+              whatever else you have switched on — it asks before running a
+              command or replacing a file that is already there.
+            </p>
+          </div>
+        )}
 
-      {messages.map((message) => {
-        /*
-         * A stored answer is the conversation's own unless it says otherwise:
-         * `agentId` absent is the agent that owns the chat, and so is a value
-         * equal to the lead. Either way there is nothing to label, and a name over
-         * every answer in the app would be the noise this avoids.
-         */
-        const other =
-          message.role === 'assistant' &&
-          message.agentId !== undefined &&
-          message.agentId !== leadId
-            ? participantFor(message.agentId, agents).name
-            : undefined;
-        return (
-          <Message
-            key={message.id}
-            message={message}
-            agents={agents}
-            leadId={leadId}
-            space={space}
-            onPreview={setPreview}
-            {...(other === undefined ? {} : {author: other})}
-            {...(onFeedback === undefined ? {} : {onFeedback})}
-            {...(onBotCreated === undefined ? {} : {onBotCreated})}
-          />
-        );
-      })}
+        {messages.map((message) => {
+          /*
+           * A stored answer is the conversation's own unless it says otherwise:
+           * `agentId` absent is the agent that owns the chat, and so is a value
+           * equal to the lead. Either way there is nothing to label, and a name over
+           * every answer in the app would be the noise this avoids.
+           */
+          const other =
+            message.role === 'assistant' &&
+            message.agentId !== undefined &&
+            message.agentId !== leadId
+              ? participantFor(message.agentId, agents).name
+              : undefined;
+          return (
+            <Message
+              key={message.id}
+              message={message}
+              agents={agents}
+              leadId={leadId}
+              space={space}
+              onPreview={setPreview}
+              {...(other === undefined ? {} : {author: other})}
+              {...(onFeedback === undefined ? {} : {onFeedback})}
+              {...(onBotCreated === undefined ? {} : {onBotCreated})}
+              {...(onSpeak === undefined ? {} : {onSpeak})}
+              {...(onStopSpeaking === undefined ? {} : {onStopSpeaking})}
+              {...(speakingId === undefined ? {} : {speakingId})}
+            />
+          );
+        })}
 
-      {outbox !== null && (
-        <article className="message message-user">
-          <UserWords text={outbox} space={space} onPreview={setPreview} />
-        </article>
-      )}
+        {outbox !== null && (
+          <article className="message message-user">
+            <UserWords text={outbox} space={space} onPreview={setPreview} />
+          </article>
+        )}
 
-      {live !== null && (
-        <article className="message message-assistant">
-          {(live.toolCalls.length > 0 || unplaced.length > 0) && (
-            <div className="calls">
-              {live.toolCalls.map((call) => {
-                const work = delegations[call.callId];
-                /*
-                 * A call the lead made while a helper was working is inside that
-                 * helper's thread instead — the hook files it there — so anything
-                 * still in this list is the lead's own, or the delegation itself.
-                 */
-                if (work !== undefined) {
-                  return (
-                    <Thread key={call.callId} work={work} open={threadOpen(work)} />
+        {live !== null && (
+          <article className="message message-assistant">
+            {(live.toolCalls.length > 0 || unplaced.length > 0) && (
+              <div className="calls">
+                {live.toolCalls.map((call) => {
+                  const work = delegations[call.callId];
+                  /*
+                   * A call the lead made while a helper was working is inside that
+                   * helper's thread instead — the hook files it there — so anything
+                   * still in this list is the lead's own, or the delegation itself.
+                   */
+                  if (work !== undefined) {
+                    return (
+                      <Thread
+                        key={call.callId}
+                        work={work}
+                        open={threadOpen(work)}
+                      />
+                    );
+                  }
+                  return call.tool === DRAFT_BOT_TOOL ? (
+                    <BotDraftCard
+                      key={call.callId}
+                      call={call}
+                      profiles={agents}
+                      leadId={leadId}
+                      {...(onBotCreated === undefined ? {} : {onBotCreated})}
+                    />
+                  ) : (
+                    <ToolCall key={call.callId} call={call} />
                   );
-                }
-                return call.tool === DRAFT_BOT_TOOL ? (
-                  <BotDraftCard
-                    key={call.callId}
-                    call={call}
-                    profiles={agents}
-                    leadId={leadId}
-                    {...(onBotCreated === undefined ? {} : {onBotCreated})}
-                  />
-                ) : (
-                  <ToolCall key={call.callId} call={call} />
-                );
-              })}
-              {unplaced.map(([callId, work]) => (
-                <Thread key={callId} work={work} open={threadOpen(work)} />
-              ))}
-            </div>
-          )}
-          {live.text.length > 0 && (
-            <div className="bubble bubble-answer">
-              <Markdown text={live.text} />
-            </div>
-          )}
-          {live.running && live.text.length === 0 && (
-            <div className="bubble thinking" aria-label="Working">
-              <span />
-              <span />
-              <span />
-            </div>
-          )}
-        </article>
-      )}
+                })}
+                {unplaced.map(([callId, work]) => (
+                  <Thread key={callId} work={work} open={threadOpen(work)} />
+                ))}
+              </div>
+            )}
+            {live.text.length > 0 && (
+              <div className="bubble bubble-answer">
+                <Markdown text={live.text} />
+              </div>
+            )}
+            {live.running && live.text.length === 0 && (
+              <div className="bubble thinking" aria-label="Working">
+                <span />
+                <span />
+                <span />
+              </div>
+            )}
+          </article>
+        )}
 
-      {pending.map((gate) => (
-        <ApprovalCard key={gate.callId} gate={gate} onDecide={onDecide} />
-      ))}
+        {pending.map((gate) => (
+          <ApprovalCard key={gate.callId} gate={gate} onDecide={onDecide} />
+        ))}
 
-      {/*
+        {/*
         The turn is on its way but has not streamed its first event, so there is
         no live copy to hang the dots on yet. The same dots in the same shape as
         the live article's, because waiting is one thing and should look like
         one — the paragraph that used to be here could not draw at all, since
         `busy` was defined as a live turn running and this branch requires none.
       */}
-      {busy && pending.length === 0 && live === null && (
-        <article className="message message-assistant">
-          <div className="bubble thinking" aria-label="Working">
-            <span />
-            <span />
-            <span />
-          </div>
-        </article>
-      )}
-    </div>
+        {busy && pending.length === 0 && live === null && (
+          <article className="message message-assistant">
+            <div className="bubble thinking" aria-label="Working">
+              <span />
+              <span />
+              <span />
+            </div>
+          </article>
+        )}
+      </div>
 
       {/*
         Offered only once somebody has clearly stopped following. A button that

@@ -80,6 +80,12 @@ describe('normalizeEnglish', () => {
     );
   });
 
+  it('reads a v-prefixed version', () => {
+    expect(normalizeEnglish('Install v0.1.0 now.')).toBe(
+      'Install version zero point one point zero now.',
+    );
+  });
+
   it('reads a year, a magnitude and a calendar year', () => {
     expect(normalizeEnglish('Revenue grew 150% to $1.2B in Q3 2025.')).toBe(
       'Revenue grew one hundred and fifty percent to one point two billion ' +

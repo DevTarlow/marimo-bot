@@ -47,10 +47,53 @@ describe('toSpeech', () => {
     expect(toSpeech('Run `pnpm test` first.')).toBe('Run pnpm test first.');
   });
 
-  it('turns a table into the words in it', () => {
+  it('summarises a table instead of reading the cells', () => {
     expect(toSpeech('| Name | Value |\n| --- | --- |\n| one | two |')).toBe(
-      'Name, Value one, two',
+      'A table is in the chat.',
     );
+    expect(toSpeech('Here:\n\n| a | b |\n| --- | --- |\n| 1 | 2 |')).toBe(
+      'Here: A table is in the chat.',
+    );
+  });
+
+  it('summarises a JSON payload in a fence', () => {
+    expect(
+      toSpeech('The response is:\n\n```json\n{"ok": true, "count": 2}\n```'),
+    ).toBe('The response is: A JSON payload is in the chat.');
+  });
+
+  it('summarises raw JSON that was never fenced', () => {
+    expect(toSpeech('The response is:\n{"ok": true, "count": 2}')).toBe(
+      'The response is: A JSON payload is in the chat.',
+    );
+  });
+
+  it('summarises a stack trace in a fence and in raw form', () => {
+    expect(
+      toSpeech('It failed:\n\n```\nError: no\n    at run (agent.ts:10:4)\n```'),
+    ).toBe('It failed: A stack trace is in the chat.');
+    expect(toSpeech('It failed:\n    at run (agent.ts:10:4)')).toBe(
+      'It failed: A stack trace is in the chat.',
+    );
+  });
+
+  it('keeps only the base name of a long path', () => {
+    expect(
+      toSpeech('Open /home/sam/project/src/main/agent.ts, then edit it.'),
+    ).toBe('Open agent.ts, then edit it.');
+    expect(toSpeech('Open src/main/agent.ts now.')).toBe('Open agent.ts now.');
+    // A slash in ordinary prose is not a path.
+    expect(toSpeech('Use and/or.')).toBe('Use and/or.');
+  });
+
+  it('drops a checkbox and a horizontal rule', () => {
+    expect(toSpeech('- [x] finished\n- [ ] waiting\n\n---')).toBe(
+      'finished waiting',
+    );
+  });
+
+  it('drops emoji', () => {
+    expect(toSpeech('Done 🎉 and ready.')).toBe('Done and ready.');
   });
 
   it('never returns an empty answer', () => {

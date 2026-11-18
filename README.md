@@ -252,13 +252,15 @@ Settings lets you choose how long its answers are, how many messages float above
 
 ### Spoken replies
 
-Settings → **Spoken replies** turns the voice on. The voice model is about 92 MB, downloaded once when you press **Download voice model**, and it runs on this computer. After that, a finished answer is read aloud in the window that asked — the main window or the moss — and nothing about it leaves the machine.
+Settings → **Spoken replies** turns the voice on. The voice model is about 92 MB, downloaded once when you press **Download voice model**, and it runs on this computer. After that, a finished answer is read aloud in the window that asked — the main window or the moss — and nothing about it leaves the machine. The first sentence starts playing while the rest of the answer is being made, so a long reply does not wait for its last word.
 
-The card lists the model's 11 English voices with the one-line description that comes with each. **Play sample** speaks a sentence in the selected voice; the first sample waits while the model loads, and later ones do not.
+The card lists the model's 11 English voices with the one-line description that comes with each. **Play sample** speaks a sentence in the selected voice; the first sample waits while the model loads, and later ones do not. **Speed** changes how fast the voice speaks, from 0.5× to 2.0×, and the sample uses the same speed.
 
 A spoken answer is **Brief** by default: a listener cannot skim, so the model is asked to lead with the answer and leave out the caveats. **How long spoken answers are** changes that for either window. The companion's own answer length still applies when spoken replies are off.
 
-**Stop** beside the composer, or beside the moss's bar, ends a playback without stopping the turn. The voice model in this build speaks English; the other fifteen languages it carries need their own text front end, which this build does not include.
+Technical answers keep their words: a filename, a code identifier, an acronym or a name the lexicon does not know is split into speakable parts or given a phonetic approximation rather than silently dropped. Under **This bot**, one bot can have its own voice and speed — a Coder can sound different from the moss — and every stored answer has a **Speak** button, so **Read answers aloud** can stay off while you listen to one reply on demand.
+
+**Stop** beside the composer, or beside the moss's bar, ends a playback without stopping the turn. With spoken replies off, **Remove voice model…** deletes the cached files and frees the disk space. The voice model in this build speaks English; the other fifteen languages it carries need their own text front end, which this build does not include.
 
 ### The engine
 

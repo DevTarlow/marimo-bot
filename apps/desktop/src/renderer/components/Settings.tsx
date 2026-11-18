@@ -1342,6 +1342,19 @@ export function Settings({
               await window.marimo.call('settings.set', {patch});
             })
           }
+          {...(loaded.profile === undefined ? {} : {profile: loaded.profile})}
+          onProfilePatch={async (patch) => {
+            const profile = loaded.profile;
+            if (profile === undefined) {
+              return false;
+            }
+            return await change(async () => {
+              await window.marimo.call('profiles.update', {
+                profileId: profile.id,
+                patch,
+              });
+            });
+          }}
         />
 
         {/*

@@ -50,6 +50,8 @@ export interface SynthesizeOptions {
   session: SpeechSession;
   phonemize: Phonemize;
   sampleRate: number;
+  /** How fast the voice speaks; the model's own speed tensor. Default 1. */
+  speed?: number;
   maxChars?: number;
 }
 
@@ -80,6 +82,7 @@ export async function synthesize(
     throw new Error('There were no words to speak.');
   }
 
+  const speed = Math.min(2, Math.max(0.5, options.speed ?? 1));
   const pieces: Float32Array[] = [];
   for (const chunk of chunks) {
     const {ids} = tokenIds(chunk, options.vocab);
@@ -89,7 +92,7 @@ export async function synthesize(
     const output = await options.session.run({
       inputIds: BigInt64Array.from(ids, (id) => BigInt(id)),
       style: styleRow(options.voicePack, ids.length),
-      speed: 1,
+      speed,
     });
     pieces.push(trimAndFade(output.waveform, output.durations));
   }

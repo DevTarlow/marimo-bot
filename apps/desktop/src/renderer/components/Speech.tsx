@@ -16,8 +16,11 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 
 import type {
+  AgentProfile,
+  ProfilePatch,
   PublicSettings,
   SettingsPatch,
+  SpeechOverride,
   SpeechStatus,
   SpeechVoice,
 } from '@marimo/protocol';
@@ -34,10 +37,16 @@ export function Speech({
   settings,
   saving,
   onPatch,
+  profile,
+  onProfilePatch,
 }: {
   opened: ReadonlySet<string>;
   onToggle: (title: string, expanded: boolean) => void;
   settings: PublicSettings;
+  /** The bot whose voice can override the global one, when one is open. */
+  profile?: AgentProfile;
+  /** Writes one profile patch, or absent when no bot is open. */
+  onProfilePatch?: (patch: ProfilePatch) => Promise<boolean>;
   saving: boolean;
   /** Writes one patch through the parent's reloading `change`. */
   onPatch: (patch: SettingsPatch) => Promise<boolean>;
@@ -46,6 +55,7 @@ export function Speech({
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const audio = useRef<HTMLAudioElement | undefined>(undefined);
 
   const load = useCallback(async (): Promise<void> => {
@@ -137,14 +147,15 @@ export function Speech({
     }
   };
 
-  const sample = async (): Promise<void> => {
+  const playSample = async (voiceKey: string, speed: number): Promise<void> => {
     setSampleBusy(true);
     setProblem(null);
     audio.current?.pause();
     audio.current = undefined;
     try {
       const spoken = await window.marimo.call('speech.sample', {
-        voice: selected,
+        voice: voiceKey,
+        speed,
       });
       const element = new Audio(`data:audio/wav;base64,${spoken.wavBase64}`);
       audio.current = element;
@@ -158,6 +169,35 @@ export function Speech({
       setProblem(describe(failure));
     } finally {
       setSampleBusy(false);
+    }
+  };
+
+  const sample = async (): Promise<void> => {
+    await playSample(selected, settings.speech.speed);
+  };
+
+  const setProfile = async (speech: SpeechOverride | null): Promise<void> => {
+    if (onProfilePatch === undefined) {
+      return;
+    }
+    setProblem(null);
+    const ok = await onProfilePatch({speech});
+    if (!ok) {
+      setProblem('That voice change could not be saved.');
+    }
+  };
+
+  const remove = async (): Promise<void> => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await window.marimo.call('speech.remove', {});
+      setConfirmRemove(false);
+      await load();
+    } catch (failure) {
+      setProblem(describe(failure));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -309,6 +349,182 @@ export function Speech({
               ))}
             </select>
           </label>
+
+          <label className="settings-field">
+            <span>
+              Speed
+              <em className="settings-why">
+                {settings.speech.speed.toFixed(1)}×. The model speaks faster or
+                slower, so the voice keeps its pitch. This is also the default
+                for a bot with no speed of its own.
+              </em>
+            </span>
+            <input
+              className="settings-range"
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.1}
+              value={settings.speech.speed}
+              disabled={saving}
+              aria-label="Speed"
+              onChange={(event) => {
+                void set({speech: {speed: Number(event.target.value)}});
+              }}
+            />
+          </label>
+
+          {profile !== undefined && voices.length > 0 && (
+            <>
+              <h4 className="settings-group">This bot</h4>
+              <p className="settings-muted">
+                These override the global voice and speed for this bot&rsquo;s
+                answers only. A bot with no override uses the values above.
+              </p>
+              <label className="settings-field">
+                <span>
+                  Voice
+                  <em className="settings-why">
+                    The global voice is{' '}
+                    {voices.find((voice) => voice.key === selected)?.name ??
+                      selected}
+                    .
+                  </em>
+                </span>
+                <select
+                  className="settings-input"
+                  value={profile.speech?.voice ?? ''}
+                  disabled={saving}
+                  aria-label="This bot’s voice"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    void setProfile({
+                      ...profile.speech,
+                      voice: value.length === 0 ? null : value,
+                    });
+                  }}
+                >
+                  <option value="">Use the global voice</option>
+                  {voices.map((voice) => (
+                    <option key={voice.key} value={voice.key}>
+                      {voice.name} — {voice.description}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={typeof profile.speech?.speed === 'number'}
+                  disabled={saving}
+                  onChange={(event) => {
+                    void setProfile({
+                      ...profile.speech,
+                      speed: event.target.checked
+                        ? settings.speech.speed
+                        : null,
+                    });
+                  }}
+                />
+                <span>
+                  This bot&rsquo;s own speed
+                  <em className="settings-why">
+                    Off uses {settings.speech.speed.toFixed(1)}×, the global
+                    speed.
+                  </em>
+                </span>
+              </label>
+              {typeof profile.speech?.speed === 'number' && (
+                <label className="settings-field">
+                  <span>
+                    Speed for this bot
+                    <em className="settings-why">
+                      {profile.speech.speed.toFixed(1)}×
+                    </em>
+                  </span>
+                  <input
+                    className="settings-range"
+                    type="range"
+                    min={0.5}
+                    max={2}
+                    step={0.1}
+                    value={profile.speech.speed}
+                    disabled={saving}
+                    aria-label="This bot’s speed"
+                    onChange={(event) => {
+                      void setProfile({
+                        ...profile.speech,
+                        speed: Number(event.target.value),
+                      });
+                    }}
+                  />
+                </label>
+              )}
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="button button-quiet"
+                  disabled={sampleBusy || saving}
+                  onClick={() => {
+                    void playSample(
+                      profile.speech?.voice ?? selected,
+                      profile.speech?.speed ?? settings.speech.speed,
+                    );
+                  }}
+                >
+                  {sampleBusy ? 'Preparing…' : 'Play sample'}
+                </button>
+                <em className="settings-why">
+                  Hears this bot’s own voice and speed.
+                </em>
+              </div>
+            </>
+          )}
+
+          {!settings.speech.enabled && (
+            <div className="settings-actions">
+              {confirmRemove ? (
+                <>
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    disabled={busy || saving}
+                    onClick={() => {
+                      void remove();
+                    }}
+                  >
+                    Remove {SPEECH_MODEL_LABEL}
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    onClick={() => {
+                      setConfirmRemove(false);
+                    }}
+                  >
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="button button-quiet"
+                    disabled={busy || saving}
+                    onClick={() => {
+                      setConfirmRemove(true);
+                    }}
+                  >
+                    Remove voice model…
+                  </button>
+                  <em className="settings-why">
+                    Deletes the downloaded files. Turn spoken replies on again
+                    to download them.
+                  </em>
+                </>
+              )}
+            </div>
+          )}
         </>
       )}
 

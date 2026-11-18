@@ -329,6 +329,16 @@ export class AgentService {
     this.speech = new SpeechHost({
       dir: ttsDir({userData: paths.userData}),
       readSettings: async () => (await this.runtime.settings()).speech,
+      /*
+       * The bot that wrote the answer may have its own voice and speed. The
+       * lead has no `agentId` on its message, so the active profile is the
+       * fallback — which is the conversation's own agent for a chat it started.
+       */
+      resolveOverride: async (agentId) => {
+        const {profiles, activeProfileId} = await this.profiles();
+        const id = agentId ?? activeProfileId;
+        return profiles.find((profile) => profile.id === id)?.speech ?? {};
+      },
       sendEvent: (event) => {
         options.sendEvent(event);
       },
@@ -1607,12 +1617,25 @@ export class AgentService {
     return this.speech.cancel();
   }
 
-  async sampleSpeech(voice?: string): Promise<SpokenAudio> {
-    return await this.speech.sample(voice);
+  async sampleSpeech(voice?: string, speed?: number): Promise<SpokenAudio> {
+    return await this.speech.sample(voice, speed);
   }
 
-  async speak(text: string): Promise<SpokenAudio> {
-    return await this.speech.speak(text);
+  /** Starts a spoken reply; chunks arrive as `speech.audio` events. */
+  speak(
+    text: string,
+    agentId?: string,
+    utteranceId?: string,
+  ): {utteranceId: string} {
+    return this.speech.speak(text, agentId, utteranceId);
+  }
+
+  stopSpeech(utteranceId: string): {stopped: boolean} {
+    return this.speech.stop(utteranceId);
+  }
+
+  async removeSpeech(): Promise<{removed: boolean}> {
+    return await this.speech.remove();
   }
 
   async listSessions(profileId?: string): Promise<SessionSummary[]> {

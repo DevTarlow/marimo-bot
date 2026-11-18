@@ -683,6 +683,11 @@ export function normalizeEnglish(text: string): string {
   out = bareHours(out);
   out = phones(out);
   out = money(out);
+  // A version prefix is a word, not a letter: `v0.1.0` → "version zero point
+  // one point zero". The generic version rule runs after this, so the numbers
+  // are still read the way they are in a bare `2.0.1`.
+  out = out.replace(/\bv(\d+(?:\.\d+)+)\b/giu, 'version $1');
+  out = out.replace(/\bv(\d+)\b/giu, 'version $1');
   out = versions(out);
   out = fractions(out);
   out = magnitudes(out);

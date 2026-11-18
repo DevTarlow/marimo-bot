@@ -9,6 +9,14 @@
  * and released when nobody has spoken for a while, and one request at a time so
  * two windows cannot load two copies of an 82 MB graph.
  *
+ * **A reply is a stream of sentences.** The text is split once, then each
+ * sentence is synthesised in order and emitted as a `speech.audio` event. The
+ * renderer plays the first while the host works on the next, so the wait is one
+ * sentence rather than one reply. A stop marks the utterance and no further
+ * chunk for it is emitted; the renderer ignores anything that was already in
+ * flight. ONNX itself cannot be interrupted mid-run, so the boundary is the
+ * sentence, which is the shortest unit the person can hear anyway.
+ *
  * **The session is not a preference.** `status()` reads the files and reports
  * what is there; only a reply or a sample loads the graph. A Settings card that
  * loaded 250 MB to draw a dot would be the app's largest side effect on a read.
@@ -18,19 +26,21 @@
  * trace, and none of them leaves a half-loaded session behind.
  */
 import {createRequire} from 'node:module';
-import {readFile} from 'node:fs/promises';
+import {randomUUID} from 'node:crypto';
+import {readFile, rm} from 'node:fs/promises';
+import {basename, join} from 'node:path';
 import {cpus} from 'node:os';
-import {join} from 'node:path';
 
 import type {
   AgentUiEvent,
   SpeechDownloadProgress,
+  SpeechOverride,
   SpeechSettings,
   SpeechStatus,
   SpeechVoice,
   SpokenAudio,
 } from '@marimo/protocol';
-import {SPEECH_SAMPLE_TEXT} from '@marimo/protocol';
+import {SPEECH_MAX_CHARS, SPEECH_SAMPLE_TEXT} from '@marimo/protocol';
 import {
   createPhonemizer,
   installSpeech,
@@ -38,7 +48,9 @@ import {
   readVoiceCatalogue,
   readVoicePacks,
   resolveVoice,
+  splitSpeechSentences,
   synthesize,
+  trimForSpeech,
   voicePack,
   type NpyArray,
   type Phonemize,
@@ -56,8 +68,10 @@ const IDLE_MS = 5 * 60_000;
 export interface SpeechHostOptions {
   /** The `model/tts` directory, from `ttsDir`. */
   dir: string;
-  /** The stored preference, read per call so a voice change applies at once. */
+  /** The stored preference, read per call so a change applies at once. */
   readSettings: () => Promise<SpeechSettings>;
+  /** A bot's own voice/speed, or `{}` when it has none. */
+  resolveOverride?: (agentId?: string) => Promise<SpeechOverride>;
   sendEvent: (event: AgentUiEvent) => void;
 }
 
@@ -77,6 +91,10 @@ interface DownloadState {
   progress?: SpeechDownloadProgress;
 }
 
+interface Utterance {
+  cancelled: boolean;
+}
+
 export class SpeechHost {
   private loaded: Loaded | undefined;
   private loading: Promise<Loaded> | undefined;
@@ -84,6 +102,8 @@ export class SpeechHost {
   private idle: NodeJS.Timeout | undefined;
   /** Serialises synthesis; a sample and a reply must not share the graph. */
   private queue: Promise<unknown> = Promise.resolve();
+  /** The replies currently being synthesised, by the renderer's utterance id. */
+  private readonly utterances = new Map<string, Utterance>();
   private disposed = false;
 
   constructor(private readonly options: SpeechHostOptions) {}
@@ -136,15 +156,11 @@ export class SpeechHost {
    *
    * The promise is not the caller's: a Settings card is closed long before
    * 92 MB arrive, and the events are how it finds out. A second press while one
-   * is running is the same download, not a second one.
+   * is running is the same download, not a second one. A press when the model
+   * is already installed is a repair: the installer hashes what is there and
+   * re-fetches only what does not match.
    */
   async install(): Promise<{started: boolean}> {
-    /*
-     * A press while a download runs is the same download. A press when the
-     * model is already installed is a repair: `installSpeech` hashes what is
-     * there and re-fetches only what does not match, which is also what makes
-     * the card's "Repair" button meaningful after a damaged file.
-     */
     if (this.download !== undefined) {
       return {started: true};
     }
@@ -196,14 +212,82 @@ export class SpeechHost {
     return {cancelled: true};
   }
 
-  /** One fixed sentence in the chosen voice, for the picker's audition. */
-  async sample(voice?: string): Promise<SpokenAudio> {
-    return await this.render(SPEECH_SAMPLE_TEXT, voice);
+  /**
+   * Deletes the cached model, and refuses while spoken replies are on.
+   *
+   * The renderer sends no path. The only directory this can remove is the one
+   * it was constructed with, and the basename check is the second half of that:
+   * a mis-wired directory is refused rather than recursively deleted.
+   */
+  async remove(): Promise<{removed: boolean}> {
+    const settings = await this.options.readSettings();
+    if (settings.enabled) {
+      throw new Error(
+        'Turn spoken replies off before removing the voice model, so the ' +
+          'next answer does not fail silently.',
+      );
+    }
+    if (basename(this.options.dir) !== 'tts') {
+      throw new Error(
+        'The voice-model directory is not the one this app owns.',
+      );
+    }
+    if (!(await isSpeechInstalled(this.options.dir))) {
+      return {removed: false};
+    }
+    this.download?.controller.abort();
+    this.download = undefined;
+    for (const utterance of this.utterances.values()) {
+      utterance.cancelled = true;
+    }
+    this.unload();
+    await rm(this.options.dir, {recursive: true, force: true});
+    return {removed: true};
   }
 
-  /** One finished turn's answer. */
-  async speak(text: string): Promise<SpokenAudio> {
-    return await this.render(text, undefined);
+  /** One fixed sentence in the chosen voice, for the picker's audition. */
+  async sample(voice?: string, speed?: number): Promise<SpokenAudio> {
+    const settings = await this.options.readSettings();
+    const loaded = await this.ready();
+    const chosen = resolveVoice(loaded.voices, voice ?? settings.voice);
+    const chosenSpeed = speed ?? settings.speed;
+    const result = await this.renderOne(
+      loaded,
+      chosen,
+      chosenSpeed,
+      SPEECH_SAMPLE_TEXT,
+    );
+    this.touch();
+    return result;
+  }
+
+  /**
+   * Starts one reply and answers immediately.
+   *
+   * The renderer supplies the utterance id it will listen for, so a first
+   * sentence that is ready before the invoke reply cannot be missed. Every
+   * chunk after this is a `speech.audio` event.
+   */
+  speak(
+    text: string,
+    agentId?: string,
+    utteranceId?: string,
+  ): {utteranceId: string} {
+    const id = utteranceId ?? randomUUID();
+    const utterance: Utterance = {cancelled: false};
+    this.utterances.set(id, utterance);
+    void this.runUtterance(id, utterance, text, agentId);
+    return {utteranceId: id};
+  }
+
+  /** Cancels the rest of one utterance; the current ONNX run is not aborted. */
+  stop(utteranceId: string): {stopped: boolean} {
+    const utterance = this.utterances.get(utteranceId);
+    if (utterance === undefined) {
+      return {stopped: false};
+    }
+    utterance.cancelled = true;
+    return {stopped: true};
   }
 
   /** Aborts any download and releases the session; called on quit and reset. */
@@ -211,29 +295,100 @@ export class SpeechHost {
     this.disposed = true;
     this.download?.controller.abort();
     this.download = undefined;
+    for (const utterance of this.utterances.values()) {
+      utterance.cancelled = true;
+    }
+    this.utterances.clear();
     this.idle = this.clearIdle(this.idle);
     this.unload();
   }
 
-  private async render(
+  private async runUtterance(
+    id: string,
+    utterance: Utterance,
     text: string,
-    requestedVoice: string | undefined,
+    agentId: string | undefined,
+  ): Promise<void> {
+    try {
+      if (utterance.cancelled) {
+        return;
+      }
+      const loaded = await this.ready();
+      const settings = await this.options.readSettings();
+      const override = (await this.options.resolveOverride?.(agentId)) ?? {};
+      const voice = resolveVoice(
+        loaded.voices,
+        override.voice ?? settings.voice,
+      );
+      const speed = override.speed ?? settings.speed;
+      const {text: trimmed, truncated} = trimForSpeech(text, SPEECH_MAX_CHARS);
+      const sentences = splitSpeechSentences(trimmed);
+      if (sentences.length === 0) {
+        throw new Error('There were no words to speak.');
+      }
+      for (const [index, sentence] of sentences.entries()) {
+        if (utterance.cancelled || this.disposed) {
+          return;
+        }
+        const final = index === sentences.length - 1;
+        const result = await this.enqueue(async () =>
+          synthesize({
+            text: sentence,
+            vocab: loaded.vocab,
+            voicePack: voicePack(loaded.packs, voice),
+            session: loaded.session,
+            phonemize: loaded.phonemize,
+            sampleRate: loaded.sampleRate,
+            speed,
+          }),
+        );
+        if (utterance.cancelled || this.disposed) {
+          return;
+        }
+        this.emit({
+          type: 'speech.audio',
+          utteranceId: id,
+          index,
+          final,
+          wavBase64: Buffer.from(result.wav).toString('base64'),
+          sampleRate: result.sampleRate,
+          ...(final ? {truncated: truncated || result.truncated} : {}),
+        });
+      }
+      this.touch();
+    } catch (failure) {
+      if (!utterance.cancelled && !this.disposed) {
+        this.emit({
+          type: 'speech.audio',
+          utteranceId: id,
+          index: 0,
+          final: true,
+          error: describe(failure),
+        });
+      }
+    } finally {
+      this.utterances.delete(id);
+    }
+  }
+
+  /** One WAV for the sample, with the voice and speed the card chose. */
+  private async renderOne(
+    loaded: Loaded,
+    voice: SpeechVoice,
+    speed: number,
+    text: string,
   ): Promise<SpokenAudio> {
-    const loaded = await this.ready();
-    const settings = await this.options.readSettings();
-    const voice = resolveVoice(loaded.voices, requestedVoice ?? settings.voice);
-    const pack = voicePack(loaded.packs, voice);
     const result = await this.enqueue(async () =>
       synthesize({
         text,
         vocab: loaded.vocab,
-        voicePack: pack,
+        voicePack: voicePack(loaded.packs, voice),
         session: loaded.session,
         phonemize: loaded.phonemize,
         sampleRate: loaded.sampleRate,
+        speed,
       }),
     );
-    this.touch();
     return {
       wavBase64: Buffer.from(result.wav).toString('base64'),
       sampleRate: result.sampleRate,

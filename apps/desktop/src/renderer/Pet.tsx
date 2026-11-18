@@ -214,7 +214,25 @@ export function Pet(): React.JSX.Element {
         {shown.map((message) => (
           <div key={message.id} className={`pet-bubble pet-${message.role}`}>
             {message.role === 'assistant' ? (
-              <Markdown text={message.text} />
+              <>
+                <Markdown text={message.text} />
+                <button
+                  type="button"
+                  className="pet-speak-inline"
+                  onClick={() => {
+                    const key = message.invocationId ?? message.id;
+                    if (spoken.speakingId === key) {
+                      spoken.stop();
+                    } else {
+                      void spoken.speak(message.text, key, message.agentId);
+                    }
+                  }}
+                >
+                  {spoken.speakingId === (message.invocationId ?? message.id)
+                    ? 'Stop'
+                    : 'Speak'}
+                </button>
+              </>
             ) : (
               message.text
             )}

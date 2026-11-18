@@ -32,6 +32,7 @@ import {
 import {IPC_EVENT_CHANNEL, defaultWindowState} from '@marimo/protocol';
 import type {
   AgentUiEvent,
+  ListenSettings,
   SpeechSettings,
   ThemeMode,
   WindowState,
@@ -433,6 +434,33 @@ async function refreshSpeechSettings(): Promise<void> {
   }
 }
 
+/** The voice-input block, as the window and the pet last saw it. */
+let lastListenSettings: ListenSettings | undefined;
+
+/**
+ * Tells both windows when the voice-input block changes.
+ *
+ * The device and the two behaviour switches live in the settings screen in the
+ * main window, while the moss's microphone button reads them from its own copy.
+ * `listen.changed` is how the pet's copy moves without reopening it.
+ */
+async function refreshListenSettings(): Promise<void> {
+  if (agent === undefined) {
+    return;
+  }
+  try {
+    const {listen: next} = await agent.settings();
+    if (JSON.stringify(next) === JSON.stringify(lastListenSettings)) {
+      return;
+    }
+    lastListenSettings = next;
+    broadcast({type: 'listen.changed', settings: next});
+  } catch {
+    // The same rule the companion follows: an unreadable file leaves the last
+    // known answer in place rather than guessing at a change.
+  }
+}
+
 /**
  * Whether the user has been told that closing the window leaves the app
  * running.
@@ -443,16 +471,17 @@ async function refreshSpeechSettings(): Promise<void> {
 let toldAboutTray = false;
 
 /**
- * Allowing the clipboard, and nothing else.
+ * Allowing the clipboard and the microphone, and nothing else.
  *
- * One feature, reached by pressing a Copy button in this app's own window:
+ * Two features, both reached by pressing a button in this app's own window:
  * Chromium routes `navigator.clipboard.writeText()` through these handlers as
- * `clipboard-sanitized-write`. Denying that was silent: the button's rejection
- * handler had nothing to show, so it looked unwired.
+ * `clipboard-sanitized-write`, and `getUserMedia({audio})` as `media`. Denying
+ * either was silent: the caller's rejection handler had nothing to show, so it
+ * looked unwired.
  *
  * The boundary still matters: a page that is not one of this app's own windows
- * must not write the clipboard, and the app no longer opens a microphone or a
- * camera at all.
+ * must not write the clipboard or open a microphone, and nothing here allows a
+ * camera. The host's one-capture lease is the second gate on the microphone.
  */
 function installSessionPermissions(): void {
   const ownPage = (url: string): boolean => isOwnPage(url, devServerUrl);
@@ -460,10 +489,9 @@ function installSessionPermissions(): void {
   session.defaultSession.setPermissionRequestHandler(
     (contents, permission, callback) => {
       /*
-       * The only permission in the set is a sanitized clipboard write, so a
-       * request that reaches here is one this app has a feature for. Anything
-       * else — a microphone, a camera — was refused by `isAppPermission`
-       * before the OS prompt.
+       * A request that reaches here is for a clipboard write or the microphone,
+       * the two features this app has. Anything else — a camera, a location —
+       * was refused by `isAppPermission` before the OS prompt.
        */
       void permission;
       callback(isAppPermission(permission) && ownPage(contents.getURL()));
@@ -662,6 +690,7 @@ async function bootstrap(): Promise<void> {
       void refreshThemeMode();
       void refreshCompanionSettings();
       void refreshSpeechSettings();
+      void refreshListenSettings();
     },
     companion: () => companion,
     ...(startupWarning === undefined ? {} : {warning: startupWarning}),
@@ -698,6 +727,7 @@ async function bootstrap(): Promise<void> {
    */
   await refreshCompanionSettings();
   await refreshSpeechSettings();
+  await refreshListenSettings();
   if (companionEnabled) {
     await companion.show();
   }

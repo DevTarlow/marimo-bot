@@ -172,6 +172,17 @@ export type {
 export * from './speech/index.js';
 
 /*
+ * Voice input: the speech-to-text model's pins, installer, tokenizer and the
+ * five-graph engine.
+ *
+ * The ONNX runtime stays in the main process. Everything here is pure enough to
+ * test without it: the download is a file operation, the tokenizer is bytes and
+ * the engine talks to an injected set of graphs. That is also what keeps the
+ * headless runner from loading a model it never uses.
+ */
+export * from './listen/index.js';
+
+/*
  * Recall: the embedding model, and the pieces that turn it into an answer.
  *
  * Beside the model above because it *is* a model — a second engine, its own

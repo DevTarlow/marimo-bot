@@ -29,6 +29,7 @@ import {
   modelDir,
   secretReaderFor,
   sortJobs,
+  listenDir,
   turnInstruction,
   ttsDir,
   BOT_BUILDER_INSTRUCTION,
@@ -55,6 +56,10 @@ import type {
   JobPatch,
   JobSummary,
   LeftOverModelId,
+  ListenCaptureGrant,
+  ListenStatus,
+  ListenSurface,
+  ListenTranscription,
   McpServer,
   ModelServerStatus,
   McpStatus,
@@ -83,6 +88,8 @@ import {shouldUseV2} from './harness-route.js';
 import {BrowserSearchProvider} from './search/search-window.js';
 import {RecallHost} from './recall.js';
 import {SpeechHost} from './speech-host.js';
+import {ListenHost} from './listen-host.js';
+import {ensureMicrophoneAccess} from './microphone.js';
 import {MediaDecodingWindow} from './media/decode-window.js';
 import {mediaParts} from './media/parts.js';
 import {MCP_CLIENT} from '../shared/product.js';
@@ -189,6 +196,12 @@ export class AgentService {
    * constructed unconditionally and loads nothing until a reply is spoken.
    */
   private readonly speech: SpeechHost;
+  /**
+   * Voice input: the second ONNX model, the microphone lease and the one CPU
+   * queue. Constructed unconditionally; it loads nothing until a recording is
+   * transcribed, and it is the only place the speech-to-text graphs are held.
+   */
+  private readonly listen: ListenHost;
   /** How often the badge looks again while the window is open. */
   private modelWatch: NodeJS.Timeout | undefined;
   /** The last status sent to the window, so a quiet watch sends nothing. */
@@ -338,6 +351,23 @@ export class AgentService {
         const {profiles, activeProfileId} = await this.profiles();
         const id = agentId ?? activeProfileId;
         return profiles.find((profile) => profile.id === id)?.speech ?? {};
+      },
+      sendEvent: (event) => {
+        options.sendEvent(event);
+      },
+    });
+
+    this.listen = new ListenHost({
+      dir: listenDir({userData: paths.userData}),
+      readSettings: async () => (await this.runtime.settings()).listen,
+      ensureAccess: ensureMicrophoneAccess,
+      /*
+       * A microphone starting is the barge-in. The host marks every spoken
+       * utterance cancelled before the renderer opens the device, and the
+       * `listen.capture` event tells both windows to stop their players.
+       */
+      onCaptureStarted: () => {
+        this.speech.stopAll();
       },
       sendEvent: (event) => {
         options.sendEvent(event);
@@ -607,6 +637,7 @@ export class AgentService {
      */
     this.models.dispose();
     this.speech.dispose();
+    this.listen.dispose();
     // Stops the recall engine too, through the runner the runtime was given: a
     // child still loading weights when its parent exits is memory and a spinning
     // fan with no window left to explain it.
@@ -1596,6 +1627,14 @@ export class AgentService {
   ): Promise<void> {
     await this.runtime.updateSettings(patch);
     /*
+     * Turning voice input off mid-recording has to stop the capture as well as
+     * the switch: the renderer sees the settings change a moment later, and the
+     * lease must not survive a feature the person has just turned off.
+     */
+    if (patch.listen?.enabled === false) {
+      this.listen.cancel();
+    }
+    /*
      * The cached probe belonged to the old address. The response to the write
      * carries a fresh one, so this is only about the next reader: a turn must
      * not be answered from a status for a server the person has just replaced.
@@ -1636,6 +1675,44 @@ export class AgentService {
 
   async removeSpeech(): Promise<{removed: boolean}> {
     return await this.speech.remove();
+  }
+
+  /** The voice-input model's files and sessions, as its Settings card draws them. */
+  async listenStatus(): Promise<ListenStatus> {
+    return await this.listen.status();
+  }
+
+  async installListen(): Promise<{started: boolean}> {
+    return await this.listen.install();
+  }
+
+  cancelListenInstall(): {cancelled: boolean} {
+    return this.listen.cancelInstall();
+  }
+
+  async removeListen(): Promise<{removed: boolean}> {
+    return await this.listen.remove();
+  }
+
+  /** Claims the one microphone lease for a surface. */
+  async beginListenCapture(
+    surface: ListenSurface,
+  ): Promise<ListenCaptureGrant> {
+    return await this.listen.beginCapture(surface);
+  }
+
+  /** Transcribes one clipped recording; a stale lease answers cancelled. */
+  async transcribeListen(input: {
+    token: string;
+    pcm: string;
+    sampleRate: number;
+    clipId: string;
+  }): Promise<ListenTranscription> {
+    return await this.listen.transcribe(input);
+  }
+
+  cancelListen(token?: string): {cancelled: boolean} {
+    return this.listen.cancel(token);
   }
 
   async listSessions(profileId?: string): Promise<SessionSummary[]> {

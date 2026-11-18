@@ -120,6 +120,16 @@ describe('SpeechHost.status', () => {
     expect((await host(true).status()).installed).toBe(true);
   });
 
+  it('cancels every utterance for the microphone barge-in', () => {
+    const subject = host();
+    subject.speak('one', undefined, 'u1');
+    subject.speak('two', undefined, 'u2');
+    expect(subject.stopAll()).toBe(2);
+    // A second stop is not an error; there is simply nothing left to cancel.
+    expect(subject.stopAll()).toBe(2);
+    subject.dispose();
+  });
+
   it('reports a catalogue it cannot read rather than claiming voices', async () => {
     await install();
     await writeFile(

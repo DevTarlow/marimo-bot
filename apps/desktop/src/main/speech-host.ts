@@ -290,6 +290,22 @@ export class SpeechHost {
     return {stopped: true};
   }
 
+  /**
+   * Cancels every utterance, for the microphone's barge-in.
+   *
+   * The renderer stops its own player when the lease event arrives; this is the
+   * host half, so no further sentence is synthesised or emitted. A run already
+   * inside ONNX finishes, as it must, but its result is not sent.
+   */
+  stopAll(): number {
+    let cancelled = 0;
+    for (const utterance of this.utterances.values()) {
+      utterance.cancelled = true;
+      cancelled += 1;
+    }
+    return cancelled;
+  }
+
   /** Aborts any download and releases the session; called on quit and reset. */
   dispose(): void {
     this.disposed = true;

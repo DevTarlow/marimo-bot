@@ -1,21 +1,28 @@
 /**
  * Which permissions this app's own windows may ask for.
  *
- * One, and it is a feature the user pressed something to reach: a sanitized
- * clipboard write (every Copy button). Everything else stays refused — a page
- * that is not one of this app's own windows must not open a microphone, and the
- * app has no feature that needs one, a camera, location or notifications.
+ * Two, and both are features the user pressed something to reach: a sanitized
+ * clipboard write (every Copy button) and the microphone (the voice-input
+ * button). Everything else stays refused — a page that is not one of this app's
+ * own windows must not open a microphone, and the app has no feature that needs
+ * a camera, location or notifications.
+ *
+ * `media` is the permission Chromium routes `getUserMedia({audio})` through. The
+ * main process still grants exactly one capture lease and the renderer asks the
+ * device only after that grant; this is the session-level yes that stops the
+ * rejection being silent.
  *
  * Extracted from `main.ts` so the rule can be tested without booting Electron.
  * The failure it exists for is silent by nature: a permission check that
- * answers `false` makes `navigator.clipboard.writeText()` reject, and a
- * rejection handler that only logs nothing looks exactly like a button that
- * was never wired up.
+ * answers `false` makes `navigator.clipboard.writeText()` or
+ * `getUserMedia()` reject, and a rejection handler that only logs nothing looks
+ * exactly like a button that was never wired up.
  */
 
 /** The permission names this app answers `true` to for one of its own pages. */
 const APP_PERMISSIONS: ReadonlySet<string> = new Set([
   'clipboard-sanitized-write',
+  'media',
 ]);
 
 /** Whether a permission is one this app has a feature for. */

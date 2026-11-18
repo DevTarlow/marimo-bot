@@ -539,6 +539,24 @@ export function registerIpcHandler(dependencies: IpcDependencies): void {
     'speech.stop': async (params) => agent().stopSpeech(params.utteranceId),
     'speech.remove': async () => await agent().removeSpeech(),
 
+    /*
+     * Voice input.
+     *
+     * `beginCapture` is the microphone lease; `transcribe` is the one CPU job.
+     * The two are separate because the renderer owns the device while the person
+     * is speaking, and the token is what proves a later call belongs to that
+     * recording.
+     */
+    'listen.status': async () => await agent().listenStatus(),
+    'listen.install': async () => await agent().installListen(),
+    'listen.installCancel': () => agent().cancelListenInstall(),
+    'listen.remove': async () => await agent().removeListen(),
+    'listen.beginCapture': async (params) =>
+      await agent().beginListenCapture(params.surface),
+    'listen.transcribe': async (params) =>
+      await agent().transcribeListen(params),
+    'listen.cancel': (params) => agent().cancelListen(params.token),
+
     'profiles.list': async () => await agent().profiles(),
 
     'profiles.catalog': async () => await agent().catalog(),

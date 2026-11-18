@@ -110,7 +110,10 @@
         "package.json",
         "!node_modules/onnxruntime-node/bin/napi-v6/linux/**",
         "!node_modules/onnxruntime-node/bin/napi-v6/win32/**"
-      ]
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Marimo Bot records only while you press the microphone button, and transcribes the audio on this computer."
+      }
     }
   },
   "//": "asar is off deliberately. The job runner is this same binary started with ELECTRON_RUN_AS_NODE=1, and in that mode Electron does not patch `fs` to read inside an asar archive \u2014 reading one fails with \"Invalid package\". So a packaged app with asar on has a runner that cannot start, which is the whole of \"jobs run while the app is closed\" broken in every release and working perfectly in development.",

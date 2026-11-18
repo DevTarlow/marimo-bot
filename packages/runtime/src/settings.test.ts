@@ -14,6 +14,7 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 
 import {
   DEFAULT_MODEL_SERVER_URL,
+  defaultListenSettings,
   defaultModelServerSettings,
   defaultSpeechSettings,
 } from '@marimo/protocol';
@@ -99,6 +100,7 @@ describe('SettingsStore', () => {
     expect(settings.modelServer).toEqual(defaultModelServerSettings());
     expect(settings.modelServer.url).toBe(DEFAULT_MODEL_SERVER_URL);
     expect(settings.speech).toEqual(defaultSpeechSettings());
+    expect(settings.listen).toEqual(defaultListenSettings());
     expect('providers' in settings).toBe(false);
     expect('availableModels' in settings).toBe(false);
   });
@@ -163,10 +165,11 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(6);
+    expect(raw['version']).toBe(7);
     expect(raw['localModels']).toBeUndefined();
     expect(raw['modelServer']).toBeDefined();
     expect(raw['speech']).toEqual(defaultSpeechSettings());
+    expect(raw['listen']).toEqual(defaultListenSettings());
   });
 
   it('merges a model-server patch one field at a time', async () => {
@@ -253,7 +256,7 @@ describe('SettingsStore', () => {
     const raw = JSON.parse(
       await readFile(join(dir, 'settings.json'), 'utf8'),
     ) as Record<string, unknown>;
-    expect(raw['version']).toBe(6);
+    expect(raw['version']).toBe(7);
     expect(raw['setupSeen']).toBe(true);
     expect(raw['providers']).toBeUndefined();
     expect(raw['availableModels']).toBeUndefined();
@@ -339,6 +342,64 @@ describe('SettingsStore', () => {
       voice: 'eleanor',
       answerLength: 'balanced',
       speed: 1,
+    });
+  });
+
+  it('adds voice input to a version 6 file and keeps the speed', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 6,
+        sidebarWidth: 336,
+        speech: {
+          enabled: true,
+          voice: 'martha',
+          answerLength: 'balanced',
+          speed: 1.3,
+        },
+      }),
+      'utf8',
+    );
+    const settings = await store.load();
+    expect(settings.sidebarWidth).toBe(336);
+    expect(settings.speech.speed).toBe(1.3);
+    expect(settings.listen).toEqual(defaultListenSettings());
+    const raw = JSON.parse(
+      await readFile(join(dir, 'settings.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(raw['version']).toBe(7);
+    expect(raw['listen']).toEqual(defaultListenSettings());
+  });
+
+  it('falls back on a malformed voice-input block and keeps the rest', async () => {
+    await writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 7,
+        sidebarWidth: 337,
+        listen: {enabled: 'yes', deviceId: 42},
+      }),
+      'utf8',
+    );
+    const settings = await store.load();
+    expect(settings.sidebarWidth).toBe(337);
+    expect(settings.listen).toEqual(defaultListenSettings());
+  });
+
+  it('merges a voice-input patch one field at a time', async () => {
+    await store.load();
+    await store.patch({
+      listen: {enabled: true, deviceId: 'mic-1', deviceLabel: 'Desk mic'},
+    });
+    await store.patch({listen: {autoSend: true}});
+
+    const settings = await store.load();
+    expect(settings.listen).toEqual({
+      enabled: true,
+      deviceId: 'mic-1',
+      deviceLabel: 'Desk mic',
+      autoSend: true,
+      autoStopOnSilence: false,
     });
   });
 });

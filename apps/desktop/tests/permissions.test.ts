@@ -12,11 +12,12 @@ import {describe, expect, it} from 'vitest';
 import {isAppPermission, isOwnPage} from '../src/main/permissions.js';
 
 describe('isAppPermission', () => {
-  it('allows the clipboard feature the app has, and nothing else', () => {
+  it('allows the clipboard and microphone features, and nothing else', () => {
     expect(isAppPermission('clipboard-sanitized-write')).toBe(true);
+    expect(isAppPermission('media')).toBe(true);
 
     for (const permission of [
-      'media',
+      'camera',
       'clipboard-read',
       'geolocation',
       'notifications',

@@ -28,12 +28,14 @@ import {
   defaultModelServerSettings,
   defaultRecallSettings,
   defaultCompanionSettings,
+  defaultListenSettings,
   defaultSpeechSettings,
   DEFAULT_MEMORY_REVIEW_EVENTS,
   DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
   defaultWindowState,
   defaultDiscordSettings,
   discordSettingsSchema,
+  listenSettingsSchema,
   modelServerSettingsSchema,
   recallSettingsSchema,
   settingsPatchSchema,
@@ -71,6 +73,10 @@ export function defaultStoredSettings(): StoredSettings {
     // spoken length starts brief because a sentence read aloud costs time that
     // the same words on screen do not.
     speech: defaultSpeechSettings(),
+    // Voice input is off until the person downloads its model and presses the
+    // microphone. A fresh install makes no microphone permission request on its
+    // own; the device is the OS default until somebody chooses another.
+    listen: defaultListenSettings(),
     // Match the design tokens, so the first launch looks like the stylesheet says
     // it should, and a later drag starts from wherever the user left it.
     sidebarWidth: 272,
@@ -128,11 +134,12 @@ export function defaultStoredSettings(): StoredSettings {
  * catalogue entirely: the chat model is a server the person runs, so the block
  * that named a downloaded model becomes an address, a name and a window. Version
  * 5 adds the spoken-replies block: the switch, the voice and the spoken length.
- * Version 6 adds the speed the voice speaks at. A settings file is still read
- * leniently, but a newer version is refused so a future build's file is not
- * overwritten by this one.
+ * Version 6 adds the speed the voice speaks at. Version 7 adds local voice
+ * input: the switch, the microphone, auto-send and auto-stop. A settings file is
+ * still read leniently, but a newer version is refused so a future build's file
+ * is not overwritten by this one.
  */
-const SETTINGS_VERSION = 6;
+const SETTINGS_VERSION = 7;
 
 /**
  * The versions below this one, step by step.
@@ -254,6 +261,24 @@ const SETTINGS_MIGRATIONS: readonly DocumentMigration[] = [
           // v5 build always passed.
           speed: (speech as {speed?: unknown}).speed ?? 1,
         },
+      };
+    },
+  },
+  {
+    from: 6,
+    to: 7,
+    summary: 'added local voice input, off, on the OS default microphone',
+    migrate(document) {
+      return {
+        ...document,
+        /*
+         * The block did not exist before this version, so the only sensible
+         * value is the default: off, the system microphone, insert rather than
+         * send, and no silence guess. A file that already has one is not
+         * trusted for it — this version is the first that knows what the keys
+         * mean.
+         */
+        listen: defaultListenSettings(),
       };
     },
   },
@@ -385,6 +410,17 @@ export class SettingsStore {
             defaults.speech,
             rawObject['speech'],
           ),
+          /*
+           * Voice input is a block for the same reason: a hand-edited device id
+           * must cost the microphone, not every other setting. A file from
+           * before version 7 has no block at all and gets the off default here
+           * as well as through its migration.
+           */
+          listen: fillBlock(
+            listenSettingsSchema,
+            defaults.listen,
+            rawObject['listen'],
+          ),
           appearance: fillBlock(
             appearanceSchema,
             defaults.appearance,
@@ -457,6 +493,9 @@ export class SettingsStore {
       const speech = defined.speech
         ? {...current.speech, ...definedOnly(defined.speech)}
         : current.speech;
+      const listen = defined.listen
+        ? {...current.listen, ...definedOnly(defined.listen)}
+        : current.listen;
       const appearance = defined.appearance
         ? {...current.appearance, ...definedOnly(defined.appearance)}
         : current.appearance;
@@ -477,6 +516,7 @@ export class SettingsStore {
         discord,
         companion,
         speech,
+        listen,
         appearance,
         recall,
         modelServer,

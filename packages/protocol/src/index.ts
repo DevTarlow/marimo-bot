@@ -33,6 +33,17 @@ import type {
   SpeechStatus,
   SpokenAudio,
 } from './speech.js';
+import {
+  listenSettingsPatchSchema,
+  listenSettingsSchema,
+} from './listen.js';
+import type {
+  ListenCaptureGrant,
+  ListenSettings,
+  ListenStatus,
+  ListenSurface,
+  ListenTranscription,
+} from './listen.js';
 
 /*
  * The starter bots and the two texts a bot is seeded with. They live in their
@@ -69,6 +80,33 @@ export type {
   SpeechVoice,
   SpokenAudio,
 } from './speech.js';
+
+/*
+ * Local voice input: the preference, the model's state, the microphone lease
+ * and the transcription. Re-exported here for the same reason speech is: every
+ * window imports the contract from this one module.
+ */
+export {
+  defaultListenSettings,
+  LISTEN_MAX_SECONDS,
+  LISTEN_MIN_SECONDS,
+  LISTEN_MODEL_BYTES,
+  LISTEN_MODEL_LABEL,
+  LISTEN_SURFACES,
+  listenSettingsPatchSchema,
+  listenSettingsSchema,
+} from './listen.js';
+export type {
+  ListenCaptureGrant,
+  ListenCaptureReason,
+  ListenDownloadProgress,
+  ListenEngineState,
+  ListenSettings,
+  ListenSettingsPatch,
+  ListenStatus,
+  ListenSurface,
+  ListenTranscription,
+} from './listen.js';
 
 export {
   availableBotTemplates,
@@ -875,6 +913,16 @@ export const settingsSchema = z.object({
    */
   speech: speechSettingsSchema,
   /**
+   * Voice input: the switch, the chosen microphone and the two behaviour
+   * answers.
+   *
+   * A block for the same reason spoken replies are one: the fields are one
+   * question, and a window that flips only `autoSend` must not send back the
+   * device it did not mention. The model's presence is a status read, never a
+   * field here.
+   */
+  listen: listenSettingsSchema,
+  /**
    * How wide the rails and the documents drawer are, in pixels. Clamped here
    * rather than trusted: a width is dragged, and a drag can end anywhere
    * including off the screen, so the bounds belong to the contract rather than
@@ -1026,6 +1074,7 @@ export const settingsPatchSchema = settingsSchema.partial().extend({
   discord: discordSettingsPatchSchema.optional(),
   companion: companionSettingsPatchSchema.optional(),
   speech: speechSettingsPatchSchema.optional(),
+  listen: listenSettingsPatchSchema.optional(),
   appearance: appearancePatchSchema.optional(),
   /* Any subset of the block, merged over what is stored — the reason above. */
   recall: recallSettingsSchema.partial().optional(),
@@ -2996,6 +3045,27 @@ export type AgentUiEvent =
    */
   | ({type: 'speech.audio'} & SpeechAudioChunk)
   /*
+   * Voice input: the model downloading, installed or failed, the preference
+   * changing, and the microphone lease moving.
+   *
+   * `listen.capture` is the barge-in and the coordination. A window that starts
+   * a recording tells the main process, which stops every spoken utterance and
+   * broadcasts the lease; the other window stops its player and greys its mic
+   * until the lease is released. Two windows cannot both hold the microphone,
+   * because there is one lease and one event for it.
+   */
+  | {
+      type: 'listen.progress';
+      label: string;
+      receivedBytes: number;
+      totalBytes: number;
+      percent?: number;
+    }
+  | {type: 'listen.installed'}
+  | {type: 'listen.failed'; message: string}
+  | {type: 'listen.changed'; settings: ListenSettings}
+  | {type: 'listen.capture'; active: boolean; surface: ListenSurface}
+  /*
    * A look at the conversation finished, what it read and what it remembered.
    *
    * Emitted whether or not anything was written — which is the point, because
@@ -3449,6 +3519,38 @@ export const agentCallSchemas = {
   'speech.remove': z.object({}),
 
   /*
+   * Local voice input.
+   *
+   * `status` and `install` are separate for the same reason recall's are: a
+   * settings write that started a 158 MB download would report success for
+   * something that had not happened yet. The capture calls are separate from
+   * `transcribe` because the microphone is held by the renderer while the
+   * person speaks; the main process grants one lease and the token is what
+   * proves which recording a later call belongs to.
+   */
+  'listen.status': z.object({}),
+  'listen.install': z.object({}),
+  'listen.installCancel': z.object({}),
+  'listen.remove': z.object({}),
+  'listen.beginCapture': z.object({
+    surface: z.enum(['window', 'pet', 'settings']),
+  }),
+  'listen.transcribe': z.object({
+    token: z.string().min(1).max(100),
+    /*
+     * Base64 of little-endian Int16 samples at 16 kHz. 60 s is 1,920,000 bytes,
+     * which is 2,560,000 base64 characters; the cap leaves room for the encoder
+     * to have rounded one frame past sixty seconds before the host trims it.
+     */
+    pcm: z.string().min(1).max(3_200_000),
+    sampleRate: z.literal(16000),
+    clipId: z.string().min(1).max(100),
+  }),
+  'listen.cancel': z.object({
+    token: z.string().min(1).max(100).optional(),
+  }),
+
+  /*
    * What is still waiting for an answer, and what the user has already refused.
    *
    * A review writes its facts rather than queueing them, so `proposals` is
@@ -3860,6 +3962,13 @@ export interface AgentCallResults {
   'speech.speak': {utteranceId: string};
   'speech.stop': {stopped: boolean};
   'speech.remove': {removed: boolean};
+  'listen.status': ListenStatus;
+  'listen.install': {started: boolean};
+  'listen.installCancel': {cancelled: boolean};
+  'listen.remove': {removed: boolean};
+  'listen.beginCapture': ListenCaptureGrant;
+  'listen.transcribe': ListenTranscription;
+  'listen.cancel': {cancelled: boolean};
   'service.status': ServiceStatus;
   'service.enable': ServiceChange;
   'service.disable': ServiceChange;

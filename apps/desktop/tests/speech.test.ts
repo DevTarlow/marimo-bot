@@ -9,6 +9,7 @@
 import {describe, expect, it} from 'vitest';
 
 import {toSpeech} from '../src/renderer/speech.js';
+import {isBargeIn} from '../src/renderer/barge-in.js';
 
 describe('toSpeech', () => {
   it('leaves plain prose alone', () => {
@@ -99,5 +100,17 @@ describe('toSpeech', () => {
   it('never returns an empty answer', () => {
     expect(toSpeech('**')).toBe('The answer is in the chat.');
     expect(toSpeech('```\ncode\n```')).toBe('The code is in the chat.');
+  });
+});
+
+describe('isBargeIn', () => {
+  it('stops the voice when a microphone starts, and only then', () => {
+    expect(
+      isBargeIn({type: 'listen.capture', active: true, surface: 'pet'}),
+    ).toBe(true);
+    expect(
+      isBargeIn({type: 'listen.capture', active: false, surface: 'pet'}),
+    ).toBe(false);
+    expect(isBargeIn({type: 'todos.changed'})).toBe(false);
   });
 });

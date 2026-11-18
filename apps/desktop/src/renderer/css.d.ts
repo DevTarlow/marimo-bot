@@ -8,3 +8,18 @@
  * asset needs.
  */
 declare module '*.css';
+
+/**
+ * Vite's `?url` import: the emitted asset's URL, used for the AudioWorklet
+ * module. The worklet is a separate file so the packaged window can load it
+ * under `script-src 'self' file:` without adding `blob:` to the policy.
+ */
+declare module '*?url&no-inline' {
+  const url: string;
+  export default url;
+}
+
+declare module '*?url' {
+  const url: string;
+  export default url;
+}

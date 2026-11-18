@@ -13,7 +13,11 @@
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
-import {COMMAND_IDS, COMMANDS} from '@marimo/protocol';
+import {
+  COMMAND_IDS,
+  COMMANDS,
+  defaultListenSettings,
+} from '@marimo/protocol';
 import type {
   AppInfo,
   ProfileCatalog,
@@ -29,6 +33,7 @@ import {RecallIntro} from './components/RecallIntro.js';
 import {Search} from './components/Search.js';
 import {Settings} from './components/Settings.js';
 import {MODEL_SERVER_SECTION} from './components/ModelServerSection.js';
+import {VOICE_INPUT_SECTION} from './components/VoiceInput.js';
 import {ModelServerNotice} from './components/ModelServerNotice.js';
 import {Setup} from './components/Setup.js';
 import {Transcript} from './components/Transcript.js';
@@ -37,6 +42,7 @@ import {firstRunScreen} from './first-run.js';
 import type {FirstRunPhase} from './first-run.js';
 import {useAgent} from './hooks/useAgent.js';
 import {useSpokenReplies} from './hooks/useSpokenReplies.js';
+import {useVoiceInput} from './hooks/useVoiceInput.js';
 import {sessionMembers} from './participants.js';
 import {
   DEFAULT_DOCUMENTS_LIBRARY_SHARE,
@@ -197,6 +203,12 @@ export function App(): React.JSX.Element {
       if (event.type === 'speech.changed') {
         setSettings((current) =>
           current === null ? current : {...current, speech: event.settings},
+        );
+        return;
+      }
+      if (event.type === 'listen.changed') {
+        setSettings((current) =>
+          current === null ? current : {...current, listen: event.settings},
         );
         return;
       }
@@ -391,6 +403,37 @@ export function App(): React.JSX.Element {
 
   const busy = agent.busy;
   const disabled = agent.profile === undefined;
+
+  /*
+   * A transcript either joins the box or is sent, depending on the person's
+   * choice. The count is what makes the composer append once per finished clip;
+   * a cancelled recording never reaches here because the hook checks its run
+   * number first.
+   */
+  const [voiceInsert, setVoiceInsert] = useState<{
+    id: number;
+    text: string;
+  } | null>(null);
+  const voiceInsertId = useRef(0);
+  const voice = useVoiceInput({
+    surface: 'window',
+    settings: settings?.listen ?? defaultListenSettings(),
+    onBargeIn: spoken.stop,
+    onSetup: () => {
+      setSettingsSection(VOICE_INPUT_SECTION);
+      setShowSettings(true);
+    },
+    onTranscript: async (text) => {
+      if (settings?.listen.autoSend === true && !busy && agent.ready) {
+        const sent = await agent.send(text, 'window');
+        if (sent) {
+          return;
+        }
+      }
+      voiceInsertId.current += 1;
+      setVoiceInsert({id: voiceInsertId.current, text});
+    },
+  });
 
   /*
    * Who is in the open conversation, and which of them leads it.
@@ -1091,6 +1134,8 @@ export function App(): React.JSX.Element {
         {screen === 'app' && (
           <Composer
             busy={busy}
+            voice={voice}
+            insert={voiceInsert}
             speaking={spoken.speaking}
             onStopSpeaking={spoken.stop}
             disabled={disabled || !agent.ready}

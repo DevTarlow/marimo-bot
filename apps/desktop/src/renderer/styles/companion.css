@@ -423,3 +423,46 @@ body.companion-body {
   color: var(--text-faint);
   border-color: var(--border);
 }
+
+/*
+ * The moss's microphone and the one line it says about voice input. The button
+ * borrows the speak control's size and the accent only while recording, so the
+ * small bar keeps one loud control — Send.
+ */
+.pet-mic {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+}
+
+.pet-mic:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+.pet-mic.is-recording {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.pet-mic:disabled {
+  border-color: var(--border);
+  color: var(--text-faint);
+}
+
+.pet-voice-note {
+  margin: 0 var(--space-2);
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}

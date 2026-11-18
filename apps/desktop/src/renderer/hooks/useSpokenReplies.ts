@@ -21,6 +21,7 @@
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
+import {isBargeIn} from '../barge-in.js';
 import {toSpeech} from '../speech.js';
 import {SpeechPlayer} from '../speech-player.js';
 
@@ -121,6 +122,10 @@ export function useSpokenReplies(options: {
    */
   useEffect(() => {
     const off = window.marimo.onEvent((event) => {
+      if (isBargeIn(event)) {
+        stop();
+        return;
+      }
       if (event.type !== 'speech.audio') {
         return;
       }
@@ -200,3 +205,4 @@ export function useSpokenReplies(options: {
 
   return {speaking, speakingId, stop, speak};
 }
+

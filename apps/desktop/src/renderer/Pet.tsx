@@ -27,18 +27,23 @@ import {useEffect, useRef, useState} from 'react';
 
 import {
   defaultCompanionSettings,
+  defaultListenSettings,
   defaultSpeechSettings,
 } from '@marimo/protocol';
 import type {
   CompanionSettings,
+  ListenSettings,
   SpeechSettings,
   TranscriptMessage,
 } from '@marimo/protocol';
 
 import {Copy, Markdown} from './components/Markdown.js';
+import {MicButton} from './components/MicButton.js';
 import {gateCopy} from './gate-copy.js';
 import {useAgent} from './hooks/useAgent.js';
 import {useSpokenReplies} from './hooks/useSpokenReplies.js';
+import {useVoiceInput} from './hooks/useVoiceInput.js';
+import {appendTranscript} from './voice-insert.js';
 
 export function Pet(): React.JSX.Element {
   const agent = useAgent({surface: 'pet'});
@@ -70,6 +75,8 @@ export function Pet(): React.JSX.Element {
    * without reopening this one.
    */
   const [speech, setSpeech] = useState<SpeechSettings>(defaultSpeechSettings);
+  /* The voice-input preference, read with the other two blocks. */
+  const [listen, setListen] = useState<ListenSettings>(defaultListenSettings);
   const column = useRef<HTMLDivElement>(null);
   /*
    * Read inside the mouse listener, which is registered once. Without this the
@@ -79,11 +86,28 @@ export function Pet(): React.JSX.Element {
   const clickThrough = useRef(settings.clickThrough);
   clickThrough.current = settings.clickThrough;
 
-  const busy = agent.busy;
   const spoken = useSpokenReplies({
     enabled: speech.enabled,
     surface: 'pet',
     turn: agent.lastTurn,
+  });
+  const busy = agent.busy;
+  const voice = useVoiceInput({
+    surface: 'pet',
+    settings: listen,
+    onBargeIn: spoken.stop,
+    onSetup: () => undefined,
+    onTranscript: (text) => {
+      if (listen.autoSend && canAnswer && !busy) {
+        void agent.send(text, 'pet').then((ok) => {
+          if (!ok) {
+            setDraft((current) => appendTranscript(current, text));
+          }
+        });
+        return;
+      }
+      setDraft((current) => appendTranscript(current, text));
+    },
   });
 
   useEffect(() => {
@@ -94,6 +118,7 @@ export function Pet(): React.JSX.Element {
         if (!cancelled) {
           setSettings(loaded.companion);
           setSpeech(loaded.speech);
+          setListen(loaded.listen);
           /*
            * The one thing this window does about the app being unable to
            * answer: its ask bar goes quiet. The moss has no room for a setup
@@ -114,6 +139,8 @@ export function Pet(): React.JSX.Element {
         setSettings(event.settings);
       } else if (event.type === 'speech.changed') {
         setSpeech(event.settings);
+      } else if (event.type === 'listen.changed') {
+        setListen(event.settings);
       } else if (event.type === 'model.status') {
         // The server is started outside both windows. Without this the moss
         // would stay quiet until it was reopened, while the main window's
@@ -350,6 +377,12 @@ export function Pet(): React.JSX.Element {
         </div>
       </div>
 
+      {voice.note !== null && (
+        <div className="pet-voice-note" role="status">
+          {voice.note}
+        </div>
+      )}
+
       <div className="pet-bar">
         {/*
           New conversation, at the leading edge of the bar — the one control
@@ -406,6 +439,23 @@ export function Pet(): React.JSX.Element {
             }
           }}
         />
+        {listen.enabled && voice.installed && canAnswer && (
+          <MicButton
+            phase={voice.phase}
+            level={voice.level}
+            elapsedMs={voice.elapsedMs}
+            remoteSurface={voice.remoteSurface}
+            compact
+            onStart={() => {
+              void voice.start();
+            }}
+            onStop={() => {
+              void voice.stop();
+            }}
+            onCancel={voice.cancel}
+            onSetup={() => undefined}
+          />
+        )}
         {spoken.speaking && (
           <button
             type="button"

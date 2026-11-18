@@ -89,6 +89,7 @@ import {NewBotDialog} from './NewBotDialog.js';
 import {ResetMarimo} from './ResetMarimo.js';
 import {SettingsSection} from './SettingsSection.js';
 import {Speech} from './Speech.js';
+import {VoiceInput} from './VoiceInput.js';
 
 interface Loaded {
   settings: PublicSettings;
@@ -1355,6 +1356,18 @@ export function Settings({
               });
             });
           }}
+        />
+
+        <VoiceInput
+          opened={opened}
+          onToggle={fold}
+          settings={loaded.settings}
+          saving={saving}
+          onPatch={(patch) =>
+            change(async () => {
+              await window.marimo.call('settings.set', {patch});
+            })
+          }
         />
 
         {/*

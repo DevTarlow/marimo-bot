@@ -3674,3 +3674,88 @@ body.resizing-rail * {
 .model-server-command code {
   white-space: pre;
 }
+
+/*
+ * Voice input's microphone, level bar and cancel. The button itself reuses
+ * `.composer-mic`'s circle; these rules are the cluster that appears while a
+ * recording is open, and the Settings test's inline layout.
+ */
+.mic-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+.mic-button.is-setup {
+  color: var(--text-faint);
+}
+
+.mic-button.is-remote,
+.mic-button.is-disabled {
+  border-color: var(--border);
+  color: var(--text-faint);
+}
+
+.mic-level {
+  display: block;
+  width: 44px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--border);
+}
+
+.mic-level > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
+.mic-cancel {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+.mic-cancel:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.mic-elapsed {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mic-spinner {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: mic-spin 700ms linear infinite;
+}
+
+@keyframes mic-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.settings-mic-test {
+  align-items: center;
+}
+
+.settings-note {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+}

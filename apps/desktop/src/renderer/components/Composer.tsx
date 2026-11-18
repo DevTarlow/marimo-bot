@@ -43,7 +43,10 @@ import type {CommandId, PickedFile, SkippedFile} from '@marimo/protocol';
 
 import {composeMessage, describeSkipped} from '../attachments.js';
 import {describe} from '../describe.js';
+import type {VoiceInput} from '../hooks/useVoiceInput.js';
 import {addressedAgent, mentionAt} from '../mentions.js';
+import {appendTranscript} from '../voice-insert.js';
+import {MicButton} from './MicButton.js';
 import {TOOLS_OFF_BADGE} from '../model-copy.js';
 import type {Participant} from '../participants.js';
 import {Popover, PopoverItem} from './Popover.js';
@@ -66,6 +69,8 @@ export function Composer({
   onSend,
   onStop,
   busy,
+  voice,
+  insert,
   speaking,
   onStopSpeaking,
   disabled,
@@ -98,6 +103,15 @@ export function Composer({
   ) => Promise<boolean>;
   onStop: () => void;
   busy: boolean;
+  /** The window's voice input state, when the feature is available. */
+  voice?: VoiceInput;
+  /**
+   * A finished transcript to join onto the box, once per id.
+   *
+   * The id rather than the text is the trigger: a re-render with the same
+   * transcript must not append it twice.
+   */
+  insert?: {id: number; text: string} | null;
   /**
    * A spoken reply is playing, so the stop button is offered beside `+`.
    *
@@ -182,6 +196,29 @@ export function Composer({
   mentionRef.current = mention;
   const box = useRef<HTMLTextAreaElement>(null);
   const add = useRef<HTMLButtonElement>(null);
+
+  /*
+   * One transcript, one append. The effect is keyed on the id so a redraw for
+   * an unrelated reason does not put the same words in twice, and the caret is
+   * moved after React has written the value.
+   */
+  useEffect(() => {
+    const next = insert;
+    if (next === null || next === undefined) {
+      return;
+    }
+    setText((current) => appendTranscript(current, next.text));
+    const element = box.current;
+    if (element !== null) {
+      requestAnimationFrame(() => {
+        element.focus();
+        const end = element.value.length;
+        element.setSelectionRange(end, end);
+      });
+    }
+    // `insert.text` is read for the id that changed; the id is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insert?.id]);
 
   const mentionable = participants.length > 1;
 
@@ -372,14 +409,22 @@ export function Composer({
     }
   };
 
+  const voiceNote = voice?.note ?? null;
+  const shownNote =
+    note ??
+    (voiceNote === null ? null : {text: voiceNote, failed: false});
   const hint =
-    running !== null
-      ? 'Working…'
-      : busy
-        ? 'Working…'
-        : note !== null
-          ? note.text
-          : 'Enter to send, Shift+Enter for a new line';
+    voice?.phase === 'recording'
+      ? 'Listening… press ■ to transcribe, × to cancel'
+      : voice?.phase === 'transcribing'
+        ? 'Transcribing on the CPU…'
+        : running !== null
+          ? 'Working…'
+          : busy
+            ? 'Working…'
+            : shownNote !== null
+              ? shownNote.text
+              : 'Enter to send, Shift+Enter for a new line';
 
   /*
    * A `const`, so the narrowing survives into the picker's callbacks: a
@@ -534,6 +579,25 @@ export function Composer({
             <span aria-hidden="true">+</span>
           </button>
 
+          {voice !== undefined && (
+            <MicButton
+              phase={voice.phase}
+              level={voice.level}
+              elapsedMs={voice.elapsedMs}
+              remoteSurface={voice.remoteSurface}
+              onStart={() => {
+                void voice.start();
+              }}
+              onStop={() => {
+                void voice.stop();
+              }}
+              onCancel={voice.cancel}
+              onSetup={() => {
+                void voice.start();
+              }}
+            />
+          )}
+
           {speaking === true && onStopSpeaking !== undefined && (
             <button
               type="button"
@@ -548,11 +612,11 @@ export function Composer({
 
           <span
             className={
-              note === null || !note.failed
+              shownNote === null || !shownNote.failed
                 ? 'composer-hint'
                 : 'composer-hint is-failure'
             }
-            role={note?.failed === true ? 'alert' : undefined}
+            role={shownNote?.failed === true ? 'alert' : undefined}
           >
             {hint}
           </span>

@@ -365,6 +365,26 @@ export function useVoiceCapture(options: UseVoiceCaptureOptions): VoiceCapture {
     };
   }, []);
 
+  /*
+   * The main process owns the lease, so it can end a capture this hook did not
+   * stop — the 70-second safety timer, a settings write that turned voice input
+   * off, or another surface taking over. The event is how the renderer learns to
+   * stop the tracks it owns; without it the OS microphone would stay open for a
+   * recording the host has already forgotten.
+   */
+  useEffect(() => {
+    return window.marimo.onEvent((event) => {
+      if (
+        event.type === 'listen.capture' &&
+        !event.active &&
+        event.surface === options.surface &&
+        (session.current !== null || pendingToken.current !== undefined)
+      ) {
+        cancelRef.current();
+      }
+    });
+  }, [options.surface]);
+
   return {recording, starting, level, elapsedMs, start, stop, cancel};
 }
 

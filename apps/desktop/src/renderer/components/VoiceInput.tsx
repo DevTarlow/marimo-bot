@@ -213,6 +213,7 @@ export function VoiceInput({
     !settings.listen.enabled &&
     !captureBusy &&
     remoteCapture === null &&
+    downloading === undefined &&
     !saving;
 
   const set = async (patch: SettingsPatch): Promise<void> => {
@@ -346,7 +347,7 @@ export function VoiceInput({
             <button
               type="button"
               className="button"
-              disabled={busy || saving || captureBusy}
+              disabled={busy || saving || captureBusy || remoteCapture !== null}
               onClick={() => {
                 void download();
               }}
@@ -392,7 +393,7 @@ export function VoiceInput({
             <button
               type="button"
               className="button button-quiet"
-              disabled={busy || saving || captureBusy}
+              disabled={busy || saving || captureBusy || remoteCapture !== null}
               onClick={() => {
                 void download();
               }}

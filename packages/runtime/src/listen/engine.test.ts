@@ -1,10 +1,7 @@
 import {describe, expect, it} from 'vitest';
 
 import {LISTEN_SAMPLE_RATE} from './audio.js';
-import {
-  ListenCancelledError,
-  transcribePcm,
-} from './engine.js';
+import {ListenCancelledError, transcribePcm} from './engine.js';
 import type {
   ListenConfig,
   ListenDecoderInput,
@@ -155,9 +152,9 @@ describe('transcribePcm', () => {
       maxSeconds: 0.5,
     });
     expect(result.truncated).toBe(true);
-    expect(
-      graphs.chunkLengths.reduce((sum, length) => sum + length, 0),
-    ).toBe(8000);
+    expect(graphs.chunkLengths.reduce((sum, length) => sum + length, 0)).toBe(
+      8000,
+    );
   });
 
   it('stops before the first graph when the signal is already aborted', async () => {

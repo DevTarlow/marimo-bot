@@ -46,27 +46,23 @@ describe('resampling', () => {
     expect(out).toHaveLength(2);
     expect(Array.from(out)).toEqual([0, 0]);
     // The endpoint is preserved rather than dropped.
-    const ramp = downsampleLinear(
-      new Float32Array([0, 0.5, 1, 0.5]),
-      32_000,
-    );
+    const ramp = downsampleLinear(new Float32Array([0, 0.5, 1, 0.5]), 32_000);
     expect(ramp[0]).toBe(0);
     expect(ramp[1]).toBeCloseTo(1);
   });
 
   it('joins worklet blocks in order', () => {
-    expect(Array.from(concatChunks([
-      Float32Array.from([1, 2]),
-      Float32Array.from([3]),
-    ]))).toEqual([1, 2, 3]);
+    expect(
+      Array.from(
+        concatChunks([Float32Array.from([1, 2]), Float32Array.from([3])]),
+      ),
+    ).toEqual([1, 2, 3]);
   });
 });
 
 describe('int16Base64', () => {
   it('clamps, rounds and writes little-endian sample bytes', () => {
-    const encoded = int16Base64(
-      Float32Array.from([0, 0.5, -1, 1, 2, -2]),
-    );
+    const encoded = int16Base64(Float32Array.from([0, 0.5, -1, 1, 2, -2]));
     const binary = atob(encoded);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     const view = new DataView(bytes.buffer);

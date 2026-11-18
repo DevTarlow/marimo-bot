@@ -15,9 +15,7 @@ export interface AudioInput {
 }
 
 /** Every audio input in an `enumerateDevices` answer, in the order given. */
-export function audioInputs(
-  devices: readonly MediaDeviceInfo[],
-): AudioInput[] {
+export function audioInputs(devices: readonly MediaDeviceInfo[]): AudioInput[] {
   return devices
     .filter((device) => device.kind === 'audioinput')
     .map((device, index) => ({

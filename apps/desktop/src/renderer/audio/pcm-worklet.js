@@ -13,7 +13,11 @@
 class MarimoPcmCapture extends AudioWorkletProcessor {
   process(inputs) {
     const channels = inputs[0];
-    if (channels !== undefined && channels.length > 0 && channels[0] !== undefined) {
+    if (
+      channels !== undefined &&
+      channels.length > 0 &&
+      channels[0] !== undefined
+    ) {
       const frames = channels[0].length;
       const mono = new Float32Array(frames);
       for (let channel = 0; channel < channels.length; channel += 1) {
@@ -29,10 +33,9 @@ class MarimoPcmCapture extends AudioWorkletProcessor {
       for (let index = 0; index < frames; index += 1) {
         sum += mono[index] * mono[index];
       }
-      this.port.postMessage(
-        {pcm: mono, rms: Math.sqrt(sum / frames)},
-        [mono.buffer],
-      );
+      this.port.postMessage({pcm: mono, rms: Math.sqrt(sum / frames)}, [
+        mono.buffer,
+      ]);
     }
     return true;
   }

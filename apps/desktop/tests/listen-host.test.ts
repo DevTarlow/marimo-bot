@@ -312,7 +312,9 @@ describe('ListenHost', () => {
       sendEvent: () => undefined,
       isInstalled: async () => true,
     });
-    await expect(foreign.remove()).rejects.toThrow(/not the one this app owns/u);
+    await expect(foreign.remove()).rejects.toThrow(
+      /not the one this app owns/u,
+    );
     subject.dispose();
     disabled.dispose();
     foreign.dispose();

@@ -13,10 +13,7 @@
  */
 
 /** Join a transcript onto what is already in a composer. */
-export function appendTranscript(
-  existing: string,
-  transcript: string,
-): string {
+export function appendTranscript(existing: string, transcript: string): string {
   const clean = transcript.trim();
   if (clean.length === 0) {
     return existing;

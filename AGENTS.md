@@ -18,7 +18,8 @@ for the model. The folder it works in is what the user calls a **Space**. Marimo
 Bot is the agent the person talks to; they also make **bots**, each with its own
 name, instructions, tools and permissions. A chat can hold more than one of them,
 and Marimo Bot can hand work to one. Recall downloads its own small embedding
-model, and spoken replies download a small voice model; nothing else does.
+model, spoken replies download a small voice model, and voice input downloads
+a small speech-to-text model; nothing else does.
 
 ## Layout
 
@@ -35,9 +36,10 @@ packages/runtime    The Electron-free half of the app proper: where files live,
                     secrets with the cipher injected, the jobs/profiles/
                     workspaces/settings/skills/proposals stores, the documents
                     service, the model-server probe, the recall supervisor,
-                    installer and pins, and the voice model's pins, installer,
-                    front end and WAV engine. Re-exports the version machinery
-                    it uses.
+                    installer and pins, the voice model's pins, installer,
+                    front end and WAV engine, and voice input's pins, installer,
+                    tokenizer and five-graph engine. Re-exports the version
+                    machinery it uses.
 apps/desktop        The Electron app: src/main (window, IPC, tray, adapters),
                     src/preload (the sandboxed bridge), src/runner (the headless
                     job runner), src/renderer (React), src/shared.
@@ -163,13 +165,14 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     sleeps it or writes a pid file. The only child process left is recall's own
     engine under `LocalModelService`. A probe is a read: `resolve()` per turn,
     `status()` cached for the badge, and a watcher that emits only when something
-    the person can see changed. Speech is not a chat model: the voice model is
-    downloaded, verified and run inside the main process, and no turn is ever
-    sent to it.
+    the person can see changed. Speech is not a chat model: the voice and
+    voice-input models are downloaded, verified and run inside the main process,
+    and no turn is ever sent to either.
 25. **A download is verified before it is used, and a marker is not a hint.**
-    Recall's installer and the voice model's check every file against a pinned
-    SHA-256 and write their marker only when all of them are in place;
-    `installLocalModel` is gone with the chat model. The engine carries its own
+    Recall's installer, the voice model's installer and the voice-input model's
+    installer check every file against a pinned SHA-256 and write their marker
+    only when all of them are in place; `installLocalModel` is gone with the
+    chat model. The engine carries its own
     `.pinned` marker, so a build that moves to a new llama.cpp tag replaces the
     binary instead of running the old one. A half-written file is never loaded.
 26. **Tool calls depend on the server's chat template, and the app cannot patch
@@ -212,7 +215,20 @@ Each of these is silent when it breaks. That is the whole reason they are listed
     files only while speech is off. The text front end is the pure-TypeScript
     misaki port plus CMU and the rule fallback — **not espeak-ng**, which is
     GPLv3. This build speaks English (11 of the model's 118 voices); another
-    language is a frontend, not a label. Settings is version 6 for `speed`.
+    language is a frontend, not a label. Settings is version 7: version 6 added
+    `speed`, and version 7 added the `listen` block for voice input.
+
+29. **Voice input is CPU-only, one surface owns the microphone, and the model is
+    a verified download.** The five pinned graphs live under
+    `model/listen/small/`; `listen-host.ts` is the only place ORT loads them and
+    the runner never imports it. A renderer claims the microphone through
+    `listen.beginCapture`; the main process grants one lease at a time, calls
+    `SpeechHost.stopAll()` on the grant, and releases the lease on transcribe or
+    cancel with a 70-second safety timer. The renderer resamples to 16 kHz mono,
+    the runtime pads to the model's 80-sample frame and caps the clip at 60
+    seconds, and every `MediaStreamTrack` is stopped when recording ends. A
+    transcript whose clip id is stale is dropped before it reaches a composer.
+    The model is English-only, MIT-licensed, and uses no GPU memory.
 
 ## Documents
 
@@ -346,12 +362,15 @@ The composer's badge reports the state and opens that card. The first run owns t
 required connection: Continue waits for a test that answers. Do not bring back a
 model catalogue, a task picker, a download, a sleep button or an engine switch.
 
-Recall and the spoken-replies voice model are the models the app downloads.
-Recall's pins are in `packages/runtime/src/local-model/pins.ts`; its engine and
-weights live under `model/recall/`. The voice model's pins are in
+Recall, the spoken-replies voice model and the voice-input model are the models
+the app downloads. Recall's pins are in
+`packages/runtime/src/local-model/pins.ts`; its engine and weights live under
+`model/recall/`. The voice model's pins are in
 `packages/runtime/src/speech/pins.ts`; its five files live under `model/tts/`.
+The voice-input model's pins are in `packages/runtime/src/listen/pins.ts`; its
+seven files live under `model/listen/small/`.
 `MARIMO_MODEL_DIR` points a checkout or a live run at a directory laid out the
-way both expect:
+way all three expect:
 
 ```
 model/
@@ -366,6 +385,16 @@ model/
     config.json
     cmu_misaki_us.json
     .installed.json
+  listen/
+    small/
+      frontend.ort
+      encoder.ort
+      adapter.ort
+      cross_kv.ort
+      decoder_kv.ort
+      tokenizer.bin
+      streaming_config.json
+      .installed.json
 ```
 
 The two live tests under `packages/runtime/src/recall/` use the recall layout.
@@ -374,16 +403,24 @@ it is the thing that proves a turn returns `tool_calls` and an image reaches the
 encoder. The voice model's live check is `scripts/tts-check.mjs`, run with
 `MARIMO_MODEL_DIR` pointing at the layout above (or `--download`): it is the
 thing that proves the ONNX graph, the English front end and the joined WAV still
-work.
+work. The voice-input model's live check is `scripts/stt-check.mjs`, run the same
+way: it proves the pinned int8 graphs load through the CPU provider, transcribes
+the 16 kHz JFK fixture (and a mid-frame clip), and prints the first/warm latency
+and peak RAM. It is not in CI either.
 
-The voice model is the one model this app runs in-process. It is a separate
-model from the chat server, it is downloaded only when somebody presses the
-button, and it is read through `onnxruntime-node` in the main process. The text
-front end is the pure-TypeScript misaki port, the model's CMU fallback and a
+The voice and voice-input models are the two models this app runs in-process.
+The voice model is a separate model from the chat server, it is downloaded only
+when somebody presses the button, and it is read through `onnxruntime-node` in
+the main process. The text front end is the pure-TypeScript misaki port, the model's CMU fallback and a
 small rule-based English G2P for the words neither lexicon knows; identifiers
 and acronyms are expanded before lookup, so an unknown word is approximated
 rather than dropped. The other fifteen languages the model carries need their
-own front end, and espeak-ng is GPLv3 and is deliberately not in the build.
+own front end, and espeak-ng is GPLv3 and is deliberately not in the build. The
+voice-input model is Moonshine Streaming Small: one merged int8 decoder, a
+stateful 80-sample frontend, a binary tokenizer decoded in TypeScript, and a
+`listen` host that loads the four encoding graphs, releases them after the
+cross-attention cache, then keeps the decoder until five quiet minutes pass. It
+is English-only and always on the CPU.
 
 ## Learning
 
@@ -628,6 +665,20 @@ else does.
 
   It is not in CI: 92 MB and a real native runtime are not a thing to download on
   every push.
+- The voice-input live check is `scripts/stt-check.mjs`. It needs the seven
+  pinned files under `model/listen/small/` (or `--download`) and the 16 kHz JFK
+  fixture at `scripts/fixtures/jfk.wav`, and asserts the exact JFK words, a clip
+  that ends mid-frame, and (with `--long`) the 60-second cap. It prints first and
+  warm latency, RTF and peak RSS. Run it when the pins, the engine, the audio
+  padding or the ORT loader moves:
+
+  ```bash
+  MARIMO_MODEL_DIR=$PWD/apps/desktop/.model-cache/live-model \
+    node scripts/stt-check.mjs --download --long
+  ```
+
+  It is not in CI: 158 MB and a real native runtime are not a thing to download
+  on every push.
 
 ## Packaging
 
@@ -636,14 +687,16 @@ pnpm --filter @marimo/desktop package   # AppImage into apps/desktop/release/
 ```
 
 **Packaging ships no model.** The chat model is a server the person runs, Recall
-downloads its own, and the voice model is a download too. The installer does
-carry the ONNX runtime, so it is larger than before and its native binaries are
+downloads its own, and the voice and voice-input models are downloads too. The
+installer does carry the ONNX runtime, so it is larger than before and its native binaries are
 per platform; the per-platform `files` lists keep the target platform's CPU
 `.node`/library, and drop the other platforms' copies and the CUDA/TensorRT
 providers. CI installs with `ONNXRUNTIME_NODE_INSTALL=skip`; the CPU binaries
 are bundled in the npm tarball (a clean extraction of it was checked), while the
-skipped postinstall only fetches the GPU providers this app never uses. `package`, `package:win` and
-`package:mac` are plain builds and there is no variable to remember.
+skipped postinstall only fetches the GPU providers this app never uses. The
+macOS bundle carries `NSMicrophoneUsageDescription`, because the OS refuses a
+microphone without it. `package`, `package:win` and `package:mac` are plain
+builds and there is no variable to remember.
 
 **`asar` stays off.** The runner is this binary started with
 `ELECTRON_RUN_AS_NODE=1`, and Node mode has no asar support: reading a file inside
@@ -668,7 +721,7 @@ installer, so a packaged app and a checkout find it the same way.
   `migrations.ts` and the theme tokens all exist because a version of this app
   got them wrong once.
 - A chat model is an address, a model name and a window; a downloaded model is
-  recall's or the voice model, and it is a file, a pin and a licence. Adding a
-  download means updating the pins, the installer and the card together — a model
+  recall's, the voice model's or the voice-input model's, and it is a file, a pin
+  and a licence. Adding a download means updating the pins, the installer and the card together — a model
   the UI offers and the installer cannot fetch is a button that fails at 0
   percent.

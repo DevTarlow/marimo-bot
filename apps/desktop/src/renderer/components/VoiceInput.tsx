@@ -277,9 +277,7 @@ export function VoiceInput({
     const token = testToken.current;
     testToken.current = undefined;
     if (token !== undefined) {
-      void window.marimo
-        .call('listen.cancel', {token})
-        .catch(() => undefined);
+      void window.marimo.call('listen.cancel', {token}).catch(() => undefined);
     }
     capture.cancel();
     setTranscribing(false);
@@ -310,9 +308,9 @@ export function VoiceInput({
       onToggle={onToggle}
     >
       <p className="settings-muted">
-        Speak instead of typing. The speech-to-text model runs on this computer’s
-        CPU with no GPU memory, and the audio never leaves the machine. English
-        only in this build.
+        Speak instead of typing. The speech-to-text model runs on this
+        computer’s CPU with no GPU memory, and the audio never leaves the
+        machine. English only in this build.
       </p>
 
       <label className="settings-check">
@@ -353,7 +351,9 @@ export function VoiceInput({
                 void download();
               }}
             >
-              {installed ? 'Repair voice input model' : 'Download voice input model'}
+              {installed
+                ? 'Repair voice input model'
+                : 'Download voice input model'}
             </button>
           ) : (
             <div className="settings-progress">
@@ -411,9 +411,10 @@ export function VoiceInput({
         <span>
           Microphone
           <em className="settings-why">
-            The default follows whatever your system calls the default, including
-            when a headset is plugged in. A chosen microphone is remembered by id;
-            if it disappears, the default is used and this card says so.
+            The default follows whatever your system calls the default,
+            including when a headset is plugged in. A chosen microphone is
+            remembered by id; if it disappears, the default is used and this
+            card says so.
           </em>
         </span>
         <select
@@ -422,11 +423,13 @@ export function VoiceInput({
           disabled={saving || captureBusy}
           aria-label="Microphone"
           onChange={(event) => {
-            const id = event.target.value.length === 0 ? null : event.target.value;
+            const id =
+              event.target.value.length === 0 ? null : event.target.value;
             const label =
               id === null
                 ? null
-                : devices.find((device) => device.deviceId === id)?.label ?? null;
+                : (devices.find((device) => device.deviceId === id)?.label ??
+                  null);
             void set({listen: {deviceId: id, deviceLabel: label}});
           }}
         >
@@ -577,8 +580,9 @@ export function VoiceInput({
       )}
 
       <p className="settings-muted">
-        A clip stops at {String(LISTEN_MAX_SECONDS)} seconds, so a microphone left
-        open cannot exhaust memory. The model unloads after five quiet minutes.
+        A clip stops at {String(LISTEN_MAX_SECONDS)} seconds, so a microphone
+        left open cannot exhaust memory. The model unloads after five quiet
+        minutes.
       </p>
 
       {(problem ?? modelProblem) !== undefined && (

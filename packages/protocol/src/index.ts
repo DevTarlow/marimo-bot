@@ -33,10 +33,7 @@ import type {
   SpeechStatus,
   SpokenAudio,
 } from './speech.js';
-import {
-  listenSettingsPatchSchema,
-  listenSettingsSchema,
-} from './listen.js';
+import {listenSettingsPatchSchema, listenSettingsSchema} from './listen.js';
 import type {
   ListenCaptureGrant,
   ListenSettings,

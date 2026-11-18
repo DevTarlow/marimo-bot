@@ -42,9 +42,7 @@ export function silenceReached(
   const silenceMs = options.silenceMs ?? 1500;
   const minMs = options.minMs ?? 600;
   return (
-    state.speechSeen &&
-    state.elapsedMs >= minMs &&
-    state.silentMs >= silenceMs
+    state.speechSeen && state.elapsedMs >= minMs && state.silentMs >= silenceMs
   );
 }
 

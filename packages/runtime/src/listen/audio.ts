@@ -59,11 +59,12 @@ export function preparePcm(
     throw new Error('The voice-input duration cap is not a positive number.');
   }
   const limit = Math.floor(maxSeconds * LISTEN_SAMPLE_RATE);
-  const kept =
-    pcm.length > limit ? pcm.subarray(0, limit) : pcm;
-  const target = Math.max(frameLen, Math.ceil(kept.length / frameLen) * frameLen);
-  const samples =
-    target === kept.length ? kept : withPadding(kept, target);
+  const kept = pcm.length > limit ? pcm.subarray(0, limit) : pcm;
+  const target = Math.max(
+    frameLen,
+    Math.ceil(kept.length / frameLen) * frameLen,
+  );
+  const samples = target === kept.length ? kept : withPadding(kept, target);
   return {
     samples,
     durationSeconds: kept.length / LISTEN_SAMPLE_RATE,

@@ -27,12 +27,7 @@ import {useVoiceCapture} from './useVoiceCapture.js';
 import type {CapturedClip} from './useVoiceCapture.js';
 
 export type VoiceInputPhase =
-  | 'setup'
-  | 'starting'
-  | 'recording'
-  | 'transcribing'
-  | 'remote'
-  | 'ready';
+  'setup' | 'starting' | 'recording' | 'transcribing' | 'remote' | 'ready';
 
 export interface VoiceInput {
   phase: VoiceInputPhase;
@@ -61,7 +56,9 @@ export function useVoiceInput(options: UseVoiceInputOptions): VoiceInput {
   const [status, setStatus] = useState<ListenStatus | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState(false);
-  const [remoteSurface, setRemoteSurface] = useState<ListenSurface | null>(null);
+  const [remoteSurface, setRemoteSurface] = useState<ListenSurface | null>(
+    null,
+  );
   const gate = useRef(new TranscriptGate());
   const activeId = useRef(0);
   const activeToken = useRef<string | undefined>(undefined);
@@ -171,9 +168,7 @@ export function useVoiceInput(options: UseVoiceInputOptions): VoiceInput {
     const token = activeToken.current;
     activeToken.current = undefined;
     if (token !== undefined) {
-      void window.marimo
-        .call('listen.cancel', {token})
-        .catch(() => undefined);
+      void window.marimo.call('listen.cancel', {token}).catch(() => undefined);
     }
     cancelCapture();
     setTranscribing(false);

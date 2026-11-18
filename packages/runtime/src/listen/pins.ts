@@ -32,7 +32,8 @@ import type {ListenFile} from './types.js';
 /** The repository revision every file is fetched at. */
 export const LISTEN_REVISION = 'e318117203f245fda2ca0142db6b8c057d86671c';
 
-const BASE = 'https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve';
+const BASE =
+  'https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve';
 
 /** The dated snapshot the self-contained frontend belongs to. */
 const SNAPSHOT = 'model/small-streaming-en/quantized_26_07_30';

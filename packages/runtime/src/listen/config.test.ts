@@ -46,7 +46,10 @@ describe('parseListenConfig', () => {
     expect(() =>
       parseListenConfig({
         ...CONFIG,
-        frontend_state_shapes: {...CONFIG.frontend_state_shapes, sample_buffer: [1, 80]},
+        frontend_state_shapes: {
+          ...CONFIG.frontend_state_shapes,
+          sample_buffer: [1, 80],
+        },
       }),
     ).toThrow(/sample_buffer/u);
   });

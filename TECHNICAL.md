@@ -131,8 +131,9 @@ and `-ub 1120` so a picture gets more than llama.cpp's 512-token default. The
 exact command lives in the README's Model server section and in the Model server
 card. Nothing in the app downloads, lists or chooses a chat model; the reference
 exists so a person has one known-good setup, and every other tools-capable model
-stays welcome. The one other model the app downloads is the voice model for
-spoken replies, which is not a chat model and is never sent a turn.
+stays welcome. The other models the app downloads are the voice model for
+spoken replies and the voice-input model for speech-to-text; neither is a chat
+model and neither is ever sent a turn.
 
 **One endpoint, and it is on this computer.** `packages/protocol/src/model-server.ts`
 holds the block and the rules: a base URL, a model name and a fallback window.
@@ -183,7 +184,8 @@ guessing.
 **Installation is recall's, and the old chat files are cleaned up explicitly.**
 `installEngine` and `installEmbeddingPiece` still verify, resume and mark every
 byte they fetch for Recall's engine and model. The chat model has no installer;
-the voice model does, under `speech/install.ts`. An upgrade leaves the old Qwen
+the voice model does under `speech/install.ts`, and the voice-input model does
+under `listen/install.ts`. An upgrade leaves the old Qwen
 directory and the old `model/engine` behind; the Model server card lists them
 against a fixed enum and removes one only when the person presses the button.
 `model/recall/engine` and `model/tts/` are different paths and are never in that
@@ -1152,12 +1154,80 @@ and 118 voices; this build ships the 11 English voices and the English front end
 Another language is a per-language G2P and a voice pack, not a line in the
 picker; the card names the 11 it can actually speak.
 
-**Settings move to version 6.** The block is
+**Settings move to version 7.** The spoken-replies block is
 `{enabled, voice, answerLength, speed}`; it is filled block by block like the
 companion's, merged field by field on a patch, and `4 -> 5` adds it off, on the
-first English voice, with the brief length, while `5 -> 6` adds speed 1.0.
-`speech.changed` carries the block to the pet, which is a separate window and
-would otherwise keep speaking after the switch was turned off in Settings.
+first English voice, with the brief length, while `5 -> 6` adds speed 1.0. The
+voice-input block is `{enabled, deviceId, deviceLabel, autoSend,
+autoStopOnSilence}`; `6 -> 7` adds it off, on the system microphone, inserting
+rather than sending. `speech.changed` carries the spoken block to the pet, which
+is a separate window and would otherwise keep speaking after the switch was
+turned off in Settings; `listen.changed` does the same for the microphone.
+
+### Voice input is a second small model, on the CPU
+
+**It is a download with seven pinned files.** Moonshine Streaming Small is an
+English speech-to-text model released under the MIT Licence by Useful Sensors
+(dba Moonshine AI). The build pins the official runtime's quantized assets at
+`moonshine-ai/moonshine-voice-assets@e318117…`, snapshot
+`model/small-streaming-en/quantized_26_07_30/`: `frontend.ort`, `encoder.ort`,
+`decoder_kv.ort`, `adapter.ort`, `cross_kv.ort`, `tokenizer.bin` and
+`streaming_config.json`, 165,489,086 bytes in total. They live under
+`model/listen/small/` beside `model/recall/` and `model/tts/`;
+`listen/pins.ts` names the revision and a SHA-256 for each, `listen/install.ts`
+reuses `downloadVerified`, and the marker is written only after every file is in
+place. The newer `quantized_26_11_07` frontend is split into a model graph with
+the weight tensors as inputs, which `onnxruntime-node` cannot attach, so the
+self-contained `26_07_30` snapshot is deliberate rather than stale.
+
+**The five graphs are the merged-decoder layout.** `decoder_kv.ort` handles the
+first step with an empty self-attention cache and every later step with the cache
+it returned, so the 82 MB of decoder weights is held once rather than in the
+usual `decoder_model`/`decoder_with_past` pair. The frontend reframes raw PCM
+into the model's 80-sample (5 ms at 16 kHz) frames and carries the last 79
+samples plus two causal-convolution buffers; `listen/audio.ts` validates the
+16 kHz rate, trims to 60 seconds and zero-pads the tail to a whole frame before
+the first call. The encoder is run in bounded windows — `16 * depth` frames of
+left context, 160 new frames and the model's 16 frames of lookahead — and the
+adapter's running position offset makes the slices land where a single pass
+would have put them. Decoding is greedy argmax from BOS to EOS, capped at 448
+tokens or `ceil(duration * 6.5)`, whichever is lower. The token table is the
+official `tokenizer.bin`: a length-prefixed byte table decoded in TypeScript,
+not a BPE merges file and not a Python tokenizer.
+
+**The CPU graphs are the main process's, and the engine is not.** `ListenHost`
+loads `onnxruntime-node` only through `listen-ort.ts`, with
+`executionProviders: ['cpu']`, four threads and the CPU arena off. It loads the
+four encoding graphs, releases them as soon as `cross_kv` has copied the cache,
+then loads the decoder for the greedy loop; the decoder is kept until five quiet
+minutes pass. The measured peak is about 450 MB for an 11-second clip and about
+1 GB for a 60-second one, including the Node process. A failed inference drops
+the load so the next press starts clean. `listen/engine.ts`, `tokenizer.ts`,
+`audio.ts` and `install.ts` are pure and tested without ONNX; a boundary test
+keeps `onnxruntime-node` out of `packages/runtime/src/listen` and keeps the
+headless runner from importing the host or the loader.
+
+**One microphone, one lease, and a barge-in.** The renderer owns the
+`MediaStream` and the OS indicator; the main process owns the lease.
+`listen.beginCapture` grants one surface at a time and answers with a token, the
+Settings test may hold it before the feature is enabled so a microphone can be
+checked first, and a 70-second safety timer releases a lease whose window died.
+A granted lease calls `SpeechHost.stopAll()` and broadcasts `listen.capture`; both
+windows' spoken-reply hooks stop their scheduled sources, and the rendering of
+the transcript is gated again by its clip id. A second surface is refused with
+the holder's name. The renderer records through an `AudioWorklet` emitted as its
+own Vite asset (`?url&no-inline`, so the packaged CSP keeps `script-src 'self'
+file:` and needs neither `blob:` nor `data:`), resamples the finished clip once
+with `OfflineAudioContext`, converts to little-endian Int16 and sends base64
+through `listen.transcribe`. Every path out — stop, cancel, disconnect, the
+60-second cap, unmount — stops all tracks before it awaits anything else.
+
+**Settings exposes it as one block and one card.** The card offers the model
+download and verify with its exact size, the input list with a missing-device
+fallback, a meter-only microphone test, a transcribed test clip, auto-send and
+RMS silence stop. Removing the model refuses while the feature is on or a
+recording or transcription is live, and the directory guard checks both
+`listen/small` segments.
 
 ## Layout
 
@@ -1221,6 +1291,7 @@ recall/                 the search index, when a profile has no folder to keep i
 app.lock                the running app, so the headless runner leaves the jobs alone
 model/recall/           Recall's engine and weights, unless MARIMO_MODEL_DIR says otherwise
 model/tts/              the voice model, unless MARIMO_MODEL_DIR says otherwise
+model/listen/small/     the voice-input model, unless MARIMO_MODEL_DIR says otherwise
 ```
 
 The other half of memory is the project's, and it is not here: it is

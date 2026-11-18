@@ -14,10 +14,7 @@
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
-import {
-  LISTEN_MAX_SECONDS,
-  LISTEN_MIN_SECONDS,
-} from '@marimo/protocol';
+import {LISTEN_MAX_SECONDS, LISTEN_MIN_SECONDS} from '@marimo/protocol';
 import type {ListenSurface} from '@marimo/protocol';
 
 import workletUrl from '../audio/pcm-worklet.js?url&no-inline';
@@ -85,9 +82,7 @@ type Callbacks = Pick<
   'onBargeIn' | 'onNotice' | 'onCaptured'
 >;
 
-export function useVoiceCapture(
-  options: UseVoiceCaptureOptions,
-): VoiceCapture {
+export function useVoiceCapture(options: UseVoiceCaptureOptions): VoiceCapture {
   const [recording, setRecording] = useState(false);
   const [starting, setStarting] = useState(false);
   const [level, setLevel] = useState(0);

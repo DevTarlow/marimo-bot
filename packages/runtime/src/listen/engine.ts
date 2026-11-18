@@ -20,11 +20,7 @@
  */
 import {preparePcm, LISTEN_SAMPLE_RATE} from './audio.js';
 import {decodeTokens} from './tokenizer.js';
-import type {
-  ListenConfig,
-  ListenGraphs,
-  ListenResult,
-} from './types.js';
+import type {ListenConfig, ListenGraphs, ListenResult} from './types.js';
 import type {ListenBinTokenizer} from './types.js';
 
 /** How many new encoder frames one window produces. 160 frames is 800 ms. */
@@ -68,7 +64,12 @@ export async function transcribePcm(
   });
   throwIfAborted(options.signal);
 
-  const features = await runFrontend(prepared.samples, config, graphs, options.signal);
+  const features = await runFrontend(
+    prepared.samples,
+    config,
+    graphs,
+    options.signal,
+  );
   if (features.frames === 0) {
     return {
       text: '',
@@ -137,14 +138,16 @@ async function runFrontend(
   const chunkSize = config.frameLen * 16;
   for (let at = 0; at < samples.length; at += chunkSize) {
     throwIfAborted(signal);
-    const audio = samples.subarray(at, Math.min(at + chunkSize, samples.length));
+    const audio = samples.subarray(
+      at,
+      Math.min(at + chunkSize, samples.length),
+    );
     const output = await graphs.frontend({...state, audio});
     const expected = output.featureFrames * config.encoderDim;
-    if (
-      output.featureFrames < 0 ||
-      output.features.length < expected
-    ) {
-      throw new Error('The voice-input front end answered with the wrong shape.');
+    if (output.featureFrames < 0 || output.features.length < expected) {
+      throw new Error(
+        'The voice-input front end answered with the wrong shape.',
+      );
     }
     if (output.featureFrames > 0) {
       chunks.push(output.features.subarray(0, expected));

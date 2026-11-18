@@ -41,11 +41,7 @@ export {
   preparePcm,
 } from './audio.js';
 export type {PreparedPcm} from './audio.js';
-export {
-  argmax,
-  ListenCancelledError,
-  transcribePcm,
-} from './engine.js';
+export {argmax, ListenCancelledError, transcribePcm} from './engine.js';
 export type {TranscribePcmOptions} from './engine.js';
 export type {
   ListenBinTokenizer,

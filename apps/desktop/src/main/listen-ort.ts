@@ -105,7 +105,9 @@ export async function createOrtGraphs(
     return decoder;
   };
 
-  const releaseSession = async (session: Session | undefined): Promise<void> => {
+  const releaseSession = async (
+    session: Session | undefined,
+  ): Promise<void> => {
     if (session === undefined) {
       return;
     }
@@ -173,7 +175,10 @@ export async function createOrtGraphs(
       };
     },
 
-    async encoder(features: Float32Array, frames: number): Promise<Float32Array> {
+    async encoder(
+      features: Float32Array,
+      frames: number,
+    ): Promise<Float32Array> {
       const session = await ensureEncoder();
       const outputs = await session.run({
         features: new ort.Tensor('float32', features, [
@@ -310,7 +315,9 @@ function intData(value: import('onnxruntime-node').Tensor | undefined): number {
   }
   const data = value.data;
   if (!(data instanceof BigInt64Array)) {
-    throw new Error('The voice-input model answered with a non-integer tensor.');
+    throw new Error(
+      'The voice-input model answered with a non-integer tensor.',
+    );
   }
   return Number(data[0] ?? 0n);
 }

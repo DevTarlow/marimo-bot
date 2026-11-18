@@ -21,6 +21,17 @@ Kitten TTS 2 Mini (Spoken replies, optional)
   packages/runtime/src/speech are ports of the model repository's Apache-2.0
   front end and `tts_norm.py`.
 
+Moonshine Streaming Small (Voice input, optional)
+  Useful Sensors, Inc. (dba Moonshine AI)
+  MIT License.
+  The quantized ONNX Runtime front end, encoder, adapter, cross-attention
+  cache, merged decoder, tokenizer and streaming settings, downloaded only when
+  the user turns voice input on.
+  https://huggingface.co/moonshine-ai/moonshine-voice-assets
+  The English speech-to-text models in that asset mirror are MIT-licensed; the
+  mirror also carries non-MIT language and TTS assets, none of which this app
+  downloads.
+
 EmbeddingGemma 2 (Recall, optional)
   Google DeepMind
   Gemma Terms of Use.
@@ -39,7 +50,8 @@ The app also includes the following third-party software:
 onnxruntime-node
   Microsoft Corporation
   MIT License.
-  The ONNX runtime that loads the voice model in the main process.
+  The ONNX runtime that loads the voice and voice-input models in the main
+  process.
   https://github.com/microsoft/onnxruntime
 
 @titan-design/speech-g2p
@@ -58,3 +70,7 @@ CMUdict
 
 The downloaded models' licences travel with the downloaded files. The
 Apache-2.0 licence in LICENCE covers this repository's own source.
+
+The 16 kHz JFK excerpt at scripts/fixtures/jfk.wav is a public-domain recording
+of President John F. Kennedy's 1961 inaugural address, as distributed in the
+whisper.cpp samples directory. No whisper.cpp code is used.

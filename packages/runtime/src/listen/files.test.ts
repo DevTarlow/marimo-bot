@@ -1,15 +1,13 @@
 import {describe, expect, it} from 'vitest';
 
-import {
-  isOwnedListenDir,
-  listenDir,
-  listenRoot,
-} from './files.js';
+import {isOwnedListenDir, listenDir, listenRoot} from './files.js';
 
 describe('voice-input paths', () => {
   it('live under the model root the rest of the app resolves', () => {
     const options = {userData: '/home/me/.config/Marimo Bot'};
-    expect(listenRoot(options)).toBe('/home/me/.config/Marimo Bot/model/listen');
+    expect(listenRoot(options)).toBe(
+      '/home/me/.config/Marimo Bot/model/listen',
+    );
     expect(listenDir(options)).toBe(
       '/home/me/.config/Marimo Bot/model/listen/small',
     );

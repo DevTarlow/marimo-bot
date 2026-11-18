@@ -411,8 +411,7 @@ export function Composer({
 
   const voiceNote = voice?.note ?? null;
   const shownNote =
-    note ??
-    (voiceNote === null ? null : {text: voiceNote, failed: false});
+    note ?? (voiceNote === null ? null : {text: voiceNote, failed: false});
   const hint =
     voice?.phase === 'recording'
       ? 'Listening… press ■ to transcribe, × to cancel'

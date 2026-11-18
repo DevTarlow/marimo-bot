@@ -11,7 +11,11 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import {parseBinTokenizer} from './tokenizer.js';
-import type {ListenBinTokenizer, ListenConfig, ListenStateShapes} from './types.js';
+import type {
+  ListenBinTokenizer,
+  ListenConfig,
+  ListenStateShapes,
+} from './types.js';
 
 /** Read `streaming_config.json` and turn its snake_case into the engine's shape. */
 export async function readListenConfig(dir: string): Promise<ListenConfig> {
@@ -86,7 +90,8 @@ export async function readBinTokenizer(
     );
   }
   const tokenizer = parseBinTokenizer(buffer);
-  return tokenizer;}
+  return tokenizer;
+}
 
 /** Both small files, read together so a caller cannot load one without the other. */
 export async function readListenAssets(dir: string): Promise<{
@@ -133,7 +138,11 @@ function shape(object: Record<string, unknown>, key: string): number[] {
   });
 }
 
-function requireProduct(shape: readonly number[], expected: number, name: string): void {
+function requireProduct(
+  shape: readonly number[],
+  expected: number,
+  name: string,
+): void {
   const product = shape.reduce((total, entry) => total * entry, 1);
   if (product !== expected) {
     throw new Error(

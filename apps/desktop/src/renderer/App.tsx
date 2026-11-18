@@ -13,11 +13,7 @@
  */
 import {useCallback, useEffect, useRef, useState} from 'react';
 
-import {
-  COMMAND_IDS,
-  COMMANDS,
-  defaultListenSettings,
-} from '@marimo/protocol';
+import {COMMAND_IDS, COMMANDS, defaultListenSettings} from '@marimo/protocol';
 import type {
   AppInfo,
   ProfileCatalog,

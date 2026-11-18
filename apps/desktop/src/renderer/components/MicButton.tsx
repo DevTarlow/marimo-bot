@@ -99,7 +99,9 @@ export function MicButton({
         <button
           type="button"
           className={`${className} is-busy`}
-          aria-label={state === 'starting' ? 'Opening the microphone' : 'Transcribing'}
+          aria-label={
+            state === 'starting' ? 'Opening the microphone' : 'Transcribing'
+          }
           title={title}
           disabled
         >
@@ -153,7 +155,14 @@ function MicIcon(): React.JSX.Element {
 }
 
 function titleFor(
-  state: 'setup' | 'starting' | 'recording' | 'transcribing' | 'remote' | 'ready' | 'disabled',
+  state:
+    | 'setup'
+    | 'starting'
+    | 'recording'
+    | 'transcribing'
+    | 'remote'
+    | 'ready'
+    | 'disabled',
   remoteSurface: ListenSurface | null,
   startLabel: string,
   stopLabel: string,

@@ -13,7 +13,7 @@ I built Marimo Bot to sit on your computer and work inside a folder you choose. 
 
 Marimo Bot answers with an OpenAI-compatible model server you run on your own machine: llama.cpp on `127.0.0.1:8080`, or any server that speaks the same API. There is no account, no API key, and no hosted model service in the middle.
 
-The app does not ship or download a chat model, and it does not start the server. You choose the model by starting the server with it loaded; the first run asks for the address and discovers what the server reports. If you turn spoken replies on, the app downloads one small voice model and runs it on this computer.
+The app does not ship or download a chat model, and it does not start the server. You choose the model by starting the server with it loaded; the first run asks for the address and discovers what the server reports. If you turn spoken replies on, the app downloads one small voice model and runs it on this computer. If you turn voice input on, it downloads a second small model for speech-to-text and runs that on the CPU.
 
 The everyday conversation goes from this window to that server on loopback, and no further. The app can search the web and talk to connectors when you ask.
 
@@ -36,6 +36,7 @@ The chat window and the moss ball share one conversation. A question you ask fro
 - Schedule a job and close the window.
 - Ask the moss ball when you do not want the window.
 - Hear an answer read aloud, in one of 11 English voices.
+- Speak a question instead of typing it, transcribed on the CPU.
 
 ## On this page
 
@@ -50,6 +51,7 @@ The chat window and the moss ball share one conversation. A question you ask fro
 - [Jobs](#jobs)
 - [The companion](#the-companion)
 - [Spoken replies](#spoken-replies)
+- [Voice input](#voice-input)
 - [Model server](#model-server)
 - [Connectors](#connectors)
 - [Privacy and control](#privacy-and-control)
@@ -262,6 +264,18 @@ Technical answers keep their words: a filename, a code identifier, an acronym or
 
 **Stop** beside the composer, or beside the moss's bar, ends a playback without stopping the turn. With spoken replies off, **Remove voice model…** deletes the cached files and frees the disk space. The voice model in this build speaks English; the other fifteen languages it carries need their own text front end, which this build does not include.
 
+### Voice input
+
+Settings → **Voice input** turns the microphone on. The model is Moonshine Streaming Small, about 158 MB (165,489,086 bytes), downloaded once when you press **Download voice input model**. It is English only, and it runs on this computer's CPU with no graphics memory at all, so it does not compete with the model server for your graphics card. The audio is recorded in the window, transcribed here, and discarded; nothing about it is sent anywhere.
+
+A microphone button sits beside the composer and in the moss bar. Press it to start, press the square to stop and transcribe, or the **×** to throw the recording away. The live level shows that the selected microphone is hearing something. While a recording or a transcription is open, the other window's microphone is disabled: one microphone, one lease.
+
+The card lists the input devices, follows a headset being plugged in or removed, and remembers the one you chose. If it disappears, the system default is used and the card says which microphone is missing. **Test microphone** shows the level even before the model is downloaded; with the model installed, the test clip is transcribed on the card so you can check the whole path.
+
+**Send the transcript immediately** is off by default: the words go into the message box so you can read and edit them. Turn it on to send the turn as soon as the transcription finishes. **Stop after silence** is also off; when on, it ends the recording after about 1.5 seconds of quiet once you have started speaking. A noisy room may never count as quiet, and the square is always there.
+
+A clip stops at 60 seconds so a microphone left open cannot exhaust memory, and the model unloads after five quiet minutes. Starting a recording stops a spoken reply in either window, so the microphone does not transcribe the bot's own voice. With voice input off, **Remove voice input model…** deletes the cached files; it refuses while a recording or transcription is running.
+
 ### The engine
 
 Every conversation runs on the harness: an append-only event log, a frozen instruction and tool spec, and one ADK adapter. The details are in [docs/harness-v2.md](./docs/harness-v2.md).
@@ -324,7 +338,7 @@ The composer's badge shows that state: connected, not answering, or failed — a
 
 ### Old model files
 
-An install from before this change may still have **Qwen2.5 VL 7B**, the app's own llama.cpp engine, or the **LFM3 1.7B**, **LFM3 VL 2B**, **LFM3 Audio 2B** and **LFM3 Omni 2B** files on disk. They are not used any more. Settings → Model server lists whichever are still there, and **Remove…** deletes one after you confirm. Recall's own files are under `model/recall/` and the voice model under `model/tts/`; neither is in that list.
+An install from before this change may still have **Qwen2.5 VL 7B**, the app's own llama.cpp engine, or the **LFM3 1.7B**, **LFM3 VL 2B**, **LFM3 Audio 2B** and **LFM3 Omni 2B** files on disk. They are not used any more. Settings → Model server lists whichever are still there, and **Remove…** deletes one after you confirm. Recall's own files are under `model/recall/`, the voice model under `model/tts/` and the voice-input model under `model/listen/`; none is in that list.
 
 ### Connectors
 
@@ -349,9 +363,10 @@ The app reaches the network only for things you ask for:
 - A connector talks to the server you set up.
 - Recall downloads its engine from GitHub and its model from Hugging Face, once.
 - Spoken replies download the voice model from Hugging Face once, only when you press the button. A spoken reply is then made on this computer.
+- Voice input downloads its model from Hugging Face once, only when you press the button. The audio is transcribed on this computer and never sent anywhere.
 - **Check for updates** asks GitHub for the latest release only when you press it.
 
-The app keeps its own data in one folder. On Linux that is `~/.config/Marimo Bot`. Your chats, the Spaces you loaded, the old chat files and your settings are there; Recall's model is under `model/recall/` and the voice model under `model/tts/`, unless `MARIMO_MODEL_DIR` points somewhere else.
+The app keeps its own data in one folder. On Linux that is `~/.config/Marimo Bot`. Your chats, the Spaces you loaded, the old chat files and your settings are there; Recall's model is under `model/recall/`, the voice model under `model/tts/` and the voice-input model under `model/listen/`, unless `MARIMO_MODEL_DIR` points somewhere else.
 
 A connector's secret is in the keychain, except one you let a background job read, which is in that folder instead.
 
@@ -367,7 +382,7 @@ Recall is off until you turn it on, and it sends its record nowhere.
 
 Reset Marimo Bot, at the bottom of Settings, erases the app's folder, switches off start-at-login and the job timer, and quits. It does not delete a Space.
 
-It deletes any old chat model files in that folder, Recall's model and engine, and the voice model, unless `MARIMO_MODEL_DIR` points them somewhere else. Your model server's files are yours and are not touched. There is no undo.
+It deletes any old chat model files in that folder, Recall's model and engine, the voice model and the voice-input model, unless `MARIMO_MODEL_DIR` points them somewhere else. Your model server's files are yours and are not touched. There is no undo.
 
 ## Getting started
 
@@ -405,7 +420,7 @@ No. The model server is one you run on your own machine, and there is no account
 
 ### How big is the download?
 
-The app downloads no chat model. The models it downloads are Recall's — 310 MB, or 865 MB with the image and audio encoder, only if you turn Recall on — and the voice model, about 92 MB, only if you turn spoken replies on. The chat model is exactly what you chose to load in your server.
+The app downloads no chat model. The models it downloads are Recall's — 310 MB, or 865 MB with the image and audio encoder, only if you turn Recall on — the voice model, about 92 MB, only if you turn spoken replies on, and the voice-input model, about 158 MB, only if you turn voice input on. The chat model is exactly what you chose to load in your server.
 
 Settings → Model server lists any old chat files from an earlier version so you can remove them.
 
@@ -415,19 +430,19 @@ Yes. Marimo Bot is useful on its own, and bots are for work you repeat. The setu
 
 ### Does it work offline?
 
-Yes, when the server and the model are on this computer. No network is needed for a conversation, the files, the memory, or spoken replies once the voice model has been downloaded. A web search, a page fetch, a connector and the update check need one.
+Yes, when the server and the model are on this computer. No network is needed for a conversation, the files, the memory, spoken replies once the voice model has been downloaded, or voice input once its model has been downloaded. A web search, a page fetch, a connector and the update check need one.
 
 ### Do I need a graphics card?
 
-The app has no opinion. It sends the request and the server decides. llama.cpp runs on the processor when it has no usable card, and offloads to one when it does; that is its setting, not this app's. The tested command uses `-ngl 99` to put every layer on the card; with no usable card, change it to `-ngl 0` and expect it to be slower. Recall is the exception: it stays on the processor because its model card warns that the activations can overflow float16 on a GPU.
+The app has no opinion. It sends the request and the server decides. llama.cpp runs on the processor when it has no usable card, and offloads to one when it does; that is its setting, not this app's. The tested command uses `-ngl 99` to put every layer on the card; with no usable card, change it to `-ngl 0` and expect it to be slower. Recall is the exception: it stays on the processor because its model card warns that the activations can overflow float16 on a GPU. Voice input is the other: it always runs on the CPU, so it takes no graphics memory from your server.
 
 ### How much memory does it need?
 
-Whatever the model you loaded needs, plus the server's own overhead. The setup this build is tested against — Gemma 4 12B at Q4 with a 16K window and the vision projector — is about 10 GB. A 7B model at Q4 with a 32K window is about 8 GB; a larger model or a larger window needs more. The app asks the server how large its window is and keeps a quarter of it back for the reply and the tool schemas.
+Whatever the model you loaded needs, plus the server's own overhead. The setup this build is tested against — Gemma 4 12B at Q4 with a 16K window and the vision projector — is about 10 GB. A 7B model at Q4 with a 32K window is about 8 GB; a larger model or a larger window needs more. The app asks the server how large its window is and keeps a quarter of it back for the reply and the tool schemas. Voice input uses the processor and about 450 MB for a short clip, or about 1 GB at its 60-second cap, then unloads after five minutes.
 
 ### Where are my files?
 
-Your Space files stay in the folder you chose. The app's own data is in its data folder, which on Linux is `~/.config/Marimo Bot`. Old chat files, Recall's model and the voice model are under `model/` inside that folder unless `MARIMO_MODEL_DIR` points somewhere else. The model your server loaded is wherever you keep it; the app never copies it.
+Your Space files stay in the folder you chose. The app's own data is in its data folder, which on Linux is `~/.config/Marimo Bot`. Old chat files, Recall's model, the voice model and the voice-input model are under `model/` inside that folder unless `MARIMO_MODEL_DIR` points somewhere else. The model your server loaded is wherever you keep it; the app never copies it.
 
 ### What happens when I close the window?
 
@@ -439,9 +454,9 @@ Yes, Settings has its Role, Persona, tools, Space and icon. The Harness card can
 
 ### Does it send my work anywhere?
 
-Only where you ask it to: a web search receives the query, a page fetch goes to the address it was given, and a connector receives what it is asked to do. The conversation itself goes to the model server at the address in Settings, and that address has to be this computer. A spoken reply is made on this computer.
+Only where you ask it to: a web search receives the query, a page fetch goes to the address it was given, and a connector receives what it is asked to do. The conversation itself goes to the model server at the address in Settings, and that address has to be this computer. A spoken reply is made on this computer. Voice input records only while the microphone button is on, transcribes the audio on this computer, and sends only the finished text — and only if you send it.
 
-Recall's download contacts Hugging Face for its model and GitHub for its engine. The voice model's download contacts Hugging Face once, when you press the button. The update check contacts GitHub only when you press the button.
+Recall's download contacts Hugging Face for its model and GitHub for its engine. The voice model's and the voice-input model's downloads contact Hugging Face once, when you press their buttons. The update check contacts GitHub only when you press the button.
 
 ### What is not finished?
 
@@ -459,6 +474,7 @@ See the next section for the short answer: Windows and macOS installers, automat
 - Discord and the notes and to-do lists are partly built, but nothing in the window turns them on yet.
 - Recall's downloads and the voice model are checked against a fingerprint, but there is no signature to prove where they came from.
 - Spoken replies are English only in this build. The voice model itself carries 16 languages and 118 voices; the other 15 languages need their own text front end, and none of them is wired up yet.
+- Voice input is English only and transcribes after you stop, not word by word while you speak. A clip is capped at 60 seconds.
 
 ## Requirements
 
@@ -466,11 +482,11 @@ Will it run on my machine?
 
 - A 64-bit Linux, Windows or macOS machine. Linux is the only one with a built installer today.
 - Room for whatever model you run, in the shape your server wants it. The tested model and its projector take about 6.5 GB; the app adds nothing to that.
-- About 310 MB of disk for Recall, or 865 MB with media search, and about 92 MB if you turn spoken replies on. An upgrade from an old version needs room for its leftover chat files until you remove them from Settings → Model server.
+- About 310 MB of disk for Recall, or 865 MB with media search, about 92 MB if you turn spoken replies on, and about 158 MB if you turn voice input on. A working microphone is the only extra hardware voice input needs; it asks nothing of the graphics card. An upgrade from an old version needs room for its leftover chat files until you remove them from Settings → Model server.
 - Enough memory for your model and its window. The tested Gemma 4 12B at Q4 with a 16K window is about 10 GB of graphics or system memory; a 7B model at Q4 with a 32K window is about 8 GB.
 - No account and no key. A graphics card is not required; your server decides whether to use one.
 
-The app carries no hosted service. It answers from a server on this computer, and Recall and spoken replies download their own small models.
+The app carries no hosted service. It answers from a server on this computer, and Recall, spoken replies and voice input download their own small models.
 
 Go build your next thing with it.
 

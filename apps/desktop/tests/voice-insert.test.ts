@@ -1,6 +1,9 @@
 import {describe, expect, it} from 'vitest';
 
-import {appendTranscript, TranscriptGate} from '../src/renderer/voice-insert.js';
+import {
+  appendTranscript,
+  TranscriptGate,
+} from '../src/renderer/voice-insert.js';
 
 describe('appendTranscript', () => {
   it('keeps the words already in the box', () => {

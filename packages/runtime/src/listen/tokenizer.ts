@@ -36,7 +36,9 @@ export function parseBinTokenizer(buffer: Uint8Array): ListenBinTokenizer {
     let length = first;
     if (first >= 128) {
       if (at >= buffer.length) {
-        throw new Error('The voice-input tokenizer ends in a half-written token.');
+        throw new Error(
+          'The voice-input tokenizer ends in a half-written token.',
+        );
       }
       const second = buffer[at] ?? 0;
       at += 1;
@@ -73,7 +75,11 @@ export function decodeTokens(
     if (token === undefined || token.length === 0) {
       continue;
     }
-    if (token.length > 2 && token[0] === 0x3c && token[token.length - 1] === 0x3e) {
+    if (
+      token.length > 2 &&
+      token[0] === 0x3c &&
+      token[token.length - 1] === 0x3e
+    ) {
       // `<s>`, `</s>`, `<unk>` and the timestamp specials are not words.
       continue;
     }
@@ -81,7 +87,10 @@ export function decodeTokens(
   }
   const bytes = concat(chunks);
   const text = new TextDecoder('utf-8', {fatal: false}).decode(bytes);
-  return text.replace(/\u2581/gu, ' ').replace(/\s+/gu, ' ').trim();
+  return text
+    .replace(/\u2581/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
 function concat(chunks: readonly Uint8Array[]): Uint8Array {

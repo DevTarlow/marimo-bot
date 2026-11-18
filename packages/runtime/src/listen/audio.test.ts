@@ -34,7 +34,9 @@ describe('preparePcm', () => {
   });
 
   it('trims a clip longer than the cap and reports it', () => {
-    const samples = new Float32Array(LISTEN_SAMPLE_RATE * (LISTEN_MAX_SECONDS + 1));
+    const samples = new Float32Array(
+      LISTEN_SAMPLE_RATE * (LISTEN_MAX_SECONDS + 1),
+    );
     const prepared = preparePcm(samples);
     expect(prepared.samples).toHaveLength(
       LISTEN_SAMPLE_RATE * LISTEN_MAX_SECONDS,

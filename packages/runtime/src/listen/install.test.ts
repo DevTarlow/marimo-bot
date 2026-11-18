@@ -71,9 +71,9 @@ describe('the voice-input installer', () => {
     });
     expect(await readFile(join(dir, 'frontend.ort'), 'utf8')).toBe('front');
     expect(await readFile(join(dir, 'tokenizer.bin'), 'utf8')).toBe('tokens');
-    expect(JSON.parse(await readFile(join(dir, LISTEN_MARKER), 'utf8'))).toEqual(
-      {revision: 'test'},
-    );
+    expect(
+      JSON.parse(await readFile(join(dir, LISTEN_MARKER), 'utf8')),
+    ).toEqual({revision: 'test'});
     expect(await isListenInstalled(dir, FILES, 'test')).toBe(true);
   });
 

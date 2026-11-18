@@ -1858,11 +1858,14 @@ async function main() {
         label: arrow.getAttribute('aria-label'),
         glyph: arrow.textContent.trim(),
         foot: !!document.querySelector('.composer-foot'),
+        mic: !!document.querySelector('.composer-mic'),
       };
     })())`);
       const composer = JSON.parse(shape);
       if (composer.line !== true || composer.foot !== true) {
         fail(`the composer lost its structure: ${shape}`);
+      } else if (composer.mic !== true) {
+        fail('the composer has no microphone button');
       } else if (composer.sameLine !== true) {
         fail('the send button is not on the line the message is typed on');
       } else if (composer.round !== true) {
@@ -2512,6 +2515,46 @@ async function main() {
       } else {
         ok(
           'Settings offers spoken replies, off until the voice model is downloaded',
+        );
+      }
+
+      /*
+       * Voice input: the card is on the one screen, a fresh install is offered
+       * the model rather than claiming a microphone it cannot use, and the
+       * exact size is named.
+       */
+      await openSection('Voice input');
+      const listenCard = await until('the Voice input card', async () => {
+        const value = await evaluate(`(() => {
+            const card = [...document.querySelectorAll('.settings-section')].find(
+              (section) => section.querySelector('h3')?.textContent === 'Voice input',
+            );
+            if (card === undefined) return undefined;
+            const buttons = [...card.querySelectorAll('button')].map((button) =>
+              button.textContent.trim(),
+            );
+            return JSON.stringify({
+              toggle: card.querySelector('input[type="checkbox"]') !== null,
+              download: buttons.some((text) =>
+                text.includes('Download voice input model'),
+              ),
+              size: card.textContent.includes('158 MB'),
+              test: card.textContent.includes('Test microphone'),
+            });
+          })()`);
+        return value === undefined ? undefined : JSON.parse(value);
+      });
+      if (!listenCard.toggle) {
+        fail('the Voice input card has no switch');
+      } else if (!listenCard.download) {
+        fail('a fresh install is not offered the voice-input model download');
+      } else if (!listenCard.size) {
+        fail('the Voice input card does not name the download size');
+      } else if (!listenCard.test) {
+        fail('the Voice input card has no microphone test');
+      } else {
+        ok(
+          'Settings offers voice input, off until its CPU model is downloaded',
         );
       }
 

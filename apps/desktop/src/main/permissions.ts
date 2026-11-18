@@ -31,6 +31,26 @@ export function isAppPermission(permission: string): boolean {
 }
 
 /**
+ * Whether a `media` request is the microphone and not the camera.
+ *
+ * Chromium reports `getUserMedia({audio})` and `getUserMedia({video})` under the
+ * same `media` permission name, so the name alone cannot be the boundary. The
+ * request handler carries the media types; this answers yes only when every one
+ * of them is audio. An empty or absent list is refused rather than guessed at.
+ */
+export function isMicrophoneRequest(
+  permission: string,
+  mediaTypes: readonly string[] | undefined,
+): boolean {
+  return (
+    permission === 'media' &&
+    mediaTypes !== undefined &&
+    mediaTypes.length > 0 &&
+    mediaTypes.every((type) => type === 'audio')
+  );
+}
+
+/**
  * Whether a URL belongs to one of this app's own windows.
  *
  * The packaged window is a `file://` document; the development window is the

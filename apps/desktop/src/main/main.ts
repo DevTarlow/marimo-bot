@@ -54,7 +54,11 @@ import {disable, statusOf} from './service.js';
 import type {ServiceContext} from './service.js';
 import {installAssetHandler, registerAssetScheme} from './assets.js';
 import {registerMediaScheme} from './media/decode-window.js';
-import {isAppPermission, isOwnPage} from './permissions.js';
+import {
+  isAppPermission,
+  isMicrophoneRequest,
+  isOwnPage,
+} from './permissions.js';
 import {
   applyUserDataPath,
   resolvePaths,
@@ -487,14 +491,22 @@ function installSessionPermissions(): void {
   const ownPage = (url: string): boolean => isOwnPage(url, devServerUrl);
 
   session.defaultSession.setPermissionRequestHandler(
-    (contents, permission, callback) => {
+    (contents, permission, callback, details) => {
       /*
-       * A request that reaches here is for a clipboard write or the microphone,
-       * the two features this app has. Anything else — a camera, a location —
-       * was refused by `isAppPermission` before the OS prompt.
+       * A request that reaches here is for a clipboard write or a media device.
+       * The microphone is the only media device this app has a feature for, so
+       * a `media` request is granted only when every type it asks for is audio;
+       * a camera request arrives under the same name and is refused here. Any
+       * other permission was refused by `isAppPermission` before the OS prompt.
        */
-      void permission;
-      callback(isAppPermission(permission) && ownPage(contents.getURL()));
+      const own = ownPage(contents.getURL());
+      if (permission === 'media') {
+        const mediaTypes =
+          'mediaTypes' in details ? details.mediaTypes : undefined;
+        callback(own && isMicrophoneRequest(permission, mediaTypes));
+        return;
+      }
+      callback(isAppPermission(permission) && own);
     },
   );
 

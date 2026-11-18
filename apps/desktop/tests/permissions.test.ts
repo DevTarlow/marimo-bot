@@ -9,7 +9,11 @@
  */
 import {describe, expect, it} from 'vitest';
 
-import {isAppPermission, isOwnPage} from '../src/main/permissions.js';
+import {
+  isAppPermission,
+  isMicrophoneRequest,
+  isOwnPage,
+} from '../src/main/permissions.js';
 
 describe('isAppPermission', () => {
   it('allows the clipboard and microphone features, and nothing else', () => {
@@ -53,5 +57,18 @@ describe('isOwnPage', () => {
     expect(isOwnPage('https://example.com/')).toBe(false);
     expect(isOwnPage('')).toBe(false);
     expect(isOwnPage('http://localhost:5173/', '')).toBe(false);
+  });
+});
+
+describe('isMicrophoneRequest', () => {
+  it('grants audio media and refuses a camera or a mixed request', () => {
+    expect(isMicrophoneRequest('media', ['audio'])).toBe(true);
+    expect(isMicrophoneRequest('media', ['video'])).toBe(false);
+    expect(isMicrophoneRequest('media', ['audio', 'video'])).toBe(false);
+    expect(isMicrophoneRequest('media', [])).toBe(false);
+    expect(isMicrophoneRequest('media', undefined)).toBe(false);
+    expect(isMicrophoneRequest('clipboard-sanitized-write', ['audio'])).toBe(
+      false,
+    );
   });
 });

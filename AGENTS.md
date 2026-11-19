@@ -445,6 +445,13 @@ for a person.
   the catalogue and the write.
 - **A refusal is a lesson.** It is keyed by subject, current for six months, and
   listed in the inbox with a way to clear it.
+- **A review never runs beside a turn.** The look is a second request to the same
+  model server, and that server commonly has one generation slot, so a review
+  that keeps generating while somebody types turns their answer into a wait
+  behind a transcript read. The look is armed from the turn's _end_ and one
+  already in flight is cancelled when a message arrives; `reviewMemory` refuses a
+  session that is mid-turn and writes nothing when it is cancelled, because a
+  watermark that moved without a look loses the exchange for good.
 - **A turn records its outcome** on `turn.completed`/`failed`/`aborted`; the
   report adds the user's corrections.
 

@@ -1,7 +1,7 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 
 import {
   MemoryEventStore,
@@ -65,6 +65,39 @@ class ScriptedDriver implements TurnDriver {
     for (const event of this.resumes.shift() ?? []) {
       yield event;
     }
+  }
+}
+
+class BlockingDriver implements TurnDriver {
+  private releaseRun!: () => void;
+  private readonly gate = new Promise<void>((resolve) => {
+    this.releaseRun = resolve;
+  });
+  /** Resolves once the engine has entered the turn and holds it open. */
+  readonly began: Promise<void>;
+  private markBegan!: () => void;
+
+  constructor() {
+    this.began = new Promise<void>((resolve) => {
+      this.markBegan = resolve;
+    });
+  }
+
+  async *run(_input: DriverRun): AsyncIterable<DriverEvent> {
+    this.markBegan();
+    yield {type: 'step'};
+    await this.gate;
+    yield {type: 'message', text: 'Hello'};
+    yield {type: 'done'};
+  }
+
+  async *resume(_input: DriverResume): AsyncIterable<DriverEvent> {
+    await this.gate;
+    yield {type: 'done'};
+  }
+
+  release(): void {
+    this.releaseRun();
   }
 }
 
@@ -1117,6 +1150,88 @@ describe('HarnessRuntime', () => {
     // Nothing was left for the person to answer, because there was nothing to
     // decide: the fact is in memory, where it can be searched and forgotten.
     expect((await runtime.learningProposals(profileId)).memory).toEqual([]);
+  });
+
+  /*
+   * The review and the turn it is about share one model server, and that server
+   * commonly has a single generation slot. Reading the transcript back while
+   * the turn is still generating puts the person's answer behind the look — a
+   * turn that streamed nothing and was stopped is how that was found.
+   */
+  it('does not read a conversation back while its turn is running', async () => {
+    const driver = new BlockingDriver();
+    const reviewer = vi.fn(async (): Promise<string> => '');
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver, reviewer);
+
+    const drained = collect(runtime.run(profileId, 's1', 'Hi'));
+    await driver.began;
+    expect(runtime.isRunning('s1')).toBe(true);
+
+    await expect(runtime.reviewMemory('s1')).resolves.toEqual({
+      remembered: 0,
+      waiting: [],
+      events: 0,
+    });
+    expect(reviewer).not.toHaveBeenCalled();
+
+    driver.release();
+    await drained;
+  });
+
+  /*
+   * A look that is cancelled mid-call read nothing, and recording its watermark
+   * would mark the exchange as reviewed: the fact in it would never be seen by
+   * a later look. Cancelling is the answer a new message gives, so this path is
+   * the ordinary one rather than an edge.
+   */
+  it('writes nothing and keeps the watermark when a look is cancelled', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Noted.'}, {type: 'done'}],
+    ]);
+    const answer = JSON.stringify({
+      proposals: [
+        {
+          section: 'Preferences and tone',
+          text: 'The user prefers tabs.',
+          reason: 'They said so.',
+          replaces: '',
+          quote: 'I prefer tabs',
+        },
+      ],
+    });
+    let mode: 'hold' | 'answer' = 'hold';
+    let release: ((value: string) => void) | undefined;
+    let started!: () => void;
+    const asking = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const reviewer = async (): Promise<string> => {
+      if (mode === 'answer') {
+        return answer;
+      }
+      started();
+      return await new Promise<string>((resolve) => {
+        release = resolve;
+      });
+    };
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver, reviewer);
+    await collect(runtime.run(profileId, 's1', 'I prefer tabs.'));
+
+    const controller = new AbortController();
+    const cancelled = runtime.reviewMemory('s1', {signal: controller.signal});
+    await asking;
+    controller.abort();
+    release?.(answer);
+    await expect(cancelled).resolves.toEqual({
+      remembered: 0,
+      waiting: [],
+      events: 0,
+    });
+
+    mode = 'answer';
+    expect((await runtime.reviewMemory('s1')).remembered).toBe(1);
   });
 
   /*

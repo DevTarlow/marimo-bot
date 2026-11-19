@@ -1141,11 +1141,24 @@ export class HarnessRuntime {
    * watermark moves whether or not anything was found; a look that found nothing
    * is still a look.
    */
-  async reviewMemory(sessionId: string): Promise<{
+  async reviewMemory(
+    sessionId: string,
+    options: {signal?: AbortSignal} = {},
+  ): Promise<{
     remembered: number;
     waiting: MemoryProposal[];
     events: number;
   }> {
+    /*
+     * A review is a second request to the model server, and the server the
+     * person runs commonly has one generation slot. Reading a transcript while
+     * their turn is still generating puts the answer behind it, so a busy
+     * conversation is refused here as well as by the timer in the app: this is
+     * the only entry point every caller goes through.
+     */
+    if (this.isRunning(sessionId)) {
+      return {remembered: 0, waiting: [], events: 0};
+    }
     const events = await this.store.read(sessionId);
     const owner = ownerOf(events);
     if (owner === undefined) {
@@ -1177,8 +1190,17 @@ export class HarnessRuntime {
       corrections,
       ask: async (prompt) =>
         await (this.options.reviewer?.(prompt) ??
-          this.askOnce(prepared, prompt)),
+          this.askOnce(prepared, prompt, options.signal)),
     });
+
+    /*
+     * A cancelled look read nothing. Recording the watermark here would mark
+     * the exchange as reviewed and lose the facts in it for good, which is
+     * worse than no review at all.
+     */
+    if (options.signal?.aborted) {
+      return {remembered: 0, waiting: [], events: 0};
+    }
 
     let remembered = 0;
     const unremembered: ReviewProposal[] = [];
@@ -2508,7 +2530,11 @@ export class HarnessRuntime {
    * must not be able to call a tool. The same client serves it, because the
    * provider and key are the same facts.
    */
-  private async askOnce(prepared: Prepared, prompt: string): Promise<string> {
+  private async askOnce(
+    prepared: Prepared,
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
     const llm = this.llmFor(prepared.config);
     let text = '';
     for await (const response of llm.generateContentAsync(
@@ -2518,6 +2544,7 @@ export class HarnessRuntime {
         toolsDict: {},
       } as never,
       true,
+      signal,
     )) {
       for (const part of response.content?.parts ?? []) {
         if (typeof part.text === 'string' && part.text.length > 0) {

@@ -222,8 +222,16 @@ export class AgentService {
   private lockTimer: NodeJS.Timeout | undefined;
   /** The pending idle look, reset by each new turn. */
   private idleReview: NodeJS.Timeout | undefined;
-  /** The v2 review timers, one per conversation waiting to be read back. */
-  private readonly harnessReviews = new Map<string, NodeJS.Timeout>();
+  /**
+   * The review in flight, so a message that arrives while it is still
+   * generating can cancel it.
+   *
+   * The review shares the person's model server with the turn that follows it,
+   * and that server usually has one slot. A look that keeps generating while
+   * somebody types turns their answer into a wait behind a transcript read —
+   * which is how a turn once ended with no answer at all.
+   */
+  private readonly runningReviews = new Map<string, AbortController>();
   /** Which agent the turn in flight belongs to, for the review that follows. */
   private busyProfileId: string | undefined;
   private stopped = false;
@@ -622,10 +630,10 @@ export class AgentService {
     }
     this.lockTimer = this.clearTimer(this.lockTimer);
     this.idleReview = this.clearIdle(this.idleReview);
-    for (const handle of this.harnessReviews.values()) {
-      clearTimeout(handle);
+    for (const controller of this.runningReviews.values()) {
+      controller.abort();
     }
-    this.harnessReviews.clear();
+    this.runningReviews.clear();
     this.scheduler.stop();
     await this.appLock?.release();
     this.appLock = undefined;
@@ -831,6 +839,12 @@ export class AgentService {
        */
       if (event.type === 'turn.started') {
         this.idleReview = this.clearIdle(this.idleReview);
+        /*
+         * A cancelled timer is not a cancelled request: a look that had already
+         * started is holding the slot the turn is about to need. This is the
+         * one place that knows both, so it is where the look is stopped.
+         */
+        this.runningReviews.get(event.sessionId)?.abort();
       }
       return;
     }
@@ -892,53 +906,31 @@ export class AgentService {
   }
 
   /**
-   * Gives a v2 conversation a quiet minute, then reads it back.
-   *
-   * A turn followed immediately by another is a conversation still happening;
-   * reviewing it then would spend a model call on a half-finished thought. The
-   * timer is per conversation and replaced by each new message, which is the
-   * same shape as the v1 idle look.
-   */
-  private scheduleHarnessReview(sessionId: string): void {
-    const existing = this.harnessReviews.get(sessionId);
-    if (existing !== undefined) {
-      clearTimeout(existing);
-    }
-    const handle = setTimeout(() => {
-      this.harnessReviews.delete(sessionId);
-      void this.reviewHarnessNow(sessionId);
-    }, 60_000);
-    handle.unref?.();
-    this.harnessReviews.set(sessionId, handle);
-  }
-
-  private async reviewHarnessNow(sessionId: string): Promise<void> {
-    if (this.stopped) {
-      return;
-    }
-    try {
-      const result = await this.runtime.harness().reviewMemory(sessionId);
-      this.options.sendEvent({
-        type: 'memory.reviewed',
-        events: result.events,
-        remembered: result.remembered,
-      });
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      console.error(`[marimo] the v2 memory review did not finish: ${detail}`);
-    }
-  }
-
-  /**
    * Runs the review, and tells the window when something was found.
    *
    * Silent when nothing was — which is most of the time, and the reason this is
    * not a notification.
+   *
+   * There is one scheduler for this: the timer `noteAfterTurn` arms when a turn
+   * finishes. It used to be two, and the second one counted its minute from the
+   * turn's *start* — so any turn slower than a minute had a review fire inside
+   * it, against a model server with a single slot.
    */
   private async reviewNow(profileId: string, sessionId: string): Promise<void> {
     if (this.stopped) {
       return;
     }
+    const harness = this.runtime.harness();
+    /*
+     * A conversation mid-turn is not finished, and the review would spend the
+     * turn's model slot on a transcript the person cannot see. The turn's own
+     * end arms this look again, so skipping here costs nothing.
+     */
+    if (harness.isRunning(sessionId)) {
+      return;
+    }
+    const controller = new AbortController();
+    this.runningReviews.set(sessionId, controller);
     try {
       /*
        * A v1 conversation is brought forward first, so the review reads the same
@@ -953,7 +945,12 @@ export class AgentService {
       if (!(await this.harnessHasLog(sessionId))) {
         return;
       }
-      const result = await this.runtime.harness().reviewMemory(sessionId);
+      const result = await harness.reviewMemory(sessionId, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        return;
+      }
       this.options.sendEvent({
         type: 'memory.reviewed',
         events: result.events,
@@ -961,12 +958,20 @@ export class AgentService {
       });
     } catch (error) {
       /*
-       * Reported and swallowed. This runs on a timer with nobody waiting, so a
-       * throw would be an unhandled rejection in the main process — and a review
-       * that failed is not something the user can act on.
+       * A look this process cancelled is not a failure: the person's message is
+       * the reason it stopped, and the look happens again when that turn ends.
+       * Anything else is reported and swallowed, because this runs on a timer
+       * with nobody waiting — a throw would be an unhandled rejection in the
+       * main process, and a failed review is not something the user can act on.
        */
-      const detail = error instanceof Error ? error.message : String(error);
-      console.error(`[marimo] the memory review did not finish: ${detail}`);
+      if (!controller.signal.aborted) {
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(`[marimo] the memory review did not finish: ${detail}`);
+      }
+    } finally {
+      if (this.runningReviews.get(sessionId) === controller) {
+        this.runningReviews.delete(sessionId);
+      }
     }
   }
 
@@ -1961,7 +1966,6 @@ export class AgentService {
         }),
         origin,
       );
-      this.scheduleHarnessReview(sessionId);
       return {accepted: true};
     }
 
@@ -1989,6 +1993,12 @@ export class AgentService {
      * known: the events a turn emits carry a conversation, not an agent.
      */
     this.busyProfileId = profileId;
+    /*
+     * A resume is a turn but carries no `turn.started` of its own — the log
+     * already holds the one it continues — so the look that `noteAfterTurn`
+     * cancels there has to be cancelled here instead.
+     */
+    this.runningReviews.get(sessionId)?.abort();
 
     if (!(await this.harnessHasLog(sessionId))) {
       try {

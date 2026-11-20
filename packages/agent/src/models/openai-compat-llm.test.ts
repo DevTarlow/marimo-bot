@@ -198,3 +198,61 @@ describe('OpenAiCompatLlm request shape', () => {
     await expect(drain(llm)).rejects.toThrow(/The model server returned 429/);
   });
 });
+
+/*
+ * A background look is cancelled by the next message, and the reason is the
+ * single generation slot on the person's model server: a cancelled timer is not
+ * a cancelled request. What actually frees that slot is the caller's signal
+ * reaching `fetch`, so that is the fact pinned here rather than the handler that
+ * calls `abort()`.
+ */
+describe('OpenAiCompatLlm cancellation', () => {
+  it('aborts the request it sent when the caller aborts', async () => {
+    let sent: AbortSignal | undefined;
+    const fetchImpl = (async (_url: unknown, init: RequestInit = {}) => {
+      sent = init.signal ?? undefined;
+      return new Response(streamOf(SSE_BODY), {status: 200});
+    }) as unknown as typeof fetch;
+    const llm = new OpenAiCompatLlm({
+      model: 'test-model',
+      baseUrl: 'http://127.0.0.1:8137/v1',
+      fetchImpl,
+    });
+    const controller = new AbortController();
+
+    for await (const _chunk of llm.generateContentAsync(
+      request(),
+      true,
+      controller.signal,
+    )) {
+      // The stub stream is short; the signal the request carried is the point.
+    }
+
+    expect(sent).toBeDefined();
+    expect(sent?.aborted).toBe(false);
+    controller.abort();
+    /*
+     * The same signal `fetch` was handed rather than a copy of it: the caller
+     * aborting its controller is the event that closes the connection the
+     * server is generating into, and a copy would not close it.
+     */
+    expect(sent?.aborted).toBe(true);
+  });
+
+  it('answers nothing when the caller was already cancelled', async () => {
+    const {llm} = client();
+    const controller = new AbortController();
+    controller.abort();
+
+    const chunks: unknown[] = [];
+    for await (const chunk of llm.generateContentAsync(
+      request(),
+      true,
+      controller.signal,
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([]);
+  });
+});

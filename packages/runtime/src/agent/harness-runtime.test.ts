@@ -1235,6 +1235,112 @@ describe('HarnessRuntime', () => {
   });
 
   /*
+   * Cancelling one look is the ordinary answer to a new message, and a person
+   * can send several messages in a row. Every cancelled look keeps the
+   * watermark where it was, so the next quiet window has to carry *all* the
+   * exchanges they skipped — not just the one before the last cancellation, and
+   * not a slice that starts where a cancelled look would have finished.
+   */
+  it('carries every skipped exchange into the look after two cancellations', async () => {
+    const driver = new ScriptedDriver([
+      [{type: 'step'}, {type: 'message', text: 'Noted.'}, {type: 'done'}],
+      [{type: 'step'}, {type: 'message', text: 'Noted too.'}, {type: 'done'}],
+    ]);
+    const answer = JSON.stringify({
+      proposals: [
+        {
+          section: 'Preferences and tone',
+          text: 'The user prefers tabs.',
+          reason: 'They said so.',
+          replaces: '',
+          quote: 'I prefer tabs',
+        },
+        {
+          section: 'About the user',
+          text: 'The user has a dog called Sunshine.',
+          reason: 'They said so.',
+          replaces: '',
+          quote: 'my dog is Sunshine',
+        },
+      ],
+    });
+
+    /*
+     * Two parked looks: each signals that it reached the model and then waits
+     * there until the test cancels it. `reached` and `waiting` are paired by
+     * index so one cancellation cannot resolve the other look.
+     */
+    const started: Array<() => void> = [];
+    const failed: Array<(error: Error) => void> = [];
+    const reached: Array<Promise<void>> = [];
+    const waiting: Array<Promise<string>> = [];
+    for (let index = 0; index < 2; index += 1) {
+      reached.push(
+        new Promise<void>((resolve) => {
+          started.push(resolve);
+        }),
+      );
+      waiting.push(
+        new Promise<string>((_resolve, reject) => {
+          failed.push(reject);
+        }),
+      );
+    }
+
+    const prompts: string[] = [];
+    let calls = 0;
+    const reviewer = async (prompt: string): Promise<string> => {
+      const index = calls;
+      calls += 1;
+      if (index >= 2) {
+        prompts.push(prompt);
+        return answer;
+      }
+      started[index]!();
+      return await waiting[index]!;
+    };
+
+    const {deps, profileId} = await setup();
+    const runtime = runtimeFrom(deps, () => driver, reviewer);
+
+    const cancel = async (
+      index: number,
+      look: Promise<{remembered: number; waiting: unknown[]; events: number}>,
+      controller: AbortController,
+    ): Promise<void> => {
+      await reached[index];
+      controller.abort();
+      // What a cancelled `fetch` does: reject. `runReview` swallows that, and
+      // the caller keeps the watermark where it was.
+      failed[index]!(new Error('aborted'));
+      await expect(look).resolves.toEqual({
+        remembered: 0,
+        waiting: [],
+        events: 0,
+      });
+    };
+
+    await collect(runtime.run(profileId, 's1', 'I prefer tabs.'));
+    const first = new AbortController();
+    await cancel(0, runtime.reviewMemory('s1', {signal: first.signal}), first);
+
+    await collect(runtime.run(profileId, 's1', 'And my dog is Sunshine.'));
+    const second = new AbortController();
+    await cancel(
+      1,
+      runtime.reviewMemory('s1', {signal: second.signal}),
+      second,
+    );
+
+    const caughtUp = await runtime.reviewMemory('s1');
+    expect(caughtUp.remembered).toBe(2);
+    // Two exchanges, each a user message and an answer: both were reconsidered.
+    expect(caughtUp.events).toBe(4);
+    expect(prompts[0]).toContain('I prefer tabs.');
+    expect(prompts[0]).toContain('my dog is Sunshine.');
+  });
+
+  /*
    * The deterministic half. A small model cannot be relied on to call
    * `update_memory` for "my name is Tarlow", and the answer to that message is
    * the one that needs the fact — so the write happens before the turn, not in
